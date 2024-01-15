@@ -5,6 +5,22 @@ import sqlite3
 from imdb import Cinemagoer
 from datetime import datetime
 
+# Define frames
+min_width = 800
+main_height = 500
+folder_reveal = 25
+wrap_length = 500
+wrap_length_note = 700
+note_font = ("Arial bold", 10)
+label_font = ("Arial bold", 12)
+label_font_gentle = ("Arial", 10)
+butt_font = ("Arial", 8)
+butt_font_large = ("Arial bold", 10)
+bg_color = "lightgray"
+blue_back_color = '#3a4470'
+blue_front_color = '#477bc9'
+entry_color = '#2e3a4d'
+light_purple = '#7258db'
 
 class IMDBdataBase:
     """Interface using Tkinter that has the API from IMDB to search the feature that is specified,
@@ -15,9 +31,13 @@ class IMDBdataBase:
 
     def __init__(self):
         # Set up main window
-        self.window = Tk()
-        self.window.config(pady=20, padx=20, bg='#3a4470')
-        self.window.resizable(False, False)
+        self.root = Tk()
+        self.root.config(pady=20, padx=20, bg=bg_color)
+        self.root.resizable(False, False)
+        self.top_frame = Frame(self.root)
+        self.top_frame.pack(side='top', expand=True, fill='both')
+        self.bot_frame = Frame(self.root, bg=blue_back_color)
+        self.bot_frame.pack(side='top', expand=True, fill='both')
 
         self.year = datetime.now().year
 
@@ -35,7 +55,7 @@ class IMDBdataBase:
         # self.current_theme = self.style.theme_use('clam')
 
         self.style.configure("mystyle.Treeview.Heading", font=('Calibri', 12, 'bold'))
-        self.tree = ttk.Treeview(style="mystyle.Treeview", selectmode=BROWSE)
+        self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=BROWSE)
         # Set up the columns
         self.tree['columns'] = ('Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'Date')
         self.tree.column('#0', width=0, stretch=NO)
@@ -62,50 +82,44 @@ class IMDBdataBase:
         self.tree.heading('Cover', text='Cover', anchor=CENTER)
         self.tree.heading('Date', text='Date', anchor=CENTER)
 
-        self.scroll = Scrollbar(self.window, orient=VERTICAL)
-        # self.scroll.grid(row=0, column=1, sticky=NS)
-        self.scroll.pack(side='top')
+        self.scroll = Scrollbar(self.top_frame, orient=VERTICAL)
+        self.scroll.pack(side='left')
         self.tree.config(yscrollcommand=self.scroll.set)
         self.scroll.config(command=self.tree.yview)
         # Bind for tree double click item
         self.tree.bind("<Double-1>", self.OnDoubleClick)
         self.tree.bind("<Return>", self.OnDoubleClick)
+        self.tree.pack(side='left')
 
-        # self.tree.grid(row=0, column=0)
-        self.tree.pack(side='top')
-        self.film_lbl = Label(text="Enter film:", font=('David', 15, 'bold'), bg='#3a4470', fg='#477bc9')
-        # self.film_lbl.grid(row=1, column=0, pady=5)
+        self.film_lbl = Label(self.bot_frame, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
+                              fg=blue_front_color)
         self.film_lbl.pack(side='top')
-        self.entry = Entry(width=30, font=('LilyUPC', 13, 'bold'), fg='#477bc9', bg='#2e3a4d')
-        # self.entry.grid(row=2, column=0)
+        self.entry = Entry(self.bot_frame, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
         self.entry.pack(side='top')
         self.entry.focus()
-        self.add_film_btn = Button(text="Add film", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25,
-                                   command=self.add_film)
-        # self.add_film_btn.grid(row=3, column=0, pady=8)
-        self.add_film_btn.pack(side='top')
+        self.add_film_btn = Button(self.bot_frame, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+                                   width=25, command=self.add_film)
+        self.add_film_btn.pack(side='bottom')
 
-        self.file_lbl = Label(text="Enter file:", font=('David', 15, 'bold'), bg='#3a4470', fg='#477bc9')
-        # self.file_lbl.grid(row=4, column=0, pady=5)
+        self.file_lbl = Label(self.bot_frame, text="Enter file:", font=('David', 15, 'bold'), bg=blue_back_color,
+                              fg=blue_front_color)
         self.file_lbl.pack(side='top')
-        self.file_entry = Entry(width=30, font=('LilyUPC', 13, 'bold'), fg='#477bc9', bg='#2e3a4d')
-        # self.file_entry.grid(row=5, column=0)
+        self.file_entry = Entry(self.bot_frame, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color,
+                                bg=entry_color)
         self.file_entry.pack(side='top')
         self.file_entry.focus()
-        self.add_file_btn = Button(text="Add file", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25,
-                                   command=self.add_file)
-        # self.add_file_btn.grid(row=6, column=0, pady=8)
+        self.add_file_btn = Button(self.bot_frame, text="Add file", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+                                   width=25, command=self.add_file)
         self.add_file_btn.pack(side='top')
 
-        self.del_btn = Button(text="Delete record", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25,
-                              command=self.delete_film)
-        # self.del_btn.grid(row=7, column=0, pady=8)
+        self.del_btn = Button(self.bot_frame, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+                              width=25, command=self.delete_film)
         self.del_btn.pack(side='top')
         self.list_it()
 
-        self.window.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
+        self.root.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
 
-        self.window.mainloop()
+        self.root.mainloop()
         self.conn.close()
         print("Connection finished")
 
@@ -191,7 +205,7 @@ Viewed: {item['values'][8]}
                     self.list_it()
                 except UnboundLocalError:
                     pass
-            self.window.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
+            self.root.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
             self.conn.commit()
 
     def add_films_from_csv(self):
@@ -214,7 +228,7 @@ Viewed: {item['values'][8]}
             print("Index Error")
         self.conn.commit()
         self.list_it()
-        self.window.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
+        self.top_frame.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
 
 
 if __name__ == "__main__":
