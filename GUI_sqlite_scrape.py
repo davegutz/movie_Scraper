@@ -97,7 +97,6 @@ class IMDBdataBase:
         # self.add_file_btn.grid(row=6, column=0, pady=8)
         self.add_file_btn.pack(side='top')
 
-
         self.del_btn = Button(text="Delete record", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25,
                               command=self.delete_film)
         # self.del_btn.grid(row=7, column=0, pady=8)
@@ -109,18 +108,6 @@ class IMDBdataBase:
         self.window.mainloop()
         self.conn.close()
         print("Connection finished")
-
-    def double_click(self, event):
-        """Called when user double clicks element from ListBox"""
-        self.entry.delete(0, 'end')
-        self.new_win.clipboard_clear()
-        self.new_win.clipboard_append(self.list.get(self.list.curselection()))
-        self.entry.insert(0, self.list.get(self.list.curselection()))
-        messagebox.showinfo(title="Info", message=self.get_movie_info())
-
-    def on_closing(self):
-        """Called when user closes second window"""
-        self.new_win.withdraw()
 
     def list_it(self):
         """Fill the TreeView with database fields"""
@@ -200,7 +187,7 @@ Viewed: {item['values'][8]}
                                     float(rating), float(my_rating), str(directors[0]),
                                     str(sentence),
                                     str(genres), str(summary[0]), str(cover),
-                                    str(datetime.today().strftime('%d/%m/%Y')) )),
+                                    str(datetime.today().strftime('%d/%m/%Y')))),
                     self.list_it()
                 except UnboundLocalError:
                     pass
@@ -210,7 +197,6 @@ Viewed: {item['values'][8]}
     def add_films_from_csv(self):
         self.entry.set('True Grit (1969)')
         self.add_film()
-
 
     def delete_film(self):
         """Delete selected film from database"""
@@ -229,40 +215,6 @@ Viewed: {item['values'][8]}
         self.conn.commit()
         self.list_it()
         self.window.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
-
-    def get_movie_info(self):
-        """Get selected movie info when users double click it"""
-        film = self.list.get(self.list.curselection())
-
-        movies = self.moviesDB.search_movie(film)
-        id_film = movies[0].getID()
-        movie = self.moviesDB.get_movie(id_film)
-        title = movie['title']
-        year = movie['year']
-        rating = movie['rating']
-        my_rating = rating
-        directors = movie['directors']
-        casting = movie['cast']
-        summary = movie['summary']
-        cover = movie['cover url']
-        sentence = ""
-        for cas in casting[0:5]:
-            sentence += str(f'{cas}, ')
-        generes = movie['genres']
-        genres = ""
-        for gen in generes:
-            genres += str(f'{gen}, ')
-        info = f"""
-Title: {title}\n
-Year: {year}\n
-Rating: {rating}\n
-MyRating: {my_rating}\n
-Director: {directors[0]}\n
-Actors: {sentence}\n
-Generes: {genres}\n
-Summary: {summary[0]}\n
-Cover: {cover}"""
-        return info
 
 
 if __name__ == "__main__":
