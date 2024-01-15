@@ -8,7 +8,10 @@ from datetime import datetime
 
 class IMDBdataBase:
     """Interface using Tkinter that has the API from IMDB to search the feature that is specified,
-    enter the results into BBDD Sqlite3."""
+    enter the results into BBDD Sqlite3.
+    https://gist.github.com/VictorLG98/30410204f175c278018a97dc5efbfe05
+    https://www.youtube.com/watch?v=8PB3oFRkSeI
+    """
 
     def __init__(self):
         # Set up main window
