@@ -86,18 +86,31 @@ class IMDBdataBase:
         self.entry = Entry(width=30, font=('LilyUPC', 13, 'bold'), fg='#477bc9', bg='#2e3a4d')
         self.entry.grid(row=2, column=0)
         self.entry.focus()
-        self.btn = Button(text="Add", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25, command=self.add_film)
-        self.btn.grid(row=3, column=0, pady=8)
+        self.add_film_btn = Button(text="Add film", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25,
+                                   command=self.add_film)
+        self.add_film_btn.grid(row=3, column=0, pady=8)
+
+        self.file_lbl = Label(text="Enter file:", font=('David', 15, 'bold'), bg='#3a4470', fg='#477bc9')
+        self.file_lbl.grid(row=4, column=0, pady=5)
+        self.file_entry = Entry(width=30, font=('LilyUPC', 13, 'bold'), fg='#477bc9', bg='#2e3a4d')
+        self.file_entry.grid(row=5, column=0)
+        self.file_entry.focus()
+        self.add_file_btn = Button(text="Add file", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25,
+                                   command=self.add_file)
+        self.add_file_btn.grid(row=6, column=0, pady=8)
+
+
         self.del_btn = Button(text="Delete record", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25,
                               command=self.delete_film)
-        self.del_btn.grid(row=4, column=0, pady=8)
+        self.del_btn.grid(row=7, column=0, pady=8)
         self.list_it()
+
         self.new_btn = Button(text="List features", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25,
                               command=self.win2)
-        self.new_btn.grid(row=5, column=0, pady=8)
+        self.new_btn.grid(row=8, column=0, pady=8)
         self.list = Listbox(self.new_win, width=50, height=10, highlightthickness=0, font=('Andalus', 12, 'bold'),
-                             selectmode=SINGLE, bg='#044f19', fg='#65eb8a', selectbackground='#aed6b9',
-                             selectforeground='#68786d', selectborderwidth=3, activestyle=NONE)
+                            selectmode=SINGLE, bg='#044f19', fg='#65eb8a', selectbackground='#aed6b9',
+                            selectforeground='#68786d', selectborderwidth=3, activestyle=NONE)
         self.list.grid(row=1, column=0)
         self.scroll = Scrollbar(self.new_win, orient=VERTICAL)
         self.scroll.grid(row=1, column=3, sticky=NS, rowspan=7)
@@ -115,7 +128,7 @@ class IMDBdataBase:
         self.lbl.grid(row=0, column=0)
         self.label = Label(text=f'Viewed {len(self.tree.get_children())} features in {self.year}', bg='#3a4470',
                            font=('David', 12, 'bold'), fg='white')
-        self.label.grid(row=6, column=0)
+        self.label.grid(row=9, column=0)
         self.window.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
 
         self.window.mainloop()
@@ -192,6 +205,9 @@ Viewed: {item['values'][8]}
         self.entry.delete(0, "end")
         self.entry.insert(0, item['values'][0])
 
+    def add_file(self):
+        """Insert film fields to Database"""
+
     def add_film(self):
         """Insert film fields to Database"""
         if self.entry.get() == "" or self.entry.get().isspace():
@@ -241,6 +257,11 @@ Viewed: {item['values'][8]}
                               font=('David', 12, 'bold'), fg='white')
             self.window.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
             self.conn.commit()
+
+    def add_films_from_csv(self):
+        self.entry.set('True Grit (1969)')
+        self.add_film()
+
 
     def delete_film(self):
         """Delete selected film from database"""
