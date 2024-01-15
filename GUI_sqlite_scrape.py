@@ -38,7 +38,7 @@ class IMDBdataBase:
         print("Connection made on exit")
         self.c = self.conn.cursor()
         self.c.execute(f"CREATE TABLE if not exists Year{self.year}_Films(id integer PRIMARY KEY, title text, "
-                       "year integer, rating real, my_rating real, director text, actors text, generes text, summary text, date text)")
+                       "year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, date text)")
         self.conn.commit()
         # Set up Tree style
         self.style = ttk.Style()
@@ -47,7 +47,7 @@ class IMDBdataBase:
         self.style.configure("mystyle.Treeview.Heading", font=('Calibri', 12, 'bold'))
         self.tree = ttk.Treeview(style="mystyle.Treeview", selectmode=BROWSE)
         # Set up the columns
-        self.tree['columns'] = ('Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Plot', 'Date')
+        self.tree['columns'] = ('Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'Date')
         self.tree.column('#0', width=0, stretch=NO)
         self.tree.column('Title', width=200, minwidth=200, anchor=CENTER)
         self.tree.column('Year', width=80, minwidth=80, anchor=CENTER)
@@ -56,7 +56,8 @@ class IMDBdataBase:
         self.tree.column('Director', width=150, minwidth=150, anchor=CENTER)
         self.tree.column('Actors', width=250, minwidth=250, anchor=CENTER)
         self.tree.column('Generes', width=230, minwidth=230, anchor=CENTER)
-        self.tree.column('Plot', width=350, minwidth=350, anchor=CENTER)
+        self.tree.column('Summary', width=350, minwidth=350, anchor=CENTER)
+        self.tree.column('Cover', width=150, minwidth=150, anchor=CENTER)
         self.tree.column('Date', width=80, minwidth=80, anchor=CENTER)
         # Set up the headings
         self.tree.heading('#0', text='', anchor=CENTER)
@@ -67,7 +68,8 @@ class IMDBdataBase:
         self.tree.heading('Director', text='Director', anchor=CENTER)
         self.tree.heading('Actors', text='Actors', anchor=CENTER)
         self.tree.heading('Generes', text='Generes', anchor=CENTER)
-        self.tree.heading('Plot', text='Plot', anchor=CENTER)
+        self.tree.heading('Summary', text='Summary', anchor=CENTER)
+        self.tree.heading('Cover', text='Cover', anchor=CENTER)
         self.tree.heading('Date', text='Date', anchor=CENTER)
 
         self.scroll = Scrollbar(self.window, orient=VERTICAL)
@@ -126,7 +128,7 @@ class IMDBdataBase:
             self.list_it()
         except sqlite3.OperationalError:
             self.c.execute(f"CREATE TABLE if not exists Year{self.year}_Films(id integer PRIMARY KEY, title text, "
-                           "year integer, rating real, my_rating real, director text, actors text, generes text, summary text, date text)")
+                           "year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, date text)")
             self.conn.commit()
         finally:
             self.list_it()
@@ -159,7 +161,7 @@ class IMDBdataBase:
     def list_it(self):
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT title, year, rating, my_rating, director, actors, generes, summary, date FROM Year{self.year}_Films")
+        self.c.execute(f"SELECT title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM Year{self.year}_Films")
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", END, values=row)
@@ -179,8 +181,10 @@ MyRating: {item['values'][2]}\n
 Director: {item['values'][3]}\n
 Actors: {item['values'][4]}\n
 Generes: {item['values'][5]}\n
-Plot: {item['values'][6]}\n
-Viewed: {item['values'][7]}""")
+Summary: {item['values'][6]}\n
+Cover: {item['values'][7]}\n
+Viewed: {item['values'][8]}
+""")
 
     def renew(self):
         curItem = self.tree.focus()
@@ -217,18 +221,19 @@ Viewed: {item['values'][7]}""")
                     genres = ""
                     for gen in generes:
                         genres += str(f'{gen}, ')
-                    plot = movie['plot']
+                    summary = movie['plot']
+                    cover = movie['cover url']
                 except:
                     messagebox.showerror(title="Error", message="There is an error with the film")
                 # Enter into BBDD
                 try:
                     self.c.execute(f"""INSERT INTO Year{self.year}_Films(title, year, rating, my_rating,
-                                    director, actors, generes, summary, date) VALUES(?,?,?,?,?,?,?,?,?);""",
+                                    director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?);""",
                                    (str(title), int(year),
                                     float(rating), float(my_rating), str(directors[0]),
                                     str(sentence),
-                                    str(genres), str(plot[0]),
-                                    str(datetime.today().strftime('%d/%m/%Y')))),
+                                    str(genres), str(summary[0]), str(cover),
+                                    str(datetime.today().strftime('%d/%m/%Y')) )),
                     self.list_it()
                 except UnboundLocalError:
                     pass
@@ -270,7 +275,8 @@ Viewed: {item['values'][7]}""")
         my_rating = rating
         directors = movie['directors']
         casting = movie['cast']
-        plot = movie['plot']
+        summary = movie['summary']
+        cover = movie['cover url']
         sentence = ""
         for cas in casting[0:5]:
             sentence += str(f'{cas}, ')
@@ -286,7 +292,8 @@ MyRating: {my_rating}\n
 Director: {directors[0]}\n
 Actors: {sentence}\n
 Generes: {genres}\n
-Plot: {plot[0]}"""
+Summary: {summary[0]}\n
+Cover: {cover}"""
         return info
 
 
