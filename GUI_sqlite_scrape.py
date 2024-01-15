@@ -57,7 +57,7 @@ class IMDBdataBase:
         self.style.configure("mystyle.Treeview.Heading", font=('Calibri', 12, 'bold'))
         self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=BROWSE)
         # Set up the columns
-        self.tree['columns'] = ('Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'Date')
+        self.tree['columns'] = ('Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'Watched')
         self.tree.column('#0', width=0, stretch=NO)
         self.tree.column('Title', width=200, minwidth=200, anchor=CENTER)
         self.tree.column('Year', width=70, minwidth=70, anchor=CENTER)
@@ -68,7 +68,7 @@ class IMDBdataBase:
         self.tree.column('Generes', width=100, minwidth=100, anchor=CENTER)
         self.tree.column('Summary', width=350, minwidth=350, anchor=CENTER)
         self.tree.column('Cover', width=50, minwidth=50, anchor=CENTER)
-        self.tree.column('Date', width=80, minwidth=80, anchor=CENTER)
+        self.tree.column('Watched', width=80, minwidth=80, anchor=CENTER)
         # Set up the headings
         self.tree.heading('#0', text='', anchor=CENTER)
         self.tree.heading('Title', text='Title', anchor=CENTER)
@@ -80,7 +80,7 @@ class IMDBdataBase:
         self.tree.heading('Generes', text='Generes', anchor=CENTER)
         self.tree.heading('Summary', text='Summary', anchor=CENTER)
         self.tree.heading('Cover', text='Cover', anchor=CENTER)
-        self.tree.heading('Date', text='Date', anchor=CENTER)
+        self.tree.heading('Watched', text='Watched', anchor=CENTER)
 
         self.scroll = Scrollbar(self.top_frame, orient=VERTICAL)
         self.scroll.pack(side='left')
@@ -99,7 +99,7 @@ class IMDBdataBase:
         self.entry.focus()
         self.add_film_btn = Button(self.bot_frame, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                    width=25, command=self.add_film)
-        self.add_film_btn.pack(side='bottom')
+        self.add_film_btn.pack(side='top')
 
         self.file_lbl = Label(self.bot_frame, text="Enter file:", font=('David', 15, 'bold'), bg=blue_back_color,
                               fg=blue_front_color)
@@ -201,7 +201,7 @@ Viewed: {item['values'][9]}
                                     float(rating), float(my_rating), str(directors[0]),
                                     str(sentence),
                                     str(genres), str(summary[0]), str(cover),
-                                    str(datetime.today().strftime('%d/%m/%Y')))),
+                                    str(datetime.today().strftime('%Y/%m/%d')))),
                     self.list_it()
                 except UnboundLocalError:
                     pass
@@ -228,7 +228,7 @@ Viewed: {item['values'][9]}
             print("Index Error")
         self.conn.commit()
         self.list_it()
-        self.top_frame.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
+        self.root.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
 
 
 if __name__ == "__main__":
