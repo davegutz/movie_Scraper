@@ -142,13 +142,13 @@ class IMDBdataBase:
 Title: {item['values'][0]}\n
 Year: {item['values'][1]}\n
 Rating: {item['values'][2]}\n
-MyRating: {item['values'][2]}\n
-Director: {item['values'][3]}\n
-Actors: {item['values'][4]}\n
-Generes: {item['values'][5]}\n
-Summary: {item['values'][6]}\n
-Cover: {item['values'][7]}\n
-Viewed: {item['values'][8]}
+MyRating: {item['values'][3]}\n
+Director: {item['values'][4]}\n
+Actors: {item['values'][5]}\n
+Generes: {item['values'][6]}\n
+Summary: {item['values'][7]}\n
+Cover: {item['values'][8]}\n
+Viewed: {item['values'][9]}
 """)
 
     def renew(self):
