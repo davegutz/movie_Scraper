@@ -38,7 +38,7 @@ class IMDBdataBase:
         print("Connection made on exit")
         self.c = self.conn.cursor()
         self.c.execute(f"CREATE TABLE if not exists Year{self.year}_Films(id integer PRIMARY KEY, title text, "
-                       "year integer, rating real, director text, actors text, generes text, summary text, date text)")
+                       "year integer, rating real, my_rating real, director text, actors text, generes text, summary text, date text)")
         self.conn.commit()
         # Set up Tree style
         self.style = ttk.Style()
@@ -47,11 +47,12 @@ class IMDBdataBase:
         self.style.configure("mystyle.Treeview.Heading", font=('Calibri', 12, 'bold'))
         self.tree = ttk.Treeview(style="mystyle.Treeview", selectmode=BROWSE)
         # Set up the columns
-        self.tree['columns'] = ('Title', 'Year', 'Rating', 'Director', 'Actors', 'Generes', 'Plot', 'Date')
+        self.tree['columns'] = ('Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Plot', 'Date')
         self.tree.column('#0', width=0, stretch=NO)
         self.tree.column('Title', width=200, minwidth=200, anchor=CENTER)
         self.tree.column('Year', width=80, minwidth=80, anchor=CENTER)
         self.tree.column('Rating', width=82, minwidth=82, anchor=CENTER)
+        self.tree.column('MyRating', width=82, minwidth=82, anchor=CENTER)
         self.tree.column('Director', width=150, minwidth=150, anchor=CENTER)
         self.tree.column('Actors', width=250, minwidth=250, anchor=CENTER)
         self.tree.column('Generes', width=230, minwidth=230, anchor=CENTER)
@@ -62,6 +63,7 @@ class IMDBdataBase:
         self.tree.heading('Title', text='Title', anchor=CENTER)
         self.tree.heading('Year', text='Year', anchor=CENTER)
         self.tree.heading('Rating', text='Rating', anchor=CENTER)
+        self.tree.heading('MyRating', text='My Rating', anchor=CENTER)
         self.tree.heading('Director', text='Director', anchor=CENTER)
         self.tree.heading('Actors', text='Actors', anchor=CENTER)
         self.tree.heading('Generes', text='Generes', anchor=CENTER)
@@ -91,19 +93,19 @@ class IMDBdataBase:
         self.new_btn = Button(text="List features", font=('LilyUPC', 13, 'bold'), bg='#7258db', width=25,
                               command=self.win2)
         self.new_btn.grid(row=5, column=0, pady=8)
-        self.lista = Listbox(self.new_win, width=50, height=10, highlightthickness=0, font=('Andalus', 12, 'bold'),
+        self.list = Listbox(self.new_win, width=50, height=10, highlightthickness=0, font=('Andalus', 12, 'bold'),
                              selectmode=SINGLE, bg='#044f19', fg='#65eb8a', selectbackground='#aed6b9',
                              selectforeground='#68786d', selectborderwidth=3, activestyle=NONE)
-        self.lista.grid(row=1, column=0)
+        self.list.grid(row=1, column=0)
         self.scroll = Scrollbar(self.new_win, orient=VERTICAL)
         self.scroll.grid(row=1, column=3, sticky=NS, rowspan=7)
         self.scroll2 = Scrollbar(self.new_win, orient=HORIZONTAL)
         self.scroll2.grid(row=2, column=0, sticky=EW)
-        self.lista.config(yscrollcommand=self.scroll.set, xscrollcommand=self.scroll2.set)
-        self.scroll.config(command=self.lista.yview)
-        self.scroll2.config(command=self.lista.xview)
+        self.list.config(yscrollcommand=self.scroll.set, xscrollcommand=self.scroll2.set)
+        self.scroll.config(command=self.list.yview)
+        self.scroll2.config(command=self.list.xview)
         # Bind for ListBox double click item
-        self.lista.bind('<Double-Button>', self.double_click)
+        self.list.bind('<Double-Button>', self.double_click)
 
         self.combo.bind("<<ComboboxSelected>>", self.cambioCombo)
 
@@ -124,7 +126,7 @@ class IMDBdataBase:
             self.list_it()
         except sqlite3.OperationalError:
             self.c.execute(f"CREATE TABLE if not exists Year{self.year}_Films(id integer PRIMARY KEY, title text, "
-                           "year integer, rating real, director text, actors text, generes text, summary text, date text)")
+                           "year integer, rating real, my_rating real, director text, actors text, generes text, summary text, date text)")
             self.conn.commit()
         finally:
             self.list_it()
@@ -137,18 +139,18 @@ class IMDBdataBase:
         """Called when user double clicks element from ListBox"""
         self.entry.delete(0, 'end')
         self.new_win.clipboard_clear()
-        self.new_win.clipboard_append(self.lista.get(self.lista.curselection()))
-        self.entry.insert(0, self.lista.get(self.lista.curselection()))
+        self.new_win.clipboard_append(self.list.get(self.list.curselection()))
+        self.entry.insert(0, self.list.get(self.list.curselection()))
         messagebox.showinfo(title="Info", message=self.get_movie_info())
 
     def win2(self):
         """Called when user press 'List features' button to show up second window"""
-        self.lista.delete(0, 'end')
+        self.list.delete(0, 'end')
         self.window.grab_set()
         self.new_win.deiconify()
 
         top = self.moviesDB.get_top250_movies()
-        self.lista.insert('end', *top)
+        self.list.insert('end', *top)
 
     def on_closing(self):
         """Called when user closes second window"""
@@ -157,7 +159,7 @@ class IMDBdataBase:
     def list_it(self):
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT title, year, rating, director, actors, generes, summary, date FROM Year{self.year}_Films")
+        self.c.execute(f"SELECT title, year, rating, my_rating, director, actors, generes, summary, date FROM Year{self.year}_Films")
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", END, values=row)
@@ -173,6 +175,7 @@ class IMDBdataBase:
 Title: {item['values'][0]}\n
 Year: {item['values'][1]}\n
 Rating: {item['values'][2]}\n
+MyRating: {item['values'][2]}\n
 Director: {item['values'][3]}\n
 Actors: {item['values'][4]}\n
 Generes: {item['values'][5]}\n
@@ -204,6 +207,7 @@ Viewed: {item['values'][7]}""")
                     title = movie['title']
                     year = movie['year']
                     rating = movie['rating']
+                    my_rating = movie['rating']
                     directors = movie['directors']
                     casting = movie['cast']
                     sentence = ""
@@ -218,10 +222,10 @@ Viewed: {item['values'][7]}""")
                     messagebox.showerror(title="Error", message="There is an error with the film")
                 # Enter into BBDD
                 try:
-                    self.c.execute(f"""INSERT INTO Year{self.year}_Films(title, year, rating,
-                                    director, actors, generes, summary, date) VALUES(?,?,?,?,?,?,?,?);""",
+                    self.c.execute(f"""INSERT INTO Year{self.year}_Films(title, year, rating, my_rating,
+                                    director, actors, generes, summary, date) VALUES(?,?,?,?,?,?,?,?,?);""",
                                    (str(title), int(year),
-                                    float(rating), str(directors[0]),
+                                    float(rating), float(my_rating), str(directors[0]),
                                     str(sentence),
                                     str(genres), str(plot[0]),
                                     str(datetime.today().strftime('%d/%m/%Y')))),
@@ -255,7 +259,7 @@ Viewed: {item['values'][7]}""")
 
     def get_movie_info(self):
         """Get selected movie info when users double click it"""
-        film = self.lista.get(self.lista.curselection())
+        film = self.list.get(self.list.curselection())
 
         movies = self.moviesDB.search_movie(film)
         id_film = movies[0].getID()
@@ -263,6 +267,7 @@ Viewed: {item['values'][7]}""")
         title = movie['title']
         year = movie['year']
         rating = movie['rating']
+        my_rating = rating
         directors = movie['directors']
         casting = movie['cast']
         plot = movie['plot']
@@ -277,6 +282,7 @@ Viewed: {item['values'][7]}""")
 Title: {title}\n
 Year: {year}\n
 Rating: {rating}\n
+MyRating: {my_rating}\n
 Director: {directors[0]}\n
 Actors: {sentence}\n
 Generes: {genres}\n
