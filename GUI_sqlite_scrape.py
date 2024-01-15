@@ -1,3 +1,4 @@
+import io
 from tkinter import messagebox
 from tkinter import *
 from tkinter import ttk
@@ -137,7 +138,14 @@ class IMDBdataBase:
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
         self.renew()
-
+        from PIL import ImageTk, Image
+        import urllib.request
+        with urllib.request.urlopen(item['values'][8]) as u:
+            raw_data = u.read()
+        image = Image.open(io.BytesIO(raw_data))
+        my_img = ImageTk.PhotoImage(image)
+        pic = Label(self.root, image=my_img)
+        pic.pack(side='left')
         messagebox.showinfo(title=f"{item['values'][0]}", message=f"""
 Title: {item['values'][0]}\n
 Year: {item['values'][1]}\n
@@ -150,6 +158,7 @@ Summary: {item['values'][7]}\n
 Cover: {item['values'][8]}\n
 Viewed: {item['values'][9]}
 """)
+        pic.pack_forget()
 
     def renew(self):
         curItem = self.tree.focus()
