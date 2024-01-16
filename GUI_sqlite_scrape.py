@@ -101,6 +101,7 @@ class IMDBdataBase:
         self.scroll.config(command=self.tree.yview)
         # Bind for tree double click item
         self.tree.bind("<ButtonRelease-1>", self.OnSingleClick)
+        self.tree.bind("<<TreeviewSelect>>", self.OnSingleClick)
         self.tree.bind("<Double-1>", self.OnDoubleClick)
         self.tree.bind("<Return>", self.OnDoubleClick)
         self.tree.pack(side='left')
