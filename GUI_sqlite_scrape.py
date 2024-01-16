@@ -21,10 +21,9 @@ import io
 import os
 import sys
 from configparser import ConfigParser
-from tkinter import ttk, filedialog
-from tkinter import messagebox
-import tkinter.simpledialog as simpledialog
-from tkinter import *
+from tkinter import filedialog, ttk, Scrollbar
+import tkinter.simpledialog
+import tkinter.messagebox
 import sqlite3
 import csv
 from imdb import Cinemagoer
@@ -32,10 +31,10 @@ from datetime import datetime
 from PIL import ImageTk, Image
 import urllib.request
 import platform
-
 if platform.system() == 'Darwin':
-    from ttwidgets import TTButton as myButton  # ignore 'Module TTButton not found'  messages non-macos.  Need this for  macOS
+    from ttwidgets import TTButton as myButton
 else:
+    import tkinter as tk
     from tkinter import Button as myButton
 
 # Define frames
@@ -112,27 +111,27 @@ class IMDBdataBase:
 
         # Set up main window
         self.path_disp_len = 25  # length of a path to reveal
-        self.root = Tk()
+        self.root = tk.Tk()
         self.root.config(pady=20, padx=20, bg=bg_color)
         self.root.resizable(False, False)
-        self.top_frame = Frame(self.root)
+        self.top_frame = tk.Frame(self.root)
         self.top_frame.pack(side='top', expand=True, fill='both')
-        self.bot_frame = Frame(self.root)
+        self.bot_frame = tk.Frame(self.root)
         self.bot_frame.pack(side='top', expand=True, fill='both')
-        self.bot_frame_left = Frame(self.bot_frame, bg=bg_color)
+        self.bot_frame_left = tk.Frame(self.bot_frame, bg=bg_color)
         self.bot_frame_left.pack(side='left', expand=True, fill='both')
-        self.bot_frame_right = Frame(self.bot_frame, bg=blue_back_color)
+        self.bot_frame_right = tk.Frame(self.bot_frame, bg=blue_back_color)
         self.bot_frame_right.pack(side='right', expand=True, fill='both')
 
         # film icon
         img = ImageTk.PhotoImage(Image.open("blank.png"))
-        self.poster = Label(self.bot_frame_left, image=img)
+        self.poster = tk.Label(self.bot_frame_left, image=img)
         self.poster.pack(side='right')
 
-        self.working_label = Label(self.bot_frame_left, text="DB location =", bg=bg_color)
+        self.working_label = tk.Label(self.bot_frame_left, text="DB location =", bg=bg_color)
         self.destination_folder_butt = myButton(self.bot_frame_left, text=self.db_folder,
                                                 command=self.enter_db_folder, fg="blue", bg=bg_color)
-        slash = Label(self.bot_frame_left, text="/", fg="blue", bg=bg_color)
+        slash = tk.Label(self.bot_frame_left, text="/", fg="blue", bg=bg_color)
         self.title_butt = myButton(self.bot_frame_left, text=self.db_name, command=self.enter_db, fg="blue",
                                    bg=bg_color)
         self.working_label.pack(side="left", fill='x')
@@ -156,34 +155,34 @@ class IMDBdataBase:
         # self.current_theme = self.style.theme_use('clam')
 
         self.style.configure("mystyle.Treeview.Heading", font=('Calibri', 12, 'bold'))
-        self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=BROWSE)
+        self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
         # Set up the columns
         self.tree['columns'] = ('Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'Watched')
-        self.tree.column('#0', width=0, stretch=NO)
-        self.tree.column('Title', width=200, minwidth=200, anchor=CENTER)
-        self.tree.column('Year', width=70, minwidth=70, anchor=CENTER)
-        self.tree.column('Rating', width=82, minwidth=82, anchor=CENTER)
-        self.tree.column('MyRating', width=82, minwidth=82, anchor=CENTER)
-        self.tree.column('Director', width=100, minwidth=100, anchor=CENTER)
-        self.tree.column('Actors', width=150, minwidth=150, anchor=CENTER)
-        self.tree.column('Generes', width=100, minwidth=100, anchor=CENTER)
-        self.tree.column('Summary', width=350, minwidth=350, anchor=CENTER)
-        self.tree.column('Cover', width=50, minwidth=50, anchor=CENTER)
-        self.tree.column('Watched', width=80, minwidth=80, anchor=CENTER)
+        self.tree.column('#0', width=0, stretch=tk.NO)
+        self.tree.column('Title', width=200, minwidth=200, anchor=tk.CENTER)
+        self.tree.column('Year', width=70, minwidth=70, anchor=tk.CENTER)
+        self.tree.column('Rating', width=82, minwidth=82, anchor=tk.CENTER)
+        self.tree.column('MyRating', width=82, minwidth=82, anchor=tk.CENTER)
+        self.tree.column('Director', width=100, minwidth=100, anchor=tk.CENTER)
+        self.tree.column('Actors', width=150, minwidth=150, anchor=tk.CENTER)
+        self.tree.column('Generes', width=100, minwidth=100, anchor=tk.CENTER)
+        self.tree.column('Summary', width=350, minwidth=350, anchor=tk.CENTER)
+        self.tree.column('Cover', width=50, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('Watched', width=80, minwidth=80, anchor=tk.CENTER)
         # Set up the headings
-        self.tree.heading('#0', text='', anchor=CENTER)
-        self.tree.heading('Title', text='Title', anchor=CENTER)
-        self.tree.heading('Year', text='Year', anchor=CENTER)
-        self.tree.heading('Rating', text='Rating', anchor=CENTER)
-        self.tree.heading('MyRating', text='My Rating', anchor=CENTER)
-        self.tree.heading('Director', text='Director', anchor=CENTER)
-        self.tree.heading('Actors', text='Actors', anchor=CENTER)
-        self.tree.heading('Generes', text='Generes', anchor=CENTER)
-        self.tree.heading('Summary', text='Summary', anchor=CENTER)
-        self.tree.heading('Cover', text='Cover', anchor=CENTER)
-        self.tree.heading('Watched', text='Watched', anchor=CENTER)
+        self.tree.heading('#0', text='', anchor=tk.CENTER)
+        self.tree.heading('Title', text='Title', anchor=tk.CENTER)
+        self.tree.heading('Year', text='Year', anchor=tk.CENTER)
+        self.tree.heading('Rating', text='Rating', anchor=tk.CENTER)
+        self.tree.heading('MyRating', text='My Rating', anchor=tk.CENTER)
+        self.tree.heading('Director', text='Director', anchor=tk.CENTER)
+        self.tree.heading('Actors', text='Actors', anchor=tk.CENTER)
+        self.tree.heading('Generes', text='Generes', anchor=tk.CENTER)
+        self.tree.heading('Summary', text='Summary', anchor=tk.CENTER)
+        self.tree.heading('Cover', text='Cover', anchor=tk.CENTER)
+        self.tree.heading('Watched', text='Watched', anchor=tk.CENTER)
 
-        self.scroll = Scrollbar(self.top_frame, orient=VERTICAL)
+        self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
         self.scroll.pack(side='left')
         self.tree.config(yscrollcommand=self.scroll.set)
         self.scroll.config(command=self.tree.yview)
@@ -194,21 +193,21 @@ class IMDBdataBase:
         self.tree.bind("<Return>", self.OnDoubleClick)
         self.tree.pack(side='left')
 
-        self.film_lbl = Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
+        self.film_lbl = tk.Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
                               fg=blue_front_color)
         self.film_lbl.pack(side='top')
-        self.entry = Entry(self.bot_frame_right, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
+        self.entry = tk.Entry(self.bot_frame_right, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
         self.entry.pack(side='top')
         self.entry.focus()
-        self.add_film_btn = Button(self.bot_frame_right, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+        self.add_film_btn = tk.Button(self.bot_frame_right, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                    width=25, command=self.add_film)
         self.add_film_btn.pack(side='top')
 
-        self.add_file_btn = Button(self.bot_frame_right, text="Add file(s)", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+        self.add_file_btn = tk.Button(self.bot_frame_right, text="Add file(s)", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                    width=25, command=self.add_file)
         self.add_file_btn.pack(side='top')
 
-        self.del_btn = Button(self.bot_frame_right, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+        self.del_btn = tk.Button(self.bot_frame_right, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                               width=25, command=self.delete_film)
         self.del_btn.pack(side='top')
         self.list_it()
@@ -266,7 +265,7 @@ class IMDBdataBase:
                                 summary = movie['plot']
                                 cover = movie['cover url']
                             except IOError:
-                                messagebox.showerror(title="Error", message=f"There is an error with the {film=}")
+                                tk.messagebox.showerror(title="Error", message=f"There is an error with the {film=}")
                             # Enter into BBDD
                             try:
                                 self.c.execute(f"""INSERT INTO My_Films(title, year, rating, my_rating,
@@ -285,7 +284,7 @@ class IMDBdataBase:
     def add_film(self):
         """Insert film fields to Database"""
         if self.entry.get() == "" or self.entry.get().isspace():
-            messagebox.showerror(title="Error", message='You should pick a title')
+            tk.messagebox.showerror(title="Error", message='You should pick a title')
         else:
             film = self.entry.get().strip().lower()
             print(f"add_film:  {film=}")
@@ -293,7 +292,7 @@ class IMDBdataBase:
             rows = self.c.fetchall()
             row = [item[0].lower() for item in rows]
             if film in row:
-                messagebox.showerror(title="Error", message="The film is already in the list")
+                tk.messagebox.showerror(title="Error", message="The film is already in the list")
             else:
                 try:
                     movies = self.moviesDB.search_movie(film)
@@ -315,7 +314,7 @@ class IMDBdataBase:
                     summary = movie['plot']
                     cover = movie['cover url']
                 except:
-                    messagebox.showerror(title="Error", message="There is an error with the film")
+                    tk.messagebox.showerror(title="Error", message="There is an error with the film")
                 # Enter into BBDD
                 try:
                     self.c.execute(f"""INSERT INTO My_Films(title, year, rating, my_rating,
@@ -337,20 +336,20 @@ class IMDBdataBase:
         try:
             curItem = self.tree.focus()
             item = self.tree.item(curItem)
-            mb = messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "
+            mb = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "
                                      f"{(str(item['values'][0]))}?")
             if mb:
                 self.c.execute(f"DELETE FROM My_Films where title = (?);",
                                (str(item['values'][0]),))
         except IndexError:
-            messagebox.showinfo(title='Info', message='You should pick an entry')
+            tk.messagebox.showinfo(title='Info', message='You should pick an entry')
             print("Index Error")
         self.conn.commit()
         self.list_it()
         self.root.title(f"Features ({len(self.tree.get_children())})")
 
     def enter_db(self):
-        answer = simpledialog.askstring(title=__file__, prompt="enter db name", initialvalue=self.db_name)
+        answer = tk.simpledialog.askstring(title=__file__, prompt="enter db name", initialvalue=self.db_name)
         if answer is not None:
             self.db_name = answer
         if self.db_name == '':
@@ -374,7 +373,7 @@ class IMDBdataBase:
         self.c.execute(f"SELECT title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films")
         rows = self.c.fetchall()
         for row in rows:
-            self.tree.insert("", END, values=row)
+            self.tree.insert("", tk.END, values=row)
         self.conn.commit()
 
     def OnDoubleClick(self, event):
@@ -386,9 +385,9 @@ class IMDBdataBase:
             raw_data = u.read()
         image = Image.open(io.BytesIO(raw_data))
         my_img = ImageTk.PhotoImage(image)
-        pic = Label(self.root, image=my_img)
+        pic = tk.Label(self.root, image=my_img)
         pic.pack(side='left')
-        messagebox.showinfo(title=f"{item['values'][0]}", message=f"""
+        tk.messagebox.showinfo(title=f"{item['values'][0]}", message=f"""
 Title: {item['values'][0]}\n
 Year: {item['values'][1]}\n
 Rating: {item['values'][2]}\n
