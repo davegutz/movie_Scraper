@@ -175,19 +175,19 @@ Viewed: {item['values'][9]}
                         if csvFile.line_num == 1:
                             continue
                         title = line[0]
-                        year = line[1]
+                        year = int(line[1])
                         watched = line[2]
                         rating_in = line[3]
-                        film = title + ' (' + year + ')'.strip().lower()
+                        film = (title.strip().lower(), year)
                         print(f"{film=} {watched=} {rating_in=}")
-                        self.c.execute(f"SELECT title FROM My_Films")
+                        self.c.execute(f"SELECT title,year FROM My_Films")
                         rows = self.c.fetchall()
-                        row = [item[0].lower() for item in rows]
+                        row = [(item[0].lower(), item[1]) for item in rows]
                         if film in row:
-                            messagebox.showerror(title="Error", message="The film is already in the list")
+                            print(f"The film ( {title}, {year} ) is already in the list")
                         else:
                             try:
-                                movies = self.moviesDB.search_movie(film)
+                                movies = self.moviesDB.search_movie(film[0])
                                 id_film = movies[0].getID()
                                 movie = self.moviesDB.get_movie(id_film)
                                 title = movie['title']
@@ -231,6 +231,7 @@ Viewed: {item['values'][9]}
             messagebox.showerror(title="Error", message='You should pick a title')
         else:
             film = self.entry.get().strip().lower()
+            print(f"add_film:  {film=}")
             self.c.execute(f"SELECT title FROM My_Films")
             rows = self.c.fetchall()
             row = [item[0].lower() for item in rows]
