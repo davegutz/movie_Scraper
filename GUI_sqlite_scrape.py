@@ -42,8 +42,15 @@ class IMDBdataBase:
         self.root.resizable(False, False)
         self.top_frame = Frame(self.root)
         self.top_frame.pack(side='top', expand=True, fill='both')
-        self.bot_frame = Frame(self.root, bg=blue_back_color)
-        self.bot_frame.pack(side='top', expand=True, fill='both')
+        self.bot_frame_left = Frame(self.root, bg=bg_color)
+        self.bot_frame_left.pack(side='bottom', expand=True, fill='both')
+        self.bot_frame_right = Frame(self.root, bg=blue_back_color)
+        self.bot_frame_right.pack(side='right', expand=True, fill='both')
+
+        # film icon
+        img = ImageTk.PhotoImage(Image.open("blank.png"))
+        self.poster = Label(self.bot_frame_left, image=img)
+        self.poster.pack(side='left')
 
         self.year = datetime.now().year
 
@@ -93,25 +100,26 @@ class IMDBdataBase:
         self.tree.config(yscrollcommand=self.scroll.set)
         self.scroll.config(command=self.tree.yview)
         # Bind for tree double click item
+        self.tree.bind("<ButtonRelease-1>", self.OnSingleClick)
         self.tree.bind("<Double-1>", self.OnDoubleClick)
         self.tree.bind("<Return>", self.OnDoubleClick)
         self.tree.pack(side='left')
 
-        self.film_lbl = Label(self.bot_frame, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
+        self.film_lbl = Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
                               fg=blue_front_color)
         self.film_lbl.pack(side='top')
-        self.entry = Entry(self.bot_frame, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
+        self.entry = Entry(self.bot_frame_right, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
         self.entry.pack(side='top')
         self.entry.focus()
-        self.add_film_btn = Button(self.bot_frame, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+        self.add_film_btn = Button(self.bot_frame_right, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                    width=25, command=self.add_film)
         self.add_film_btn.pack(side='top')
 
-        self.add_file_btn = Button(self.bot_frame, text="Add file(s)", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+        self.add_file_btn = Button(self.bot_frame_right, text="Add file(s)", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                    width=25, command=self.add_file)
         self.add_file_btn.pack(side='top')
 
-        self.del_btn = Button(self.bot_frame, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+        self.del_btn = Button(self.bot_frame_right, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                               width=25, command=self.delete_film)
         self.del_btn.pack(side='top')
         self.list_it()
@@ -155,6 +163,19 @@ Cover: {item['values'][8]}\n
 Viewed: {item['values'][9]}
 """)
         pic.pack_forget()
+
+    def OnSingleClick(self, event):
+        """Called when user clicks element from TreeView"""
+        print(f"OnSingleClick")
+        curItem = self.tree.focus()
+        item = self.tree.item(curItem)
+        self.renew()
+        with urllib.request.urlopen(item['values'][8]) as u:
+            raw_data = u.read()
+        image = Image.open(io.BytesIO(raw_data))
+        my_img = ImageTk.PhotoImage(image)
+        self.poster.configure(image=my_img)
+        self.poster.image = my_img
 
     def renew(self):
         curItem = self.tree.focus()
