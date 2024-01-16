@@ -104,7 +104,7 @@ class IMDBdataBase:
         self.poster = Label(self.bot_frame_left, image=img)
         self.poster.pack(side='right')
 
-        self.working_label = Label(self.bot_frame_left, text="DB folder", font=label_font)
+        self.working_label = Label(self.bot_frame_left, text=self.db_folder, font=label_font)
         self.db_butt = myButton(self.bot_frame_left, text="Choose DB folder", command=self.enter_db, fg="blue", bg=bg_color)
         self.db_butt.pack(side='left', padx=5, pady=5, anchor=W)
         self.working_label.pack(side='left', padx=5, pady=5)
@@ -204,7 +204,10 @@ class IMDBdataBase:
             self.db_folder = answer
         self.cf['path']['db_folder'] = self.db_folder
         self.cf.save_to_file()
-        self.working_label.config(text=self.db_folder[self.path_disp_len:])
+        self.update_db_folder_label()
+
+    def update_db_folder_label(self):
+        self.working_label.configure(text=self.db_folder[-self.path_disp_len:])
 
     def OnDoubleClick(self, event):
         """Called when user double clicks element from TreeView"""
