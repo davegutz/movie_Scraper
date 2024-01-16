@@ -1,10 +1,14 @@
 import io
 from tkinter import messagebox
 from tkinter import *
-from tkinter import ttk
+from tkinter import ttk, filedialog
 import sqlite3
+import csv
 from imdb import Cinemagoer
 from datetime import datetime
+from PIL import ImageTk, Image
+import urllib.request
+import numpy as np
 
 # Define frames
 min_width = 800
@@ -22,6 +26,7 @@ blue_back_color = '#3a4470'
 blue_front_color = '#477bc9'
 entry_color = '#2e3a4d'
 light_purple = '#7258db'
+
 
 class IMDBdataBase:
     """Interface using Tkinter that has the API from IMDB to search the feature that is specified,
@@ -48,7 +53,7 @@ class IMDBdataBase:
         self.conn = sqlite3.connect('IMDB_Films.db')
         print("Connection made on exit")
         self.c = self.conn.cursor()
-        self.c.execute(f"CREATE TABLE if not exists Year{self.year}_Films(id integer PRIMARY KEY, title text, "
+        self.c.execute(f"CREATE TABLE if not exists My_Films(id integer PRIMARY KEY, title text, "
                        "year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, date text)")
         self.conn.commit()
         # Set up Tree style
@@ -102,14 +107,7 @@ class IMDBdataBase:
                                    width=25, command=self.add_film)
         self.add_film_btn.pack(side='top')
 
-        self.file_lbl = Label(self.bot_frame, text="Enter file:", font=('David', 15, 'bold'), bg=blue_back_color,
-                              fg=blue_front_color)
-        self.file_lbl.pack(side='top')
-        self.file_entry = Entry(self.bot_frame, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color,
-                                bg=entry_color)
-        self.file_entry.pack(side='top')
-        self.file_entry.focus()
-        self.add_file_btn = Button(self.bot_frame, text="Add file", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+        self.add_file_btn = Button(self.bot_frame, text="Add file(s)", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                    width=25, command=self.add_file)
         self.add_file_btn.pack(side='top')
 
@@ -118,7 +116,7 @@ class IMDBdataBase:
         self.del_btn.pack(side='top')
         self.list_it()
 
-        self.root.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
+        self.root.title(f"Features ({len(self.tree.get_children())})")
 
         self.root.mainloop()
         self.conn.close()
@@ -127,7 +125,7 @@ class IMDBdataBase:
     def list_it(self):
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM Year{self.year}_Films")
+        self.c.execute(f"SELECT title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films")
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", END, values=row)
@@ -138,8 +136,6 @@ class IMDBdataBase:
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
         self.renew()
-        from PIL import ImageTk, Image
-        import urllib.request
         with urllib.request.urlopen(item['values'][8]) as u:
             raw_data = u.read()
         image = Image.open(io.BytesIO(raw_data))
@@ -168,6 +164,66 @@ Viewed: {item['values'][9]}
 
     def add_file(self):
         """Insert film fields to Database"""
+        filepaths = filedialog.askopenfilenames(title='Choose file(s)', filetypes=[('csv', '.csv')])
+        if filepaths is None or filepaths == '':
+            print("No file chosen")
+        else:
+            for filepath in filepaths:
+                with open(filepath, mode='r') as file:
+                    csvFile = csv.reader(file)
+                    for line in csvFile:
+                        if csvFile.line_num == 1:
+                            continue
+                        title = line[0]
+                        year = line[1]
+                        watched = line[2]
+                        rating_in = line[3]
+                        film = title + ' (' + year + ')'.strip().lower()
+                        print(f"{film=} {watched=} {rating_in=}")
+                        self.c.execute(f"SELECT title FROM My_Films")
+                        rows = self.c.fetchall()
+                        row = [item[0].lower() for item in rows]
+                        if film in row:
+                            messagebox.showerror(title="Error", message="The film is already in the list")
+                        else:
+                            try:
+                                movies = self.moviesDB.search_movie(film)
+                                id_film = movies[0].getID()
+                                movie = self.moviesDB.get_movie(id_film)
+                                title = movie['title']
+                                year = movie['year']
+                                rating = movie['rating']
+                                if rating_in == '':
+                                    my_rating = 0.
+                                else:
+                                    my_rating = float(rating_in)
+                                directors = movie['directors']
+                                casting = movie['cast']
+                                sentence = ""
+                                for cas in casting[0:5]:
+                                    sentence += str(f'{cas}, ')
+                                generes = movie['genres']
+                                genres = ""
+                                for gen in generes:
+                                    genres += str(f'{gen}, ')
+                                summary = movie['plot']
+                                cover = movie['cover url']
+                            except IOError:
+                                messagebox.showerror(title="Error", message=f"There is an error with the {film=}")
+                            # Enter into BBDD
+                            try:
+                                self.c.execute(f"""INSERT INTO My_Films(title, year, rating, my_rating,
+                                                director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?);""",
+                                               (str(title), int(year),
+                                                float(rating), my_rating, str(directors[0]),
+                                                str(sentence),
+                                                str(genres), str(summary[0]), str(cover), watched)),
+                                self.list_it()
+                            except UnboundLocalError:
+                                pass
+                        self.root.title(f"Features ({len(self.tree.get_children())})")
+                        self.conn.commit()
+                print(f"{filepath=} done")
 
     def add_film(self):
         """Insert film fields to Database"""
@@ -175,7 +231,7 @@ Viewed: {item['values'][9]}
             messagebox.showerror(title="Error", message='You should pick a title')
         else:
             film = self.entry.get().strip().lower()
-            self.c.execute(f"SELECT title FROM Year{self.year}_Films")
+            self.c.execute(f"SELECT title FROM My_Films")
             rows = self.c.fetchall()
             row = [item[0].lower() for item in rows]
             if film in row:
@@ -204,7 +260,7 @@ Viewed: {item['values'][9]}
                     messagebox.showerror(title="Error", message="There is an error with the film")
                 # Enter into BBDD
                 try:
-                    self.c.execute(f"""INSERT INTO Year{self.year}_Films(title, year, rating, my_rating,
+                    self.c.execute(f"""INSERT INTO My_Films(title, year, rating, my_rating,
                                     director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?);""",
                                    (str(title), int(year),
                                     float(rating), float(my_rating), str(directors[0]),
@@ -214,12 +270,8 @@ Viewed: {item['values'][9]}
                     self.list_it()
                 except UnboundLocalError:
                     pass
-            self.root.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
+            self.root.title(f"Features ({len(self.tree.get_children())})")
             self.conn.commit()
-
-    def add_films_from_csv(self):
-        self.entry.set('True Grit (1969)')
-        self.add_film()
 
     def delete_film(self):
         """Delete selected film from database"""
@@ -230,14 +282,14 @@ Viewed: {item['values'][9]}
             mb = messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "
                                      f"{(str(item['values'][0]))}?")
             if mb:
-                self.c.execute(f"DELETE FROM Year{self.year}_Films where title = (?);",
+                self.c.execute(f"DELETE FROM My_Films where title = (?);",
                                (str(item['values'][0]),))
         except IndexError:
             messagebox.showinfo(title='Info', message='You should pick an entry')
             print("Index Error")
         self.conn.commit()
         self.list_it()
-        self.root.title(f"Features viewed {self.year} -> ({len(self.tree.get_children())})")
+        self.root.title(f"Features ({len(self.tree.get_children())})")
 
 
 if __name__ == "__main__":
