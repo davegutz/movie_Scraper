@@ -42,15 +42,17 @@ class IMDBdataBase:
         self.root.resizable(False, False)
         self.top_frame = Frame(self.root)
         self.top_frame.pack(side='top', expand=True, fill='both')
-        self.bot_frame_left = Frame(self.root, bg=bg_color)
-        self.bot_frame_left.pack(side='bottom', expand=True, fill='both')
-        self.bot_frame_right = Frame(self.root, bg=blue_back_color)
+        self.bot_frame = Frame(self.root)
+        self.bot_frame.pack(side='top', expand=True, fill='both')
+        self.bot_frame_left = Frame(self.bot_frame, bg=bg_color)
+        self.bot_frame_left.pack(side='left', expand=True, fill='both')
+        self.bot_frame_right = Frame(self.bot_frame, bg=blue_back_color)
         self.bot_frame_right.pack(side='right', expand=True, fill='both')
 
         # film icon
         img = ImageTk.PhotoImage(Image.open("blank.png"))
         self.poster = Label(self.bot_frame_left, image=img)
-        self.poster.pack(side='left')
+        self.poster.pack(side='right')
 
         self.year = datetime.now().year
 
@@ -166,8 +168,7 @@ Viewed: {item['values'][9]}
         pic.pack_forget()
 
     def OnSingleClick(self, event):
-        """Called when user clicks element from TreeView"""
-        print(f"OnSingleClick")
+        """Called when user focuses element from TreeView"""
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
         self.renew()
