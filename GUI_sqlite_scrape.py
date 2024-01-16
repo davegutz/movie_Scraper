@@ -2,9 +2,10 @@ import io
 import os
 import sys
 from configparser import ConfigParser
-from tkinter import messagebox
-from tkinter import *
 from tkinter import ttk, filedialog
+from tkinter import messagebox
+import tkinter.simpledialog as simpledialog
+from tkinter import *
 import sqlite3
 import csv
 from imdb import Cinemagoer
@@ -85,6 +86,11 @@ class IMDBdataBase:
     def __init__(self, cf_):
         self.cf = cf_
         self.db_folder = self.cf['path']['db_folder']
+        self.db_name = self.cf['path']['db_name']
+        self.db_name = 'IMDB_Films.db'
+        self.db_path = ''
+        self.update_db_path()
+
         # Set up main window
         self.path_disp_len = 25  # length of a path to reveal
         self.root = Tk()
@@ -104,17 +110,23 @@ class IMDBdataBase:
         self.poster = Label(self.bot_frame_left, image=img)
         self.poster.pack(side='right')
 
-        self.working_label = Label(self.bot_frame_left, text=self.db_folder, font=label_font)
-        self.db_butt = myButton(self.bot_frame_left, text="Choose DB folder", command=self.enter_db, fg="blue", bg=bg_color)
-        self.db_butt.pack(side='left', padx=5, pady=5, anchor=W)
-        self.working_label.pack(side='left', padx=5, pady=5)
+        self.working_label = Label(self.bot_frame_left, text="DB location =", bg=bg_color)
+        self.destination_folder_butt = myButton(self.bot_frame_left, text=self.db_folder,
+                                                command=self.enter_db_folder, fg="blue", bg=bg_color)
+        slash = Label(self.bot_frame_left, text="/", fg="blue", bg=bg_color)
+        self.title_butt = myButton(self.bot_frame_left, text=self.db_name, command=self.enter_db, fg="blue",
+                                   bg=bg_color)
+        self.working_label.pack(side="left", fill='x')
+        self.destination_folder_butt.pack(side="left", fill='x')
+        slash.pack(side="left", fill='x')
+        self.title_butt.pack(side="left", fill='x')
 
         self.year = datetime.now().year
 
         # IMDB API
         self.moviesDB = Cinemagoer()
         # Database
-        self.conn = sqlite3.connect('IMDB_Films.db')
+        self.conn = sqlite3.connect(self.db_path)
         print("Connection made on exit")
         self.c = self.conn.cursor()
         self.c.execute(f"CREATE TABLE if not exists My_Films(id integer PRIMARY KEY, title text, "
@@ -187,70 +199,6 @@ class IMDBdataBase:
         self.root.mainloop()
         self.conn.close()
         print("Connection finished")
-
-    def list_it(self):
-        """Fill the TreeView with database fields"""
-        self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films")
-        rows = self.c.fetchall()
-        for row in rows:
-            self.tree.insert("", END, values=row)
-        self.conn.commit()
-
-    def enter_db(self):
-        """Select database folder"""
-        answer = filedialog.askdirectory(title="Select a database storage folder", initialdir=self.db_folder)
-        if answer is not None and answer != '':
-            self.db_folder = answer
-        self.cf['path']['db_folder'] = self.db_folder
-        self.cf.save_to_file()
-        self.update_db_folder_label()
-
-    def update_db_folder_label(self):
-        self.working_label.configure(text=self.db_folder[-self.path_disp_len:])
-
-    def OnDoubleClick(self, event):
-        """Called when user double clicks element from TreeView"""
-        curItem = self.tree.focus()
-        item = self.tree.item(curItem)
-        self.renew()
-        with urllib.request.urlopen(item['values'][8]) as u:
-            raw_data = u.read()
-        image = Image.open(io.BytesIO(raw_data))
-        my_img = ImageTk.PhotoImage(image)
-        pic = Label(self.root, image=my_img)
-        pic.pack(side='left')
-        messagebox.showinfo(title=f"{item['values'][0]}", message=f"""
-Title: {item['values'][0]}\n
-Year: {item['values'][1]}\n
-Rating: {item['values'][2]}\n
-MyRating: {item['values'][3]}\n
-Director: {item['values'][4]}\n
-Actors: {item['values'][5]}\n
-Generes: {item['values'][6]}\n
-Summary: {item['values'][7]}\n
-Cover: {item['values'][8]}\n
-Viewed: {item['values'][9]}
-""")
-        pic.pack_forget()
-
-    def OnSingleClick(self, event):
-        """Called when user focuses element from TreeView"""
-        curItem = self.tree.focus()
-        item = self.tree.item(curItem)
-        self.renew()
-        with urllib.request.urlopen(item['values'][8]) as u:
-            raw_data = u.read()
-        image = Image.open(io.BytesIO(raw_data))
-        my_img = ImageTk.PhotoImage(image)
-        self.poster.configure(image=my_img)
-        self.poster.image = my_img
-
-    def renew(self):
-        curItem = self.tree.focus()
-        item = self.tree.item(curItem)
-        self.entry.delete(0, "end")
-        self.entry.insert(0, item['values'][0])
 
     def add_file(self):
         """Insert film fields to Database"""
@@ -382,11 +330,85 @@ Viewed: {item['values'][9]}
         self.list_it()
         self.root.title(f"Features ({len(self.tree.get_children())})")
 
+    def enter_db(self):
+        answer = simpledialog.askstring(title=__file__, prompt="enter db name", initialvalue=self.db_name)
+        if answer is not None:
+            self.db_name = answer
+        if self.db_name == '':
+            self.db_name = '<enter title>'
+        cf['path']['db_name'] = self.db_name
+        cf.save_to_file()
+        self.title_butt.config(text=self.db_name)
+
+    def enter_db_folder(self):
+        """Select database folder"""
+        answer = filedialog.askdirectory(title="Select a database storage folder", initialdir=self.db_folder)
+        if answer is not None and answer != '':
+            self.db_folder = answer
+        self.cf['path']['db_folder'] = self.db_folder
+        self.cf.save_to_file()
+        self.destination_folder_butt.config(text=self.db_folder)
+
+    def list_it(self):
+        """Fill the TreeView with database fields"""
+        self.tree.delete(*self.tree.get_children())
+        self.c.execute(f"SELECT title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films")
+        rows = self.c.fetchall()
+        for row in rows:
+            self.tree.insert("", END, values=row)
+        self.conn.commit()
+
+    def OnDoubleClick(self, event):
+        """Called when user double clicks element from TreeView"""
+        curItem = self.tree.focus()
+        item = self.tree.item(curItem)
+        self.renew()
+        with urllib.request.urlopen(item['values'][8]) as u:
+            raw_data = u.read()
+        image = Image.open(io.BytesIO(raw_data))
+        my_img = ImageTk.PhotoImage(image)
+        pic = Label(self.root, image=my_img)
+        pic.pack(side='left')
+        messagebox.showinfo(title=f"{item['values'][0]}", message=f"""
+Title: {item['values'][0]}\n
+Year: {item['values'][1]}\n
+Rating: {item['values'][2]}\n
+MyRating: {item['values'][3]}\n
+Director: {item['values'][4]}\n
+Actors: {item['values'][5]}\n
+Generes: {item['values'][6]}\n
+Summary: {item['values'][7]}\n
+Cover: {item['values'][8]}\n
+Viewed: {item['values'][9]}
+""")
+        pic.pack_forget()
+
+    def OnSingleClick(self, event):
+        """Called when user focuses element from TreeView"""
+        curItem = self.tree.focus()
+        item = self.tree.item(curItem)
+        self.renew()
+        with urllib.request.urlopen(item['values'][8]) as u:
+            raw_data = u.read()
+        image = Image.open(io.BytesIO(raw_data))
+        my_img = ImageTk.PhotoImage(image)
+        self.poster.configure(image=my_img)
+        self.poster.image = my_img
+
+    def renew(self):
+        curItem = self.tree.focus()
+        item = self.tree.item(curItem)
+        self.entry.delete(0, "end")
+        self.entry.insert(0, item['values'][0])
+
+    def update_db_path(self):
+        self.db_path = os.path.join(self.db_folder, self.db_name)
+
 
 if __name__ == "__main__":
 
     # Configuration for entire folder selection read with filepaths
-    default_dict = {'path': {"db_folder": './',}}
+    default_dict = {'path': {"db_folder": './', "db_name": 'myMovies.db' }}
 
     cf = Begini(__file__, default_dict)
     imdb = IMDBdataBase(cf_=cf)
