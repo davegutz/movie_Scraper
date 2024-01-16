@@ -1,4 +1,7 @@
 import io
+import os
+import sys
+from configparser import ConfigParser
 from tkinter import messagebox
 from tkinter import *
 from tkinter import ttk, filedialog
@@ -8,7 +11,12 @@ from imdb import Cinemagoer
 from datetime import datetime
 from PIL import ImageTk, Image
 import urllib.request
-import numpy as np
+import platform
+
+if platform.system() == 'Darwin':
+    from ttwidgets import TTButton as myButton  # ignore 'Module TTButton not found'  messages non-macos.  Need this for  macOS
+else:
+    from tkinter import Button as myButton
 
 # Define frames
 min_width = 800
@@ -28,6 +36,45 @@ entry_color = '#2e3a4d'
 light_purple = '#7258db'
 
 
+# Begini - configuration class using .ini files
+class Begini(ConfigParser):
+
+    def __init__(self, name, def_dict_):
+        ConfigParser.__init__(self)
+
+        (config_path, config_basename) = os.path.split(name)
+        if sys.platform == 'linux':
+            config_txt = os.path.splitext(config_basename)[0] + '_linux.ini'
+        elif sys.platform == 'Darwin':
+            config_txt = os.path.splitext(config_basename)[0] + '_macos.ini'
+        else:
+            config_txt = os.path.splitext(config_basename)[0] + '.ini'
+        self.config_file_path = os.path.join(config_path, config_txt)
+        print('config file', self.config_file_path)
+        if os.path.isfile(self.config_file_path):
+            self.read(self.config_file_path)
+        else:
+            with open(self.config_file_path, 'w') as cfg_file:
+                self.read_dict(def_dict_)
+                self.write(cfg_file)
+            print('wrote', self.config_file_path)
+
+    # Get an item
+    def get_item(self, ind, item):
+        return self[ind][item]
+
+    # Put an item
+    def put_item(self, ind, item, value):
+        self[ind][item] = value
+        self.save_to_file()
+
+    # Save again
+    def save_to_file(self):
+        with open(self.config_file_path, 'w') as cfg_file:
+            self.write(cfg_file)
+        print('wrote', self.config_file_path)
+
+
 class IMDBdataBase:
     """Interface using Tkinter that has the API from IMDB to search the feature that is specified,
     enter the results into BBDD Sqlite3.
@@ -35,8 +82,11 @@ class IMDBdataBase:
     https://www.youtube.com/watch?v=8PB3oFRkSeI
     """
 
-    def __init__(self):
+    def __init__(self, cf_):
+        self.cf = cf_
+        self.db_folder = self.cf['path']['db_folder']
         # Set up main window
+        self.path_disp_len = 25  # length of a path to reveal
         self.root = Tk()
         self.root.config(pady=20, padx=20, bg=bg_color)
         self.root.resizable(False, False)
@@ -53,6 +103,11 @@ class IMDBdataBase:
         img = ImageTk.PhotoImage(Image.open("blank.png"))
         self.poster = Label(self.bot_frame_left, image=img)
         self.poster.pack(side='right')
+
+        self.working_label = Label(self.bot_frame_left, text="DB folder", font=label_font)
+        self.db_butt = myButton(self.bot_frame_left, text="Choose DB folder", command=self.enter_db, fg="blue", bg=bg_color)
+        self.db_butt.pack(side='left', padx=5, pady=5, anchor=W)
+        self.working_label.pack(side='left', padx=5, pady=5)
 
         self.year = datetime.now().year
 
@@ -141,6 +196,15 @@ class IMDBdataBase:
         for row in rows:
             self.tree.insert("", END, values=row)
         self.conn.commit()
+
+    def enter_db(self):
+        """Select database folder"""
+        answer = filedialog.askdirectory(title="Select a database storage folder", initialdir=self.db_folder)
+        if answer is not None and answer != '':
+            self.db_folder = answer
+        self.cf['path']['db_folder'] = self.db_folder
+        self.cf.save_to_file()
+        self.working_label.config(text=self.db_folder[self.path_disp_len:])
 
     def OnDoubleClick(self, event):
         """Called when user double clicks element from TreeView"""
@@ -317,4 +381,9 @@ Viewed: {item['values'][9]}
 
 
 if __name__ == "__main__":
-    imdb = IMDBdataBase()
+
+    # Configuration for entire folder selection read with filepaths
+    default_dict = {'path': {"db_folder": './',}}
+
+    cf = Begini(__file__, default_dict)
+    imdb = IMDBdataBase(cf_=cf)
