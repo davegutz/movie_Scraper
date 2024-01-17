@@ -31,6 +31,7 @@ from datetime import datetime
 from PIL import ImageTk, Image
 import urllib.request
 import platform
+import numpy as np
 if platform.system() == 'Darwin':
     from ttwidgets import TTButton as myButton
 else:
@@ -150,13 +151,13 @@ class IMDBdataBase:
         self.c.execute(f"CREATE TABLE if not exists My_Films(id integer PRIMARY KEY, title text, "
                        "year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, date text)")
         self.conn.commit()
+
         # Set up Tree style
         self.style = ttk.Style()
-        # self.current_theme = self.style.theme_use('clam')
-
         self.style.configure("mystyle.Treeview.Heading", font=('Calibri', 12, 'bold'))
         self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
-        # Set up the columns
+
+        # Set up the Tree columns
         self.tree['columns'] = ('Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'Watched')
         self.tree.column('#0', width=0, stretch=tk.NO)
         self.tree.column('Title', width=200, minwidth=200, anchor=tk.CENTER)
@@ -169,7 +170,8 @@ class IMDBdataBase:
         self.tree.column('Summary', width=350, minwidth=350, anchor=tk.CENTER)
         self.tree.column('Cover', width=50, minwidth=50, anchor=tk.CENTER)
         self.tree.column('Watched', width=80, minwidth=80, anchor=tk.CENTER)
-        # Set up the headings
+
+        # Set up the Tree headings
         self.tree.heading('#0', text='', anchor=tk.CENTER)
         self.tree.heading('Title', text='Title', anchor=tk.CENTER)
         self.tree.heading('Year', text='Year', anchor=tk.CENTER)
@@ -182,10 +184,12 @@ class IMDBdataBase:
         self.tree.heading('Cover', text='Cover', anchor=tk.CENTER)
         self.tree.heading('Watched', text='Watched', anchor=tk.CENTER)
 
+        # Finish Tree
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
         self.scroll.pack(side='left')
         self.tree.config(yscrollcommand=self.scroll.set)
         self.scroll.config(command=self.tree.yview)
+
         # Bind for tree double click item
         self.tree.bind("<ButtonRelease-1>", self.OnSingleClick)
         self.tree.bind("<<TreeviewSelect>>", self.OnSingleClick)
@@ -193,6 +197,7 @@ class IMDBdataBase:
         self.tree.bind("<Return>", self.OnDoubleClick)
         self.tree.pack(side='left')
 
+        # Controls
         self.film_lbl = tk.Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
                                  fg=blue_front_color)
         self.film_lbl.pack(side='top')
@@ -207,11 +212,9 @@ class IMDBdataBase:
         self.add_film_btn = tk.Button(self.bot_frame_right, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                       width=25, command=self.add_film)
         self.add_film_btn.pack(side='top')
-
         self.add_file_btn = tk.Button(self.bot_frame_right, text="Add file(s)", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                       width=25, command=self.add_file)
         self.add_file_btn.pack(side='top')
-
         self.del_btn = tk.Button(self.bot_frame_right, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                  width=25, command=self.delete_film)
         self.del_btn.pack(side='top')
@@ -235,22 +238,15 @@ class IMDBdataBase:
                     for line in csvFile:
                         if csvFile.line_num == 1:
                             continue
-                        title = line[0]
+                        title = line[0].lower()
                         year = int(line[1])
                         watched = line[2]
                         rating_in = line[3]
                         if self.already_have_film_year((title, year)):
                             print(f"The film ( {title}, {year} ) is already in the list")
-                        # film = (title.strip().lower(), year)
-                        # print(f"{film=} {watched=} {rating_in=}")
-                        # self.c.execute(f"SELECT title,year FROM My_Films")
-                        # rows = self.c.fetchall()
-                        # row = [(item[0].lower(), item[1]) for item in rows]
-                        # if film in row:
-                        #     print(f"The film ( {title}, {year} ) is already in the list")
                         else:
                             try:
-                                movies = self.moviesDB.search_movie(film[0])
+                                movies = self.moviesDB.search_movie(title)
                                 id_film = movies[0].getID()
                                 movie = self.moviesDB.get_movie(id_film)
                                 title = movie['title']
@@ -272,7 +268,7 @@ class IMDBdataBase:
                                 summary = movie['plot']
                                 cover = movie['cover url']
                             except IOError:
-                                tk.messagebox.showerror(title="Error", message=f"There is an error with the {film=}")
+                                tk.messagebox.showerror(title="Error", message=f"There is an error with the {title=}")
                             # Enter into BBDD
                             try:
                                 self.c.execute(f"""INSERT INTO My_Films(title, year, rating, my_rating,
@@ -288,6 +284,47 @@ class IMDBdataBase:
                         self.conn.commit()
                 print(f"{filepath=} done")
 
+    def make_list_of_cans(self, cans):
+        """String together data; difficult to do for some reason.  Resort to this manual way"""
+        result = []
+        searchable_result = []
+        titles = []
+        years = []
+        for item in cans:
+            title = item['title'].lower()
+            ID = item.getID()
+            try:
+                year = item['year']
+            except KeyError:
+                year = 0
+            result.append((title, year, ID))
+            titles.append(title)
+            years.append(year)
+            searchable_result.append(np.array([title, year]))
+        return result, np.array(searchable_result), np.array(titles, dtype='<U78'), np.array(years, dtype='<U78')
+
+    def look_smart(self, title, year=None):
+        """Find IMDB match as best as possible"""
+        film = (title, year)
+        candidates = self.moviesDB.search_movie(film[0])
+        list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
+        exact_matches = (array_of_cans == film).all(axis=1)
+        title_matches = (array_of_titles == title)
+        year_matches = (array_of_years == year)
+        matches = array_of_cans == film
+        exact_title_matches = array_of_titles == title
+        exact_year_matches = array_of_years == year
+        if exact_matches.any():
+            exact_match = np.where(exact_matches)[0][0]  # take first one
+            ID = list_of_cans[exact_match][2]
+            return ID
+        else:
+            exact_match = None
+
+        # for feature in candidates:
+        ID = None
+        return ID
+
     def add_film(self):
         """Insert film fields to Database"""
         self.root.focus_set()
@@ -297,16 +334,12 @@ class IMDBdataBase:
             film = self.entry.get().strip().lower()
             if self.already_have_film(film):
                 tk.messagebox.showerror(title="Error", message="The film is already in the list")
-            # self.c.execute(f"SELECT title FROM My_Films")
-            # rows = self.c.fetchall()
-            # row = [item[0].lower() for item in rows]
-            # if film in row:
-            #     tk.messagebox.showerror(title="Error", message="The film is already in the list")
             else:
                 try:
                     movies = self.moviesDB.search_movie(film)
                     print(f"{movies=}")
-                    id_film = movies[0].getID()
+                    id_film = self.look_smart(film, '2010')
+                    # id_film = movies[0].getID()
                     movie = self.moviesDB.get_movie(id_film)
                     title = movie['title']
                     year = movie['year']
