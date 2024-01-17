@@ -21,7 +21,7 @@ import io
 import os
 import sys
 from configparser import ConfigParser
-from tkinter import filedialog, ttk, Scrollbar
+from tkinter import filedialog, ttk
 import tkinter.simpledialog
 import tkinter.messagebox
 import sqlite3
@@ -194,21 +194,21 @@ class IMDBdataBase:
         self.tree.pack(side='left')
 
         self.film_lbl = tk.Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
-                              fg=blue_front_color)
+                                 fg=blue_front_color)
         self.film_lbl.pack(side='top')
         self.entry = tk.Entry(self.bot_frame_right, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
         self.entry.pack(side='top')
         self.entry.focus()
         self.add_film_btn = tk.Button(self.bot_frame_right, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
-                                   width=25, command=self.add_film)
+                                      width=25, command=self.add_film)
         self.add_film_btn.pack(side='top')
 
         self.add_file_btn = tk.Button(self.bot_frame_right, text="Add file(s)", font=('LilyUPC', 13, 'bold'), bg=light_purple,
-                                   width=25, command=self.add_file)
+                                      width=25, command=self.add_file)
         self.add_file_btn.pack(side='top')
 
         self.del_btn = tk.Button(self.bot_frame_right, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
-                              width=25, command=self.delete_film)
+                                 width=25, command=self.delete_film)
         self.del_btn.pack(side='top')
         self.list_it()
 
@@ -283,11 +283,11 @@ class IMDBdataBase:
 
     def add_film(self):
         """Insert film fields to Database"""
+        self.root.focus_set()
         if self.entry.get() == "" or self.entry.get().isspace():
             tk.messagebox.showerror(title="Error", message='You should pick a title')
         else:
             film = self.entry.get().strip().lower()
-            print(f"add_film:  {film=}")
             self.c.execute(f"SELECT title FROM My_Films")
             rows = self.c.fetchall()
             row = [item[0].lower() for item in rows]
@@ -296,12 +296,13 @@ class IMDBdataBase:
             else:
                 try:
                     movies = self.moviesDB.search_movie(film)
+                    print(f"{movies=}")
                     id_film = movies[0].getID()
                     movie = self.moviesDB.get_movie(id_film)
                     title = movie['title']
                     year = movie['year']
                     rating = movie['rating']
-                    my_rating = movie['rating']
+                    my_rating = rating
                     directors = movie['directors']
                     casting = movie['cast']
                     sentence = ""
@@ -313,7 +314,8 @@ class IMDBdataBase:
                         genres += str(f'{gen}, ')
                     summary = movie['plot']
                     cover = movie['cover url']
-                except:
+                except KeyError:
+                    print(f"{movies=}")
                     tk.messagebox.showerror(title="Error", message="There is an error with the film")
                 # Enter into BBDD
                 try:
@@ -330,14 +332,26 @@ class IMDBdataBase:
             self.root.title(f"Features ({len(self.tree.get_children())})")
             self.conn.commit()
 
+    def already_have_film(self, film):
+        """Check for existence by year and title (film = (year, title))"""
+        have = False
+        title, year = film
+        self.c.execute(f"SELECT title,year FROM My_Films")
+        rows = self.c.fetchall()
+        row = [(item[0].lower(), item[1]) for item in rows]
+        for possible in [year-2, year-1, year, year+1, year+2]:
+            if (title, possible) in row:
+                have = True
+                break
+        return have
+
     def delete_film(self):
         """Delete selected film from database"""
-
         try:
             curItem = self.tree.focus()
             item = self.tree.item(curItem)
             mb = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "
-                                     f"{(str(item['values'][0]))}?")
+                                        f"{(str(item['values'][0]))}?")
             if mb:
                 self.c.execute(f"DELETE FROM My_Films where title = (?);",
                                (str(item['values'][0]),))
@@ -406,18 +420,24 @@ Viewed: {item['values'][9]}
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
         self.renew()
-        with urllib.request.urlopen(item['values'][8]) as u:
-            raw_data = u.read()
-        image = Image.open(io.BytesIO(raw_data))
-        my_img = ImageTk.PhotoImage(image)
-        self.poster.configure(image=my_img)
-        self.poster.image = my_img
+        try:
+            with urllib.request.urlopen(item['values'][8]) as u:
+                raw_data = u.read()
+            image = Image.open(io.BytesIO(raw_data))
+            my_img = ImageTk.PhotoImage(image)
+            self.poster.configure(image=my_img)
+            self.poster.image = my_img
+        except IndexError:
+            pass
 
     def renew(self):
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
         self.entry.delete(0, "end")
-        self.entry.insert(0, item['values'][0])
+        try:
+            self.entry.insert(0, item['values'][0])
+        except IndexError:
+            pass
 
     def update_db_path(self):
         self.db_path = os.path.join(self.db_folder, self.db_name)
@@ -426,7 +446,7 @@ Viewed: {item['values'][9]}
 if __name__ == "__main__":
 
     # Configuration for entire folder selection read with filepaths
-    default_dict = {'path': {"db_folder": './', "db_name": 'myMovies.db' }}
+    default_dict = {'path': {"db_folder": './', "db_name": 'myMovies.db'}}
 
     cf = Begini(__file__, default_dict)
     imdb = IMDBdataBase(cf_=cf)
