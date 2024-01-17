@@ -199,6 +199,11 @@ class IMDBdataBase:
         self.entry = tk.Entry(self.bot_frame_right, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
         self.entry.pack(side='top')
         self.entry.focus()
+        self.year_lbl = tk.Label(self.bot_frame_right, text="Enter year (optional):", font=('David', 15, 'bold'), bg=blue_back_color,
+                                 fg=blue_front_color)
+        self.year_lbl.pack(side='top')
+        self.entry_year = tk.Entry(self.bot_frame_right, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
+        self.entry_year.pack(side='top')
         self.add_film_btn = tk.Button(self.bot_frame_right, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                       width=25, command=self.add_film)
         self.add_film_btn.pack(side='top')
@@ -234,13 +239,15 @@ class IMDBdataBase:
                         year = int(line[1])
                         watched = line[2]
                         rating_in = line[3]
-                        film = (title.strip().lower(), year)
-                        print(f"{film=} {watched=} {rating_in=}")
-                        self.c.execute(f"SELECT title,year FROM My_Films")
-                        rows = self.c.fetchall()
-                        row = [(item[0].lower(), item[1]) for item in rows]
-                        if film in row:
+                        if self.already_have_film_year((title, year)):
                             print(f"The film ( {title}, {year} ) is already in the list")
+                        # film = (title.strip().lower(), year)
+                        # print(f"{film=} {watched=} {rating_in=}")
+                        # self.c.execute(f"SELECT title,year FROM My_Films")
+                        # rows = self.c.fetchall()
+                        # row = [(item[0].lower(), item[1]) for item in rows]
+                        # if film in row:
+                        #     print(f"The film ( {title}, {year} ) is already in the list")
                         else:
                             try:
                                 movies = self.moviesDB.search_movie(film[0])
@@ -288,11 +295,13 @@ class IMDBdataBase:
             tk.messagebox.showerror(title="Error", message='You should pick a title')
         else:
             film = self.entry.get().strip().lower()
-            self.c.execute(f"SELECT title FROM My_Films")
-            rows = self.c.fetchall()
-            row = [item[0].lower() for item in rows]
-            if film in row:
+            if self.already_have_film(film):
                 tk.messagebox.showerror(title="Error", message="The film is already in the list")
+            # self.c.execute(f"SELECT title FROM My_Films")
+            # rows = self.c.fetchall()
+            # row = [item[0].lower() for item in rows]
+            # if film in row:
+            #     tk.messagebox.showerror(title="Error", message="The film is already in the list")
             else:
                 try:
                     movies = self.moviesDB.search_movie(film)
@@ -301,6 +310,10 @@ class IMDBdataBase:
                     movie = self.moviesDB.get_movie(id_film)
                     title = movie['title']
                     year = movie['year']
+                    if self.already_have_film_year((title, year)):
+                        print(f"add_film:  already have {title} ({year})")
+                        tk.messagebox.showerror(title="Error", message="The film is already in the list")
+                        return
                     rating = movie['rating']
                     my_rating = rating
                     directors = movie['directors']
@@ -328,17 +341,32 @@ class IMDBdataBase:
                                     str(datetime.today().strftime('%Y/%m/%d')))),
                     self.list_it()
                 except UnboundLocalError:
+                    print(f"add_film: couldn't enter film {film}")
                     pass
             self.root.title(f"Features ({len(self.tree.get_children())})")
             self.conn.commit()
 
     def already_have_film(self, film):
+        """Check for existence by year and title (film = (year))"""
+        have = False
+        title = film.lower()
+        self.c.execute(f"SELECT title FROM My_Films")
+        rows = self.c.fetchall()
+        print(f"{rows=}")
+        row = [item[0].lower() for item in rows]
+        if title in row:
+            have = True
+        return have
+
+    def already_have_film_year(self, film):
         """Check for existence by year and title (film = (year, title))"""
         have = False
         title, year = film
+        title = title.lower()
         self.c.execute(f"SELECT title,year FROM My_Films")
         rows = self.c.fetchall()
         row = [(item[0].lower(), item[1]) for item in rows]
+        print(f"{title} ({year}) in ?:  {row=}")
         for possible in [year-2, year-1, year, year+1, year+2]:
             if (title, possible) in row:
                 have = True
