@@ -32,6 +32,7 @@ from PIL import ImageTk, Image
 import urllib.request
 import platform
 import numpy as np
+import PySimpleGUI as psg
 if platform.system() == 'Darwin':
     from ttwidgets import TTButton as myButton
 else:
@@ -339,7 +340,7 @@ class IMDBdataBase:
                                     str(datetime.today().strftime('%Y/%m/%d')))),
                     self.list_it()
                 except UnboundLocalError:
-                    print(f"add_film: couldn't enter film {film}")
+                    print(f"add_film:  couldn't enter film {film}")
                     pass
             self.root.title(f"Features ({len(self.tree.get_children())})")
             self.conn.commit()
@@ -420,6 +421,7 @@ class IMDBdataBase:
 
     def look_smart(self, title, year=None):
         """Find IMDB match as best as possible, returning the ID"""
+        ID = None
         film = (title, year)
         candidates = self.moviesDB.search_movie(film[0])
         print(f"{candidates=}")
@@ -451,6 +453,7 @@ class IMDBdataBase:
             exact_match = None
 
         # Next offer choices if title matches
+        ID = None
         i_titles = np.where(array_of_titles == title)[0]
         select_list = []
         id_list = []
@@ -486,22 +489,20 @@ class IMDBdataBase:
         print(f"{select_list=}")
         # combo = ttk.Combobox(state="readonly", values=select_list)
         # new_choice = combo.get()
-        window = tk.Toplevel()
-        window.title('Combobox')
-        window.geometry('950x250')
-        ttk.Label(window, text=title + '(' + str(year) + ')', background='red', foreground="white",
-                  font=("Times New Roman", 15)).grid(row=2, column=0, padx=10, pady=25)
-        ttk.Label(window, text="Select the match:", font=("Times New Roman", 10)).grid(column=0, row=5, padx=10, pady=25)
-        n = tk.StringVar()
-        film_chosen = ttk.Combobox(window, width=125, textvariable=n)
-        film_chosen['values'] = select_list
-        film_chosen.grid(column=1, row=5)
-        film_chosen.current()
-        window.mainloop()
-        print(f"{n=}")
+        lst = psg.Listbox(select_list, size=(200, 20), font=('Arial Bold', 14), expand_y=True, enable_events=True,
+                          key='-SELECTION-', horizontal_scroll=True)
+        layout = [[psg.Input(size=(20, 1), font=('Arial Bold', 14), expand_x=True, key='-INPUT-'), psg.Button('Process'), psg.Button('Cancel')], [lst], [psg.Text("", key='-MSG-', font=('Arial Bold', 14), justification='center')]]
+        window = psg.Window('Select one of below', layout, size=(600, 200))
+        event, selection = window.read()
+        window.close()
+        print(selection)
+        if event in (psg.WIN_CLOSED, 'Cancel'):
+            ID = None
+        if event == '-SELECTION-':
+            ID = selection['-SELECTION-'][0].split(':')[0]
+            print(f"Select from GUI {ID=}")
+        window.close()
 
-        # for feature in candidates:
-        ID = id_list[n.get()]
         return ID
 
     def make_list_of_cans(self, cans):
