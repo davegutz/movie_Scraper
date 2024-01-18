@@ -313,21 +313,38 @@ class IMDBdataBase:
                         print(f"add_film:  already have {title} ({year})")
                         tk.messagebox.showerror(title="Error", message="The film is already in the list")
                         return
-                    rating = movie['rating']
-                    my_rating = rating
-                    directors = movie['directors']
-                    casting = movie['cast']
-                    sentence = ""
-                    for cas in casting[0:5]:
-                        sentence += str(f'{cas}, ')
-                    generes = movie['genres']
-                    genres = ""
-                    for gen in generes:
-                        genres += str(f'{gen}, ')
-                    summary = movie['plot']
+                    try:
+                        rating = movie['rating']
+                        my_rating = rating
+                    except KeyError:
+                        rating = 0.
+                        my_rating = rating
+                    try:
+                        directors = movie['directors']
+                    except KeyError:
+                        directors = ''
+                    try:
+                        casting = movie['cast']
+                        sentence = ""
+                        for cas in casting[0:5]:
+                            sentence += str(f'{cas}, ')
+                    except KeyError:
+                        sentence = ''
+                    try:
+                        generes = movie['genres']
+                        genres = ""
+                        for gen in generes:
+                            genres += str(f'{gen}, ')
+                    except KeyError:
+                        genres = ''
+                    try:
+                        summary = movie['plot']
+                    except KeyError:
+                        summary = ''
                     try:
                         cover = movie['cover url']
                     except KeyError:
+                        cover = ''
                         print('cover error')
                 except KeyError:
                     print(f"{film=} {year=}")
@@ -343,7 +360,7 @@ class IMDBdataBase:
                                     str(datetime.today().strftime('%Y/%m/%d')))),
                     self.list_it()
                 except UnboundLocalError:
-                    print(f"add_film:  couldn't enter film {film}")
+                    print(f"add_film:  couldn't enter film '{film} ({year})'")
                     pass
             self.root.title(f"Features ({len(self.tree.get_children())})")
             self.conn.commit()
@@ -461,34 +478,38 @@ class IMDBdataBase:
         select_list = []
         id_list = []
         for i in i_titles:
-            print(f"{i=}")
             try:
                 ID = candidates[i].getID()
                 movie = self.moviesDB.get_movie(ID)
                 title = movie['title']
                 year = movie['year']
-                directors = movie['directors']
-                dirs = str(directors[0])
-                for dir in directors[1:len(directors)]:
-                    dirs += str(f', {dir}')
-                print(f"{dirs=}")
-                casting = movie['cast']
-                cast = str(casting[0])
-                for cas in casting[1:min(len(casting), 5)]:
-                    cast += str(f", {cas}")
-                print(f"{cast=}")
-                summary = movie['plot']
-                print(f"{summary=}")
+                try:
+                    directors = movie['directors']
+                    dirs = str(directors[0])
+                    for dir in directors[1:len(directors)]:
+                        dirs += str(f', {dir}')
+                except KeyError:
+                    dirs = ''
+                try:
+                    casting = movie['cast']
+                    cast = str(casting[0])
+                    for cas in casting[1:min(len(casting), 5)]:
+                        cast += str(f", {cas}")
+                except KeyError:
+                    cast = ''
+                try:
+                    summary = movie['plot']
+                except KeyError:
+                    summary = ''
                 try:
                     cover = movie['cover url']
                 except:
                     print('cover error')
-                print(f"{cover=}")
                 select_list.append(f"{ID}:   {title} ({year})   cast = {cast}   dir = {dirs}")
                 id_list.append(ID)
             except:
                 print(f"error {i=}")
-            print(f"i at end {i=}")
+            print(f"{i=}")
         print(f"{select_list=}")
         # combo = ttk.Combobox(state="readonly", values=select_list)
         # new_choice = combo.get()
