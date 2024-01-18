@@ -246,8 +246,7 @@ class IMDBdataBase:
                             print(f"The film ( {title}, {year} ) is already in the list")
                         else:
                             try:
-                                movies = self.moviesDB.search_movie(title)
-                                id_film = movies[0].getID()
+                                id_film = self.look_smart(title, year)
                                 movie = self.moviesDB.get_movie(id_film)
                                 title = movie['title']
                                 year = movie['year']
@@ -284,47 +283,6 @@ class IMDBdataBase:
                         self.conn.commit()
                 print(f"{filepath=} done")
 
-    def make_list_of_cans(self, cans):
-        """String together data; difficult to do for some reason.  Resort to this manual way"""
-        result = []
-        searchable_result = []
-        titles = []
-        years = []
-        for item in cans:
-            title = item['title'].lower()
-            ID = item.getID()
-            try:
-                year = item['year']
-            except KeyError:
-                year = 0
-            result.append((title, year, ID))
-            titles.append(title)
-            years.append(year)
-            searchable_result.append(np.array([title, year]))
-        return result, np.array(searchable_result), np.array(titles, dtype='<U78'), np.array(years, dtype='<U78')
-
-    def look_smart(self, title, year=None):
-        """Find IMDB match as best as possible"""
-        film = (title, year)
-        candidates = self.moviesDB.search_movie(film[0])
-        list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
-        exact_matches = (array_of_cans == film).all(axis=1)
-        title_matches = (array_of_titles == title)
-        year_matches = (array_of_years == year)
-        matches = array_of_cans == film
-        exact_title_matches = array_of_titles == title
-        exact_year_matches = array_of_years == year
-        if exact_matches.any():
-            exact_match = np.where(exact_matches)[0][0]  # take first one
-            ID = list_of_cans[exact_match][2]
-            return ID
-        else:
-            exact_match = None
-
-        # for feature in candidates:
-        ID = None
-        return ID
-
     def add_film(self):
         """Insert film fields to Database"""
         self.root.focus_set()
@@ -332,18 +290,25 @@ class IMDBdataBase:
             tk.messagebox.showerror(title="Error", message='You should pick a title')
         else:
             film = self.entry.get().strip().lower()
-            if self.already_have_film(film):
+            if self.entry_year.get() != "" and not self.entry_year.get().isspace():
+                year = self.entry_year.get().strip()
+            else:
+                year = str(0)
+            have_film_year = self.already_have_film_year((film, year))
+            if have_film_year:
                 tk.messagebox.showerror(title="Error", message="The film is already in the list")
             else:
                 try:
-                    movies = self.moviesDB.search_movie(film)
-                    print(f"{movies=}")
-                    id_film = self.look_smart(film, '2010')
-                    # id_film = movies[0].getID()
+                    id_film = self.look_smart(film, year=year)
+                    if id_film is None:
+                        print(f"add_film:  not found at IMDB {film} ({year})")
+                        tk.messagebox.showerror(title="Error", message="The film is not found")
+                        return
                     movie = self.moviesDB.get_movie(id_film)
                     title = movie['title']
                     year = movie['year']
-                    if self.already_have_film_year((title, year)):
+                    have_film_year = self.already_have_film_year((film, year))
+                    if have_film_year:
                         print(f"add_film:  already have {title} ({year})")
                         tk.messagebox.showerror(title="Error", message="The film is already in the list")
                         return
@@ -361,7 +326,7 @@ class IMDBdataBase:
                     summary = movie['plot']
                     cover = movie['cover url']
                 except KeyError:
-                    print(f"{movies=}")
+                    print(f"{film=} {year=}")
                     tk.messagebox.showerror(title="Error", message="There is an error with the film")
                 # Enter into BBDD
                 try:
@@ -396,12 +361,14 @@ class IMDBdataBase:
         have = False
         title, year = film
         title = title.lower()
+        film = (title, int(year))
         self.c.execute(f"SELECT title,year FROM My_Films")
         rows = self.c.fetchall()
         row = [(item[0].lower(), item[1]) for item in rows]
-        print(f"{title} ({year}) in ?:  {row=}")
-        for possible in [year-2, year-1, year, year+1, year+2]:
-            if (title, possible) in row:
+        print(f"{film} in ?:  {row=}")
+        for possible in [int(year)-2, int(year)-1, int(year), int(year)+1, int(year)+2]:
+            film = (title, possible)
+            if film in row:
                 have = True
                 break
         return have
@@ -450,6 +417,67 @@ class IMDBdataBase:
         for row in rows:
             self.tree.insert("", tk.END, values=row)
         self.conn.commit()
+
+    def look_smart(self, title, year=None):
+        """Find IMDB match as best as possible, returning the ID"""
+        film = (title, year)
+        candidates = self.moviesDB.search_movie(film[0])
+        print(f"{candidates=}")
+        list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
+
+        # If exact matches take the first one
+        exact_matches = (array_of_cans == film).all(axis=1)
+        if exact_matches.any():
+            exact_match = np.where(exact_matches)[0][0]  # take first one
+            ID = list_of_cans[exact_match][2]
+            return ID
+        else:
+            exact_match = None
+
+        # Next find 'exact' matches within one year and take the first one
+        film_p1 = (title, str(int(year)+1))
+        film_m1 = (title, str(int(year)-1))
+        exact_matches_m1 = (array_of_cans == film_m1).all(axis=1)
+        exact_matches_p1 = (array_of_cans == film_p1).all(axis=1)
+        if exact_matches_m1.any():
+            exact_match = np.where(exact_matches_m1)[0][0]  # take first one
+            ID = list_of_cans[exact_match][2]
+            return ID
+        elif exact_matches_p1.any():
+            exact_match = np.where(exact_matches_p1)[0][0]  # take first one
+            ID = list_of_cans[exact_match][2]
+            return ID
+        else:
+            exact_match = None
+
+        title_matches = (array_of_titles == title)
+        year_matches = (array_of_years == year)
+        matches = array_of_cans == film
+        exact_title_matches = array_of_titles == title
+        exact_year_matches = array_of_years == year
+
+        # for feature in candidates:
+        ID = None
+        return ID
+
+    def make_list_of_cans(self, cans):
+        """String together data; difficult to do for some reason.  Resort to this manual way"""
+        result = []
+        searchable_result = []
+        titles = []
+        years = []
+        for item in cans:
+            title = item['title'].lower()
+            ID = item.getID()
+            try:
+                year = item['year']
+            except KeyError:
+                year = 0
+            result.append((title, year, ID))
+            titles.append(title)
+            years.append(year)
+            searchable_result.append(np.array([title, year]))
+        return result, np.array(searchable_result), np.array(titles, dtype='<U78'), np.array(years, dtype='<U78')
 
     def OnDoubleClick(self, event):
         """Called when user double clicks element from TreeView"""
