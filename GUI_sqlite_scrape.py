@@ -462,14 +462,14 @@ class IMDBdataBase:
                 title = movie['title']
                 year = movie['year']
                 directors = movie['directors']
-                dirs = ""
-                for dir in directors[0:len(directors)]:
-                    dirs += str(f'{dir}, ')
+                dirs = str(directors[0])
+                for dir in directors[1:len(directors)]:
+                    dirs += str(f', {dir}')
                 print(f"{dirs=}")
                 casting = movie['cast']
-                cast = ""
-                for cas in casting[0:min(len(casting), 5)]:
-                    cast += str(f'{cas}, ')
+                cast = str(casting[0])
+                for cas in casting[1:min(len(casting), 5)]:
+                    cast += str(f", {cas}")
                 print(f"{cast=}")
                 summary = movie['plot']
                 print(f"{summary=}")
@@ -478,7 +478,7 @@ class IMDBdataBase:
                 except:
                     print('cover error')
                 print(f"{cover=}")
-                select_list.append(f"{ID}: {title} ({year}) dirs={dirs=} cast={cast}")
+                select_list.append(f"{ID}:   {title} ({year})   cast = {cast}   dir = {dirs}")
                 id_list.append(ID)
             except:
                 print(f"error {i=}")
@@ -486,14 +486,14 @@ class IMDBdataBase:
         print(f"{select_list=}")
         # combo = ttk.Combobox(state="readonly", values=select_list)
         # new_choice = combo.get()
-        window = tk.Tk()
+        window = tk.Toplevel()
         window.title('Combobox')
-        window.geometry('800x250')
-        ttk.Label(window, text=title + '(' + str(year) + ')', background='green', foreground="white",
-                  font=("Times New Roman", 15)).grid(row=0, column=1)
-        ttk.Label(window, text="Select the Film :", font=("Times New Roman", 10)).grid(column=0, row=5, padx=10, pady=25)
+        window.geometry('950x250')
+        ttk.Label(window, text=title + '(' + str(year) + ')', background='red', foreground="white",
+                  font=("Times New Roman", 15)).grid(row=2, column=0, padx=10, pady=25)
+        ttk.Label(window, text="Select the match:", font=("Times New Roman", 10)).grid(column=0, row=5, padx=10, pady=25)
         n = tk.StringVar()
-        film_chosen = ttk.Combobox(window, width=27, textvariable=n)
+        film_chosen = ttk.Combobox(window, width=125, textvariable=n)
         film_chosen['values'] = select_list
         film_chosen.grid(column=1, row=5)
         film_chosen.current()
