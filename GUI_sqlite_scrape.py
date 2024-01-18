@@ -57,6 +57,48 @@ entry_color = '#2e3a4d'
 light_purple = '#7258db'
 
 
+class Feature:
+    """Make a container of a films information"""
+    def __init__(self, ID=0):
+        self.ID = ID
+        movie = Cinemagoer().get_movie(self.ID)
+        self.title = movie['title']
+        self.year = movie['year']
+        try:
+            self.rating = movie['rating']
+            self.my_rating = self.rating
+        except KeyError:
+            self.rating = 0.
+            self.my_rating = self.rating
+        try:
+            self.directors = movie['directors']
+        except KeyError:
+            self.directors = ''
+        try:
+            casting = movie['cast']
+            self.sentence = str(casting[0])
+            for cas in casting[1:5]:
+                self.sentence += str(f', {cas}')
+        except KeyError:
+            self.sentence = ''
+        try:
+            generes = movie['genres']
+            self.genres = str(generes[0])
+            for gen in generes[1:]:
+                self.genres += str(f', {gen}')
+        except KeyError:
+            self.genres = ''
+        try:
+            self.summary = movie['plot']
+        except KeyError:
+            self.summary = ''
+        try:
+            self.cover = movie['cover url']
+        except KeyError:
+            self.cover = ''
+            print('cover error')
+
+
 # Begini - configuration class using .ini files
 class Begini(ConfigParser):
 
@@ -305,6 +347,8 @@ class IMDBdataBase:
                         print(f"add_film:  not found at IMDB {film} ({year})")
                         tk.messagebox.showerror(title="Error", message="The film is not found")
                         return
+                    new_movie = Feature(id_film)
+                    print(f"new_movie: title {new_movie.title} year {new_movie.year} cover {new_movie.cover}")
                     movie = self.moviesDB.get_movie(id_film)
                     title = movie['title']
                     year = movie['year']
