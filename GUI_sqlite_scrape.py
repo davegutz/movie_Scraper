@@ -325,7 +325,10 @@ class IMDBdataBase:
                     for gen in generes:
                         genres += str(f'{gen}, ')
                     summary = movie['plot']
-                    cover = movie['cover url']
+                    try:
+                        cover = movie['cover url']
+                    except KeyError:
+                        print('cover error')
                 except KeyError:
                     print(f"{film=} {year=}")
                     tk.messagebox.showerror(title="Error", message="There is an error with the film")
