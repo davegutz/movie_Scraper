@@ -450,14 +450,67 @@ class IMDBdataBase:
         else:
             exact_match = None
 
-        title_matches = (array_of_titles == title)
-        year_matches = (array_of_years == year)
-        matches = array_of_cans == film
-        exact_title_matches = array_of_titles == title
-        exact_year_matches = array_of_years == year
+        # Next offer choices if title matches
+        i_titles = np.where(array_of_titles == title)[0]
+        select_list = []
+        id_list = []
+        for i in i_titles:
+            print(f"{i=}")
+            try:
+                ID = candidates[i].getID()
+                movie = self.moviesDB.get_movie(ID)
+                title = movie['title']
+                year = movie['year']
+                directors = movie['directors']
+                dirs = ""
+                for dir in directors[0:len(directors)]:
+                    dirs += str(f'{dir}, ')
+                print(f"{dirs=}")
+                casting = movie['cast']
+                cast = ""
+                for cas in casting[0:min(len(casting), 5)]:
+                    cast += str(f'{cas}, ')
+                print(f"{cast=}")
+                summary = movie['plot']
+                print(f"{summary=}")
+                try:
+                    cover = movie['cover url']
+                except:
+                    print('cover error')
+                print(f"{cover=}")
+                select_list.append(f"{ID}: {title} ({year}) dirs={dirs=} cast={cast}")
+                id_list.append(ID)
+            except:
+                print(f"error {i=}")
+            print(f"i at end {i=}")
+        print(f"{select_list=}")
+        combo = ttk.Combobox(state="readonly", values=select_list)
+        new_choice = combo.get()
+        window = tk.Tk()
+        window.title('Combobox')
+        window.geometry('500x250')
+        # label text for title
+        ttk.Label(window, text="GFG Combobox Widget",
+                  background='green', foreground="white",
+                  font=("Times New Roman", 15)).grid(row=0, column=1)
+
+        # label
+        ttk.Label(window, text="Select the Month :",
+                  font=("Times New Roman", 10)).grid(column=0,
+                                                     row=5, padx=10, pady=25)
+
+        # Combobox creation
+        n = tk.StringVar()
+        film_chosen = ttk.Combobox(window, width=27, textvariable=n)
+        # Adding combobox drop down list
+        film_chosen['values'] = select_list
+        film_chosen.grid(column=1, row=5)
+        film_chosen.current()
+        window.mainloop()
+        print(f"{n=}")
 
         # for feature in candidates:
-        ID = None
+        ID = id_list[n.get()]
         return ID
 
     def make_list_of_cans(self, cans):
