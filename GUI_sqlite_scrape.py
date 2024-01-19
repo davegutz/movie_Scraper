@@ -97,7 +97,7 @@ class Begini(ConfigParser):
 
 class Feature:
     """Container of a film's information"""
-    def __init__(self, ID=0, watched=None, myRating=None):
+    def __init__(self, ID, watched=None, myRating=None):
         self.ID = ID
         movie = Cinemagoer().get_movie(self.ID)
         self.title = movie['title']
@@ -206,12 +206,13 @@ class IMDBdataBase:
         self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
 
         # Set up the Tree columns
-        self.tree['columns'] = ('Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'Watched')
+        self.tree['columns'] = ('ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'Watched')
         self.tree.column('#0', width=0, stretch=tk.NO)
-        self.tree.column('Title', width=200, minwidth=200, anchor=tk.CENTER)
-        self.tree.column('Year', width=70, minwidth=70, anchor=tk.CENTER)
-        self.tree.column('Rating', width=82, minwidth=82, anchor=tk.CENTER)
-        self.tree.column('MyRating', width=82, minwidth=82, anchor=tk.CENTER)
+        self.tree.column('ID', width=50, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('Title', width=150, minwidth=150, anchor=tk.CENTER)
+        self.tree.column('Year', width=50, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('Rating', width=55, minwidth=55, anchor=tk.CENTER)
+        self.tree.column('MyRating', width=78, minwidth=78, anchor=tk.CENTER)
         self.tree.column('Director', width=100, minwidth=100, anchor=tk.CENTER)
         self.tree.column('Actors', width=150, minwidth=150, anchor=tk.CENTER)
         self.tree.column('Generes', width=100, minwidth=100, anchor=tk.CENTER)
@@ -221,6 +222,7 @@ class IMDBdataBase:
 
         # Set up the Tree headings
         self.tree.heading('#0', text='', anchor=tk.CENTER)
+        self.tree.heading('ID', text='ID', anchor=tk.CENTER)
         self.tree.heading('Title', text='Title', anchor=tk.CENTER)
         self.tree.heading('Year', text='Year', anchor=tk.CENTER)
         self.tree.heading('Rating', text='Rating', anchor=tk.CENTER)
@@ -300,9 +302,9 @@ class IMDBdataBase:
                                 tk.messagebox.showerror(title="Error", message=f"There is an error with the {title=}")
                             # Enter into BBDD
                             try:
-                                self.c.execute(f"""INSERT INTO My_Films(title, year, rating, my_rating,
-                                                director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?);""",
-                                               (str(title), int(year),
+                                self.c.execute(f"""INSERT INTO My_Films(ID, title, year, rating, my_rating,
+                                                director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
+                                               (new_movie.ID, str(title), int(year),
                                                 float(new_movie.rating), float(new_movie.my_rating),
                                                 str(new_movie.directors[0]), str(new_movie.sentence),
                                                 str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
@@ -342,9 +344,9 @@ class IMDBdataBase:
                     tk.messagebox.showerror(title="Error", message="There is an error with the film")
                 # Enter into BBDD
                 try:
-                    self.c.execute(f"""INSERT INTO My_Films(title, year, rating, my_rating,
-                                    director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?);""",
-                                   (str(new_movie.title), int(new_movie.year),
+                    self.c.execute(f"""INSERT INTO My_Films(ID, title, year, rating, my_rating,
+                                    director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
+                                   (new_movie.ID, str(new_movie.title), int(new_movie.year),
                                     float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
                                     str(new_movie.sentence),
                                     str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
@@ -424,7 +426,7 @@ class IMDBdataBase:
     def list_it(self):
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films")
+        self.c.execute(f"SELECT ID, title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films")
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", tk.END, values=row)
@@ -570,7 +572,7 @@ Viewed: {item['values'][9]}
         item = self.tree.item(curItem)
         self.renew()
         try:
-            with urllib.request.urlopen(item['values'][8]) as u:
+            with urllib.request.urlopen(item['values'][9]) as u:
                 raw_data = u.read()
             image = Image.open(io.BytesIO(raw_data))
             my_img = ImageTk.PhotoImage(image)
