@@ -351,22 +351,10 @@ class IMDBdataBase:
                                     str(new_movie.cover), str(datetime.today().strftime('%Y/%m/%d')))),
                     self.list_it()
                 except UnboundLocalError:
-                    print(f"add_film:  couldn't enter film '{film} ({year})'")
+                    print(f"add_film:  couldn't enter film '{film} ({year}) id:{id_film}'")
                     pass
             self.root.title(f"Features ({len(self.tree.get_children())})")
             self.conn.commit()
-
-    def already_have_film(self, film):
-        """Check for existence by year and title (film = (year))"""
-        have = False
-        title = film.lower()
-        self.c.execute(f"SELECT title FROM My_Films")
-        rows = self.c.fetchall()
-        print(f"{rows=}")
-        row = [item[1].lower() for item in rows]
-        if title in row:
-            have = True
-        return have
 
     def already_have_film_year(self, film):
         """Check for existence by year and title (film = (year, title))"""
@@ -374,7 +362,7 @@ class IMDBdataBase:
         title, year = film
         title = title.lower()
         film = (title, int(year))
-        self.c.execute(f"SELECT title,year FROM My_Films")
+        self.c.execute(f"SELECT title,year FROM My_Films ORDER BY title")
         rows = self.c.fetchall()
         row = [(item[0].lower(), item[1]) for item in rows]
         print(f"{film} in ?:  {row=}")
@@ -383,6 +371,17 @@ class IMDBdataBase:
             if film in row:
                 have = True
                 break
+        return have
+
+    def already_have_id(self, id_):
+        """Check for existence by year and title (film = (year))"""
+        have = False
+        self.c.execute(f"SELECT ID FROM My_Films ORDER BY ID")
+        rows = self.c.fetchall()
+        print(f"{rows=}")
+        row = [item[0] for item in rows]
+        if id_ in row:
+            have = True
         return have
 
     def delete_film(self):
@@ -423,7 +422,7 @@ class IMDBdataBase:
     def list_it(self):
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT ID, title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films")
+        self.c.execute(f"SELECT ID, title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films ORDER BY title")
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", tk.END, values=row)
@@ -464,9 +463,15 @@ class IMDBdataBase:
         # Next offer choices if title matches
         print(f"{candidates=}")
         ID = None
-        i_titles = np.where(array_of_titles == title)[0]
+        # i_titles = np.where(array_of_titles == title)[0]
+        i_titles = []
+        for i in range(len(array_of_titles)):
+            if array_of_titles[i].__contains__(title):
+                i_titles.append(i)
+            i += 1
         select_list = []
         id_list = []
+        print(len(i_titles), "candidates: ", end=' ')
         for i in i_titles:
             try:
                 ID = candidates[i].getID()
