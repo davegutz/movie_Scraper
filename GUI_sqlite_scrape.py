@@ -120,11 +120,11 @@ class Feature:
             self.directors = ''
         try:
             casting = movie['cast']
-            self.sentence = str(casting[0])
+            self.casting = str(casting[0])
             for cas in casting[1:5]:
-                self.sentence += str(f', {cas}')
+                self.casting += str(f', {cas}')
         except KeyError:
-            self.sentence = ''
+            self.casting = ''
         try:
             generes = movie['genres']
             self.genres = str(generes[0])
@@ -306,7 +306,7 @@ class IMDBdataBase:
                                                 director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
                                                (new_movie.ID, str(title), int(year),
                                                 float(new_movie.rating), float(new_movie.my_rating),
-                                                str(new_movie.directors[0]), str(new_movie.sentence),
+                                                str(new_movie.directors[0]), str(new_movie.casting),
                                                 str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
                                                 new_movie.watched)),
                                 self.list_it()
@@ -348,7 +348,7 @@ class IMDBdataBase:
                                     director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
                                    (new_movie.ID, str(new_movie.title), int(new_movie.year),
                                     float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
-                                    str(new_movie.sentence),
+                                    str(new_movie.casting),
                                     str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
                                     str(datetime.today().strftime('%Y/%m/%d')))),
                     self.list_it()
@@ -393,10 +393,10 @@ class IMDBdataBase:
             curItem = self.tree.focus()
             item = self.tree.item(curItem)
             deleting = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "
-                                        f"{(str(item['values'][0]))}?")
+                                        f"{(str(item['values'][1]))}?")
             if deleting:
                 self.c.execute(f"DELETE FROM My_Films where title = (?);",
-                               (str(item['values'][0]),))
+                               (str(item['values'][1]),))
         except IndexError:
             tk.messagebox.showinfo(title='Info', message='You should pick an entry')
             print("Index Error")
@@ -437,7 +437,6 @@ class IMDBdataBase:
         ID = None
         film = (title, year)
         candidates = self.moviesDB.search_movie(title)
-        print(f"{candidates=}")
         list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
 
         # If exact matches take the first one
@@ -466,6 +465,7 @@ class IMDBdataBase:
             exact_match = None
 
         # Next offer choices if title matches
+        print(f"{candidates=}")
         ID = None
         i_titles = np.where(array_of_titles == title)[0]
         select_list = []
@@ -473,39 +473,13 @@ class IMDBdataBase:
         for i in i_titles:
             try:
                 ID = candidates[i].getID()
-                movie = self.moviesDB.get_movie(ID)
-                title = movie['title']
-                year = movie['year']
-                try:
-                    directors = movie['directors']
-                    dirs = str(directors[0])
-                    for dir in directors[1:len(directors)]:
-                        dirs += str(f', {dir}')
-                except KeyError:
-                    dirs = ''
-                try:
-                    casting = movie['cast']
-                    cast = str(casting[0])
-                    for cas in casting[1:min(len(casting), 5)]:
-                        cast += str(f", {cas}")
-                except KeyError:
-                    cast = ''
-                try:
-                    summary = movie['plot']
-                except KeyError:
-                    summary = ''
-                try:
-                    cover = movie['cover url']
-                except:
-                    print('cover error')
-                select_list.append(f"{ID}:   {title} ({year})   cast = {cast}   dir = {dirs}")
-                id_list.append(ID)
+                movie = Feature(ID)
+                select_list.append(f"{movie.ID}:   {movie.title} ({movie.year})   cast = {movie.casting}   dir = {movie.directors}")
+                id_list.append(movie.ID)
             except:
                 print(f"error {i=}")
-            print(f"{i=}")
+            print(f"{i=}", end=None)
         print(f"{select_list=}")
-        # combo = ttk.Combobox(state="readonly", values=select_list)
-        # new_choice = combo.get()
         lst = psg.Listbox(select_list, size=(200, 20), font=('Arial Bold', 14), expand_y=True, enable_events=True,
                           key='-SELECTION-', horizontal_scroll=True)
         layout = [[psg.Input(size=(20, 1), font=('Arial Bold', 14), expand_x=True, key='-INPUT-'), psg.Button('Process'), psg.Button('Cancel')], [lst], [psg.Text("", key='-MSG-', font=('Arial Bold', 14), justification='center')]]
@@ -546,23 +520,24 @@ class IMDBdataBase:
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
         self.renew()
-        with urllib.request.urlopen(item['values'][8]) as u:
+        with urllib.request.urlopen(item['values'][9]) as u:
             raw_data = u.read()
         image = Image.open(io.BytesIO(raw_data))
         my_img = ImageTk.PhotoImage(image)
         pic = tk.Label(self.root, image=my_img)
         pic.pack(side='left')
-        tk.messagebox.showinfo(title=f"{item['values'][0]}", message=f"""
-Title: {item['values'][0]}\n
-Year: {item['values'][1]}\n
-Rating: {item['values'][2]}\n
-MyRating: {item['values'][3]}\n
-Director: {item['values'][4]}\n
-Actors: {item['values'][5]}\n
-Generes: {item['values'][6]}\n
-Summary: {item['values'][7]}\n
-Cover: {item['values'][8]}\n
-Viewed: {item['values'][9]}
+        tk.messagebox.showinfo(title=f"{item['values'][1]}", message=f"""
+ID: {item['values'][0]}\n
+Title: {item['values'][1]}\n
+Year: {item['values'][2]}\n
+Rating: {item['values'][3]}\n
+MyRating: {item['values'][4]}\n
+Director: {item['values'][5]}\n
+Actors: {item['values'][6]}\n
+Generes: {item['values'][7]}\n
+Summary: {item['values'][8]}\n
+Cover: {item['values'][9]}\n
+Viewed: {item['values'][10]}
 """)
         pic.pack_forget()
 
@@ -586,7 +561,7 @@ Viewed: {item['values'][9]}
         item = self.tree.item(curItem)
         self.entry.delete(0, "end")
         try:
-            self.entry.insert(0, item['values'][0])
+            self.entry.insert(0, item['values'][1])
         except IndexError:
             pass
 
