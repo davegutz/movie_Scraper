@@ -59,17 +59,23 @@ light_purple = '#7258db'
 
 class Feature:
     """Make a container of a films information"""
-    def __init__(self, ID=0):
+    def __init__(self, ID=0, watched=None, myRating=None):
         self.ID = ID
         movie = Cinemagoer().get_movie(self.ID)
         self.title = movie['title']
         self.year = movie['year']
+        if watched is None:
+            self.watched = ''
+        else:
+            self.watched = watched
         try:
             self.rating = movie['rating']
-            self.my_rating = self.rating
         except KeyError:
             self.rating = 0.
+        if myRating is None:
             self.my_rating = self.rating
+        else:
+            self.my_rating = myRating
         try:
             self.directors = movie['directors']
         except KeyError:
@@ -283,32 +289,14 @@ class IMDBdataBase:
                             continue
                         title = line[0].lower()
                         year = int(line[1])
-                        watched = line[2]
+                        watched_in = line[2]
                         rating_in = line[3]
                         if self.already_have_film_year((title, year)):
                             print(f"The film ( {title}, {year} ) is already in the list")
                         else:
                             try:
                                 id_film = self.look_smart(title, year)
-                                movie = self.moviesDB.get_movie(id_film)
-                                title = movie['title']
-                                year = movie['year']
-                                rating = movie['rating']
-                                if rating_in == '':
-                                    my_rating = 0.
-                                else:
-                                    my_rating = float(rating_in)
-                                directors = movie['directors']
-                                casting = movie['cast']
-                                sentence = ""
-                                for cas in casting[0:5]:
-                                    sentence += str(f'{cas}, ')
-                                generes = movie['genres']
-                                genres = ""
-                                for gen in generes:
-                                    genres += str(f'{gen}, ')
-                                summary = movie['plot']
-                                cover = movie['cover url']
+                                new_movie = Feature(id_film, watched=watched_in, myRating=rating_in)
                             except IOError:
                                 tk.messagebox.showerror(title="Error", message=f"There is an error with the {title=}")
                             # Enter into BBDD
@@ -316,9 +304,10 @@ class IMDBdataBase:
                                 self.c.execute(f"""INSERT INTO My_Films(title, year, rating, my_rating,
                                                 director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?);""",
                                                (str(title), int(year),
-                                                float(rating), my_rating, str(directors[0]),
-                                                str(sentence),
-                                                str(genres), str(summary[0]), str(cover), watched)),
+                                                float(new_movie.rating), float(new_movie.my_rating),
+                                                str(new_movie.directors[0]), str(new_movie.sentence),
+                                                str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
+                                                new_movie.watched)),
                                 self.list_it()
                             except UnboundLocalError:
                                 pass
@@ -349,47 +338,6 @@ class IMDBdataBase:
                         return
                     new_movie = Feature(id_film)
                     print(f"new_movie: title {new_movie.title} year {new_movie.year} cover {new_movie.cover}")
-                    movie = self.moviesDB.get_movie(id_film)
-                    title = movie['title']
-                    year = movie['year']
-                    have_film_year = self.already_have_film_year((film, year))
-                    if have_film_year:
-                        print(f"add_film:  already have {title} ({year})")
-                        tk.messagebox.showerror(title="Error", message="The film is already in the list")
-                        return
-                    try:
-                        rating = movie['rating']
-                        my_rating = rating
-                    except KeyError:
-                        rating = 0.
-                        my_rating = rating
-                    try:
-                        directors = movie['directors']
-                    except KeyError:
-                        directors = ''
-                    try:
-                        casting = movie['cast']
-                        sentence = ""
-                        for cas in casting[0:5]:
-                            sentence += str(f'{cas}, ')
-                    except KeyError:
-                        sentence = ''
-                    try:
-                        generes = movie['genres']
-                        genres = ""
-                        for gen in generes:
-                            genres += str(f'{gen}, ')
-                    except KeyError:
-                        genres = ''
-                    try:
-                        summary = movie['plot']
-                    except KeyError:
-                        summary = ''
-                    try:
-                        cover = movie['cover url']
-                    except KeyError:
-                        cover = ''
-                        print('cover error')
                 except KeyError:
                     print(f"{film=} {year=}")
                     tk.messagebox.showerror(title="Error", message="There is an error with the film")
@@ -397,10 +345,10 @@ class IMDBdataBase:
                 try:
                     self.c.execute(f"""INSERT INTO My_Films(title, year, rating, my_rating,
                                     director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?);""",
-                                   (str(title), int(year),
-                                    float(rating), float(my_rating), str(directors[0]),
-                                    str(sentence),
-                                    str(genres), str(summary[0]), str(cover),
+                                   (str(new_movie.title), int(new_movie.year),
+                                    float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
+                                    str(new_movie.sentence),
+                                    str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
                                     str(datetime.today().strftime('%Y/%m/%d')))),
                     self.list_it()
                 except UnboundLocalError:
@@ -487,7 +435,7 @@ class IMDBdataBase:
         """Find IMDB match as best as possible, returning the ID"""
         ID = None
         film = (title, year)
-        candidates = self.moviesDB.search_movie(film[0])
+        candidates = self.moviesDB.search_movie(title)
         print(f"{candidates=}")
         list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
 
