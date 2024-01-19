@@ -337,7 +337,7 @@ class IMDBdataBase:
                         tk.messagebox.showerror(title="Error", message="The film is not found")
                         return
                     new_movie = Feature(id_film)
-                    print(f"new_movie: title {new_movie.title} year {new_movie.year} cover {new_movie.cover}")
+                    print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
                 except KeyError:
                     print(f"{film=} {year=}")
                     tk.messagebox.showerror(title="Error", message="There is an error with the film")
@@ -493,7 +493,7 @@ class IMDBdataBase:
             ID = None
         if event == '-SELECTION-':
             ID = selection['-SELECTION-'][0].split(':')[0]
-            print(f"Select from GUI {ID=}")
+            print(f"Selected from GUI {ID=}")
         window.close()
 
         return ID
