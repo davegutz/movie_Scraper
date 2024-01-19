@@ -110,7 +110,7 @@ class Feature:
             self.rating = movie['rating']
         except KeyError:
             self.rating = 0.
-        if myRating is None:
+        if myRating is None or myRating == '':
             self.my_rating = self.rating
         else:
             self.my_rating = myRating
@@ -143,7 +143,6 @@ class Feature:
             print('cover error')
 
 
-# Begini - configuration class using .ini files
 class IMDBdataBase:
     """Interface using Tkinter that has the API from IMDB to search the feature that is specified,
     enter the results into BBDD Sqlite3.
@@ -391,9 +390,9 @@ class IMDBdataBase:
         try:
             curItem = self.tree.focus()
             item = self.tree.item(curItem)
-            mb = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "
+            deleting = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "
                                         f"{(str(item['values'][0]))}?")
-            if mb:
+            if deleting:
                 self.c.execute(f"DELETE FROM My_Films where title = (?);",
                                (str(item['values'][0]),))
         except IndexError:
