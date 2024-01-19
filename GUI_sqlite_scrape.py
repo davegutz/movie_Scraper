@@ -57,6 +57,44 @@ entry_color = '#2e3a4d'
 light_purple = '#7258db'
 
 
+class Begini(ConfigParser):
+
+    def __init__(self, name, def_dict_):
+        ConfigParser.__init__(self)
+
+        (config_path, config_basename) = os.path.split(name)
+        if sys.platform == 'linux':
+            config_txt = os.path.splitext(config_basename)[0] + '_linux.ini'
+        elif sys.platform == 'Darwin':
+            config_txt = os.path.splitext(config_basename)[0] + '_macos.ini'
+        else:
+            config_txt = os.path.splitext(config_basename)[0] + '.ini'
+        self.config_file_path = os.path.join(config_path, config_txt)
+        print('config file', self.config_file_path)
+        if os.path.isfile(self.config_file_path):
+            self.read(self.config_file_path)
+        else:
+            with open(self.config_file_path, 'w') as cfg_file:
+                self.read_dict(def_dict_)
+                self.write(cfg_file)
+            print('wrote', self.config_file_path)
+
+    # Get an item
+    def get_item(self, ind, item):
+        return self[ind][item]
+
+    # Put an item
+    def put_item(self, ind, item, value):
+        self[ind][item] = value
+        self.save_to_file()
+
+    # Save again
+    def save_to_file(self):
+        with open(self.config_file_path, 'w') as cfg_file:
+            self.write(cfg_file)
+        print('wrote', self.config_file_path)
+
+
 class Feature:
     """Make a container of a films information"""
     def __init__(self, ID=0, watched=None, myRating=None):
@@ -106,44 +144,6 @@ class Feature:
 
 
 # Begini - configuration class using .ini files
-class Begini(ConfigParser):
-
-    def __init__(self, name, def_dict_):
-        ConfigParser.__init__(self)
-
-        (config_path, config_basename) = os.path.split(name)
-        if sys.platform == 'linux':
-            config_txt = os.path.splitext(config_basename)[0] + '_linux.ini'
-        elif sys.platform == 'Darwin':
-            config_txt = os.path.splitext(config_basename)[0] + '_macos.ini'
-        else:
-            config_txt = os.path.splitext(config_basename)[0] + '.ini'
-        self.config_file_path = os.path.join(config_path, config_txt)
-        print('config file', self.config_file_path)
-        if os.path.isfile(self.config_file_path):
-            self.read(self.config_file_path)
-        else:
-            with open(self.config_file_path, 'w') as cfg_file:
-                self.read_dict(def_dict_)
-                self.write(cfg_file)
-            print('wrote', self.config_file_path)
-
-    # Get an item
-    def get_item(self, ind, item):
-        return self[ind][item]
-
-    # Put an item
-    def put_item(self, ind, item, value):
-        self[ind][item] = value
-        self.save_to_file()
-
-    # Save again
-    def save_to_file(self):
-        with open(self.config_file_path, 'w') as cfg_file:
-            self.write(cfg_file)
-        print('wrote', self.config_file_path)
-
-
 class IMDBdataBase:
     """Interface using Tkinter that has the API from IMDB to search the feature that is specified,
     enter the results into BBDD Sqlite3.
