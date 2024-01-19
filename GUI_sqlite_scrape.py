@@ -96,7 +96,7 @@ class Begini(ConfigParser):
 
 
 class Feature:
-    """Make a container of a films information"""
+    """Container of a film's information"""
     def __init__(self, ID=0, watched=None, myRating=None):
         self.ID = ID
         movie = Cinemagoer().get_movie(self.ID)
