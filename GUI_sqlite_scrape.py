@@ -195,8 +195,8 @@ class IMDBdataBase:
         self.conn = sqlite3.connect(self.db_path)
         print("Connection made on exit")
         self.c = self.conn.cursor()
-        self.c.execute(f"CREATE TABLE if not exists My_Films(title text PRIMARY KEY,"
-                       "year integer, id integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, date text)")
+        self.c.execute(f"CREATE TABLE if not exists My_Films(title text,"
+                       "year integer, id integer PRIMARY KEY, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, date text)")
         self.conn.commit()
 
         # Set up Tree style
@@ -394,8 +394,8 @@ class IMDBdataBase:
             deleting = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "
                                         f"{(str(item['values'][0]))}?")
             if deleting:
-                self.c.execute(f"DELETE FROM My_Films where title = (?);",
-                               (str(item['values'][0]),))
+                self.c.execute(f"DELETE FROM My_Films where id = (?);",
+                               (str(item['values'][2]),))
         except IndexError:
             tk.messagebox.showinfo(title='Info', message='You should pick an entry')
             print("Index Error")
