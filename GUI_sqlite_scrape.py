@@ -288,7 +288,10 @@ class IMDBdataBase:
                         if csvFile.line_num == 1:
                             continue
                         title = line[0].lower()
-                        year = int(line[1])
+                        try:
+                            year = int(line[1])
+                        except ValueError:
+                            year = 1860
                         watched_in = line[2]
                         rating_in = line[3]
                         if self.already_have_film_year((title, year)):
@@ -297,19 +300,23 @@ class IMDBdataBase:
                             try:
                                 id_film = self.look_smart(title, year)
                                 new_movie = Feature(id_film, watched=watched_in, myRating=rating_in)
-                            except IOError:
-                                tk.messagebox.showerror(title="Error", message=f"There is an error with the {title=}")
+                            except (IOError, TypeError):
+                                print(f"There is an error with the {title=}")
+                                # tk.messagebox.showerror(title="Error", message=f"There is an error with the {title=}")
                             # Enter into BBDD
                             try:
+                                print(f"adding '{new_movie.title}' ({new_movie.year})")
                                 self.c.execute(f"""INSERT INTO My_Films(ID, title, year, rating, my_rating,
                                                 director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
-                                               (new_movie.ID, str(title), int(year),
+                                               (new_movie.ID, str(new_movie.title), int(year),
                                                 float(new_movie.rating), float(new_movie.my_rating),
                                                 str(new_movie.directors[0]), str(new_movie.casting),
                                                 str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
                                                 new_movie.watched)),
                                 self.list_it()
-                            except UnboundLocalError:
+                            except (UnboundLocalError, sqlite3.IntegrityError) as e:
+                                print (e)
+                                print(f"Trouble adding {new_movie.title} ({new_movie.year})")
                                 pass
                         self.root.title(f"Features ({len(self.tree.get_children())})")
                         self.conn.commit()
@@ -360,12 +367,11 @@ class IMDBdataBase:
         """Check for existence by year and title (film = (year, title))"""
         have = False
         title, year = film
-        title = title.lower()
+        title = title.strip().lower()
         film = (title, int(year))
         self.c.execute(f"SELECT title,year FROM My_Films ORDER BY title")
         rows = self.c.fetchall()
-        row = [(item[0].lower(), item[1]) for item in rows]
-        print(f"{film} in ?:  {row=}")
+        row = [(item[0].strip().lower(), item[1]) for item in rows]
         for possible in [int(year)-2, int(year)-1, int(year), int(year)+1, int(year)+2]:
             film = (title, possible)
             if film in row:
@@ -461,7 +467,7 @@ class IMDBdataBase:
             exact_match = None
 
         # Next offer choices if title matches
-        print(f"{candidates=}")
+        print(f"{film}: {candidates=}")
         ID = None
         # i_titles = np.where(array_of_titles == title)[0]
         i_titles = []
@@ -479,7 +485,7 @@ class IMDBdataBase:
                 select_list.append(f"{movie.ID}:   {movie.title} ({movie.year})   cast = {movie.casting}   dir = {movie.directors}")
                 id_list.append(movie.ID)
             except:
-                print(f"error {i=}")
+                print(f"error: ", end='')
             print(f"{i}, ", end='')
         print(f"{select_list=}")
         lst = psg.Listbox(select_list, size=(200, 20), font=('Arial Bold', 14), expand_y=True, enable_events=True,
@@ -505,7 +511,7 @@ class IMDBdataBase:
         titles = []
         years = []
         for item in cans:
-            title = item['title'].lower()
+            title = item['title'].strip().lower()
             ID = item.getID()
             try:
                 year = item['year']
