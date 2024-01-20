@@ -302,22 +302,23 @@ class IMDBdataBase:
                                 new_movie = Feature(id_film, watched=watched_in, myRating=rating_in)
                             except (IOError, TypeError):
                                 print(f"There is an error with the {title=}")
-                                # tk.messagebox.showerror(title="Error", message=f"There is an error with the {title=}")
+                                new_movie = None
                             # Enter into BBDD
-                            try:
-                                print(f"adding '{new_movie.title}' ({new_movie.year})")
-                                self.c.execute(f"""INSERT INTO My_Films(ID, title, year, rating, my_rating,
-                                                director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
-                                               (new_movie.ID, str(new_movie.title), int(year),
-                                                float(new_movie.rating), float(new_movie.my_rating),
-                                                str(new_movie.directors[0]), str(new_movie.casting),
-                                                str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
-                                                new_movie.watched)),
-                                self.list_it()
-                            except (UnboundLocalError, sqlite3.IntegrityError) as e:
-                                print (e)
-                                print(f"Trouble adding {new_movie.title} ({new_movie.year})")
-                                pass
+                            if new_movie is not None:
+                                try:
+                                    print(f"adding '{new_movie.title}' ({new_movie.year})")
+                                    self.c.execute(f"""INSERT INTO My_Films(ID, title, year, rating, my_rating,
+                                                    director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
+                                                   (new_movie.ID, str(new_movie.title), int(year),
+                                                    float(new_movie.rating), float(new_movie.my_rating),
+                                                    str(new_movie.directors[0]), str(new_movie.casting),
+                                                    str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
+                                                    new_movie.watched)),
+                                    self.list_it()
+                                except (UnboundLocalError, sqlite3.IntegrityError) as e:
+                                    print (e)
+                                    print(f"Trouble adding {new_movie.title} ({new_movie.year})")
+                                    pass
                         self.root.title(f"Features ({len(self.tree.get_children())})")
                         self.conn.commit()
                 print(f"{filepath=} done")
@@ -466,32 +467,23 @@ class IMDBdataBase:
         else:
             exact_match = None
 
-        # Next offer choices if title matches
+        # Next offer choices of all that IMDB came up with
         print(f"{film}: {candidates=}")
         ID = None
-        # i_titles = np.where(array_of_titles == title)[0]
-        i_titles = []
-        for i in range(len(array_of_titles)):
-            if array_of_titles[i].__contains__(title):
-                i_titles.append(i)
-            i += 1
         select_list = []
-        id_list = []
-        print(len(i_titles), "candidates: ", end=' ')
-        for i in i_titles:
+        for i in range(len(array_of_titles)):
             try:
                 ID = candidates[i].getID()
                 movie = Feature(ID)
                 select_list.append(f"{movie.ID}:   {movie.title} ({movie.year})   cast = {movie.casting}   dir = {movie.directors}")
-                id_list.append(movie.ID)
             except:
-                print(f"error: ", end='')
+                print(f"skipped: ", end='')
             print(f"{i}, ", end='')
         print(f"{select_list=}")
-        lst = psg.Listbox(select_list, size=(200, 20), font=('Arial Bold', 14), expand_y=True, enable_events=True,
+        lst = psg.Listbox(select_list, size=(400, 100), font=('Arial Bold', 12), expand_y=True, enable_events=True,
                           key='-SELECTION-', horizontal_scroll=True)
         layout = [[psg.Input(size=(20, 1), font=('Arial Bold', 14), expand_x=True, key='-INPUT-'), psg.Button('Process'), psg.Button('Cancel')], [lst], [psg.Text("", key='-MSG-', font=('Arial Bold', 14), justification='center')]]
-        window = psg.Window('Select one of below', layout, size=(600, 200))
+        window = psg.Window('Select one of below', layout, size=(900, 400))
         event, selection = window.read()
         window.close()
         print(selection)
