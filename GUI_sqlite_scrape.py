@@ -439,8 +439,10 @@ class IMDBdataBase:
         """Find IMDB match as best as possible, returning the ID"""
         ID = None
         film = (title, year)
-        candidates = self.moviesDB.search_movie(title)
+        candidates = self.moviesDB.search_movie(title, results=8)
         list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
+        if not len(array_of_cans):
+            return None
 
         # If exact matches take the first one
         exact_matches = (array_of_cans == film).all(axis=1)
