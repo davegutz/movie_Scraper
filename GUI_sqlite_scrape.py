@@ -294,7 +294,10 @@ class IMDBdataBase:
                     for line in csvFile:
                         if csvFile.line_num == 1:  # skip header line
                             continue
-                        title = line[0].lower()
+                        if len(line):
+                            title = line[0].lower()
+                        else:
+                            continue
                         try:
                             year = int(line[1])
                         except (ValueError, IndexError):
