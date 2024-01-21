@@ -26,6 +26,7 @@ import tkinter.simpledialog
 import tkinter.messagebox
 import sqlite3
 import csv
+import imdb
 from imdb import Cinemagoer
 from datetime import datetime
 from PIL import ImageTk, Image
@@ -99,7 +100,13 @@ class Feature:
     """Container of a film's information"""
     def __init__(self, ID, watched=None, myRating=None):
         self.ID = ID
-        movie = Cinemagoer().get_movie(self.ID)
+        movie = None
+        while movie is None:
+            try:
+                movie = Cinemagoer().get_movie(self.ID)
+            except imdb._exceptions.IMDbDataAccessError:
+                print('timeout.......retry')
+                continue
         self.title = movie['title']
         self.year = movie['year']
         if watched is None:
@@ -290,10 +297,13 @@ class IMDBdataBase:
                         title = line[0].lower()
                         try:
                             year = int(line[1])
-                        except ValueError:
+                        except (ValueError, IndexError):
                             year = 1860
                         watched_in = line[2]
-                        rating_in = line[3]
+                        try:
+                            rating_in = line[3]
+                        except IndexError:
+                            rating_in = 0.
                         if self.already_have_film_year((title, year)):
                             print(f"The film ( {title}, {year} ) is already in the list")
                         else:
@@ -439,7 +449,13 @@ class IMDBdataBase:
         """Find IMDB match as best as possible, returning the ID"""
         ID = None
         film = (title, year)
-        candidates = self.moviesDB.search_movie(title, results=8)
+        candidates = None
+        while candidates is None:
+            try:
+                candidates = self.moviesDB.search_movie(title, results=8)
+            except imdb._exceptions.IMDbDataAccessError:
+                print("timeout...retry")
+                continue
         list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
         if not len(array_of_cans):
             return None
@@ -485,7 +501,7 @@ class IMDBdataBase:
         lst = psg.Listbox(select_list, size=(400, 100), font=('Arial Bold', 12), expand_y=True, enable_events=True,
                           key='-SELECTION-', horizontal_scroll=True)
         layout = [[psg.Input(size=(20, 1), font=('Arial Bold', 14), expand_x=True, key='-INPUT-'), psg.Button('Process'), psg.Button('Cancel')], [lst], [psg.Text("", key='-MSG-', font=('Arial Bold', 14), justification='center')]]
-        window = psg.Window('Select one of below', layout, size=(900, 400))
+        window = psg.Window(f"Match to '{title} ({year})'", layout, size=(900, 400))
         event, selection = window.read()
         window.close()
         print(selection)
