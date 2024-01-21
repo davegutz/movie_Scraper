@@ -292,7 +292,7 @@ class IMDBdataBase:
                 with open(filepath, mode='r') as file:
                     csvFile = csv.reader(file)
                     for line in csvFile:
-                        if csvFile.line_num == 1:
+                        if csvFile.line_num == 1:  # skip header line
                             continue
                         title = line[0].lower()
                         try:
@@ -382,6 +382,8 @@ class IMDBdataBase:
         film = (title, int(year))
         self.c.execute(f"SELECT title,year FROM My_Films ORDER BY title")
         rows = self.c.fetchall()
+        # Strip blanks
+
         row = [(item[0].strip().lower(), item[1]) for item in rows]
         for possible in [int(year)-2, int(year)-1, int(year), int(year)+1, int(year)+2]:
             film = (title, possible)
@@ -452,7 +454,7 @@ class IMDBdataBase:
         candidates = None
         while candidates is None:
             try:
-                candidates = self.moviesDB.search_movie(title, results=8)
+                candidates = self.moviesDB.search_movie(title, results=12)
             except imdb._exceptions.IMDbDataAccessError:
                 print("timeout...retry")
                 continue
