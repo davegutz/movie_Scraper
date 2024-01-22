@@ -274,6 +274,9 @@ class IMDBdataBase:
         self.del_btn = tk.Button(self.bot_frame_right, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                  width=25, command=self.delete_film)
         self.del_btn.pack(side='top')
+        self.check_files_btn = tk.Button(self.bot_frame_right, text="Check file listing", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+                                         width=25, command=self.check_files)
+        self.check_files_btn.pack(side='top')
         self.list_it()
 
         self.root.title(f"Features ({len(self.tree.get_children())})")
@@ -329,7 +332,7 @@ class IMDBdataBase:
                                                     new_movie.watched)),
                                     self.list_it()
                                 except (UnboundLocalError, sqlite3.IntegrityError) as e:
-                                    print (e)
+                                    print(e)
                                     print(f"Trouble adding {new_movie.title} ({new_movie.year})")
                                     pass
                         self.root.title(f"Features ({len(self.tree.get_children())})")
@@ -382,11 +385,8 @@ class IMDBdataBase:
         have = False
         title, year = film
         title = title.strip().lower()
-        film = (title, int(year))
         self.c.execute(f"SELECT title,year FROM My_Films ORDER BY title")
         rows = self.c.fetchall()
-        # Strip blanks
-
         row = [(item[0].strip().lower(), item[1]) for item in rows]
         for possible in [int(year)-2, int(year)-1, int(year), int(year)+1, int(year)+2]:
             film = (title, possible)
@@ -406,13 +406,47 @@ class IMDBdataBase:
             have = True
         return have
 
+    def check_files(self):
+        """Take a listing of folder and check against DB for consistent naming"""
+        filepaths = filedialog.askopenfilenames(title='Choose file(s)', filetypes=[('csv', '.csv')])
+        if filepaths is None or filepaths == '':
+            print("No file chosen")
+        else:
+            self.c.execute("SELECT title, year FROM My_Films ORDER BY title")
+            rows = self.c.fetchall()
+            for filepath in filepaths:
+                with open(filepath, mode='r') as file:
+                    csvFile = csv.reader(file)
+                    file_names = []
+                    for line in csvFile:
+                        # Find best match
+                        best_name = 0
+                        best_similarity = 0.0
+                        file_name = line[0]
+                        file_root_name, ext = os.path.splitext(file_name)
+                        for row in rows:
+                            can = f"{row[0]} ({row[1]}){ext}"
+                            val = string_similarity(file_name, can)
+                            if val > best_similarity:
+                                best_name = can
+                                best_similarity = val
+                        name_i = (file_name, best_name, best_similarity)
+                        if name_i[2] < 1.0:
+                            print("mv \"{:s}\" \"{:s}\"  # {:5.2f}".format(name_i[0], name_i[1], name_i[2]))
+                        file_names.append(name_i)
+                out_file = filepath.replace('.csv', '.sh')
+                with open(out_file, mode='w') as outf:
+                    for result in file_names:
+                        if result[2] < 1.0:
+                            out_str = "mv \"{:s}\" \"{:s}\"  # {:5.2f}\n".format(result[0], result[1], result[2])
+                            outf.write(out_str)
+
     def delete_film(self):
         """Delete selected film from database"""
         try:
             curItem = self.tree.focus()
             item = self.tree.item(curItem)
-            deleting = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "
-                                        f"{(str(item['values'][1]))}?")
+            deleting = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "f"{(str(item['values'][1]))}?")
             if deleting:
                 self.c.execute(f"DELETE FROM My_Films where id = (?);", (item['values'][0],))
         except IndexError:
@@ -451,7 +485,7 @@ class IMDBdataBase:
         self.conn.commit()
 
     def look_smart(self, title, year=None):
-        """Find IMDB match as best as possible, returning the ID"""
+        """Find IMDB match as good as possible, returning the ID"""
         ID = None
         film = (title, year)
         candidates = None
@@ -471,8 +505,6 @@ class IMDBdataBase:
             exact_match = np.where(exact_matches)[0][0]  # take first one
             ID = list_of_cans[exact_match][0]
             return ID
-        else:
-            exact_match = None
 
         # Next find 'exact' matches within one year and take the first one
         film_p1 = (title, str(int(year)+1))
@@ -487,8 +519,6 @@ class IMDBdataBase:
             exact_match = np.where(exact_matches_p1)[0][0]  # take first one
             ID = list_of_cans[exact_match][0]
             return ID
-        else:
-            exact_match = None
 
         # Next offer choices of all that IMDB came up with
         print(f"{film}: {candidates=}")
@@ -590,6 +620,26 @@ Viewed: {item['values'][10]}
 
     def update_db_path(self):
         self.db_path = os.path.join(self.db_folder, self.db_name)
+
+
+def get_bigrams(string):
+    """Take a string and return a list of bigrams"""
+    s = string.lower()
+    return [s[i:i + 2] for i in list(range(len(s) - 1))]
+
+
+def string_similarity(str1, str2):
+    """Perform bigram comparison between two strings and return a percentage match in decimal form."""
+    pairs1 = get_bigrams(str1)
+    pairs2 = get_bigrams(str2)
+    union = len(pairs1) + len(pairs2)
+    hit_count = 0
+    for x in pairs1:
+        for y in pairs2:
+            if x == y:
+                hit_count += 1
+                break
+    return (2.0 * hit_count) / union
 
 
 if __name__ == "__main__":
