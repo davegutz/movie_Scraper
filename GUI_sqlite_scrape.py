@@ -425,10 +425,12 @@ class IMDBdataBase:
                         file_name = line[0]
                         file_root_name, ext = os.path.splitext(file_name)
                         for row in rows:
-                            can = f"{row[0]} ({row[1]}){ext}"
-                            val = string_similarity(file_name, can)
+                            # Consider translate to names compatible both Windows and linux
+                            # You may need to work over your file system names to make this go smoothly
+                            db_can = f"{row[0].replace(':', '-').replace('?', '')} ({row[1]}){ext}"
+                            val = string_similarity(file_name, db_can)
                             if val > best_similarity:
-                                best_name = can
+                                best_name = db_can
                                 best_similarity = val
                         name_i = (file_name, best_name, best_similarity)
                         if name_i[2] < 1.0:
