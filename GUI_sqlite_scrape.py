@@ -322,7 +322,7 @@ class IMDBdataBase:
                             # Enter into BBDD
                             if new_movie is not None:
                                 try:
-                                    print(f"adding '{new_movie.title}' ({new_movie.year})")
+                                    print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
                                     self.c.execute(f"""INSERT INTO My_Films(ID, title, year, rating, my_rating,
                                                     director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
                                                    (new_movie.ID, str(new_movie.title), int(year),
@@ -427,7 +427,7 @@ class IMDBdataBase:
                         for row in rows:
                             # Consider translate to names compatible both Windows and linux
                             # You may need to work over your file system names to make this go smoothly
-                            db_can = f"{row[0].replace(':', '-').replace('?', '')} ({row[1]}){ext}"
+                            db_can = f"{row[0].replace(':', '-').replace('?', '').replace('/', '-')} ({row[1]}){ext}"
                             val = string_similarity(file_name, db_can)
                             if val > best_similarity:
                                 best_name = db_can
