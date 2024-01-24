@@ -438,6 +438,7 @@ class IMDBdataBase:
                         file_names.append(name_i)
                 out_file = filepath.replace('.csv', '.sh')
                 with open(out_file, mode='w') as outf:
+                    outf.write("# !/usr/bin/env bash")
                     for result in file_names:
                         if result[2] < 1.0:
                             out_str = "mv \"{:s}\" \"{:s}\"  # {:5.2f}\n".format(result[0], result[1], result[2])
