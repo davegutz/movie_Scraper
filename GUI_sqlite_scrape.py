@@ -200,7 +200,6 @@ class IMDBdataBase:
         self.moviesDB = Cinemagoer()
         # Database
         self.conn = sqlite3.connect(self.db_path)
-        print("Connection made on exit")
         self.c = self.conn.cursor()
         self.c.execute(f"CREATE TABLE if not exists My_Films(id integer PRIMARY KEY,"
                        "title text, year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, date text)")
@@ -253,6 +252,9 @@ class IMDBdataBase:
         self.tree.bind("<Return>", self.OnDoubleClick)
         self.tree.pack(side='left')
 
+        # Search dictionaries
+        self.title_2_id = None  # title to tree id (not film ID)
+
         # Controls
         self.film_lbl = tk.Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
                                  fg=blue_front_color)
@@ -277,7 +279,7 @@ class IMDBdataBase:
         self.check_files_btn = tk.Button(self.bot_frame_right, text="Check file listing", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                          width=25, command=self.check_files)
         self.check_files_btn.pack(side='top')
-        self.list_it()
+        self.fill_tree_view()
 
         self.root.title(f"Features ({len(self.tree.get_children())})")
 
@@ -330,7 +332,7 @@ class IMDBdataBase:
                                                     str(new_movie.directors[0]), str(new_movie.casting),
                                                     str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
                                                     new_movie.watched)),
-                                    self.list_it()
+                                    self.fill_tree_view()
                                 except (UnboundLocalError, sqlite3.IntegrityError) as e:
                                     print(e)
                                     print(f"Trouble adding {new_movie.title} ({new_movie.year})")
@@ -373,7 +375,7 @@ class IMDBdataBase:
                                     float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
                                     str(new_movie.casting), str(new_movie.genres), str(new_movie.summary[0]),
                                     str(new_movie.cover), str(datetime.today().strftime('%Y/%m/%d')))),
-                    self.list_it()
+                    self.fill_tree_view()
                 except UnboundLocalError:
                     print(f"add_film:  couldn't enter film '{film} ({year}) id:{id_film}'")
                     pass
@@ -427,7 +429,7 @@ class IMDBdataBase:
                         for row in rows:
                             # Consider translate to names compatible both Windows and linux
                             # You may need to work over your file system names to make this go smoothly
-                            db_can = f"{row[0].replace(':', '-').replace('?', '').replace('/', '-')} ({row[1]}){ext}"
+                            db_can = f"{row[0].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')} ({row[1]}){ext}"
                             val = string_similarity(file_name, db_can)
                             if val > best_similarity:
                                 best_name = db_can
@@ -456,7 +458,7 @@ class IMDBdataBase:
             tk.messagebox.showinfo(title='Info', message='You should pick an entry')
             print("Index Error")
         self.conn.commit()
-        self.list_it()
+        self.fill_tree_view()
         self.root.title(f"Features ({len(self.tree.get_children())})")
 
     def enter_db(self):
@@ -478,13 +480,14 @@ class IMDBdataBase:
         self.cf.save_to_file()
         self.destination_folder_butt.config(text=self.db_folder)
 
-    def list_it(self):
+    def fill_tree_view(self):
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
         self.c.execute(f"SELECT ID, title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films ORDER BY title")
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", tk.END, values=row)
+            # self.title_2_id
         self.conn.commit()
 
     def look_smart(self, title, year=None):
@@ -601,6 +604,7 @@ Viewed: {item['values'][10]}
         """Called when user focuses element from TreeView"""
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
+        print(f"OnSingleClick: {curItem=} {item=}")
         self.renew()
         try:
             with urllib.request.urlopen(item['values'][9]) as u:
