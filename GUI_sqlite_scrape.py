@@ -107,7 +107,7 @@ class Feature:
             except imdb._exceptions.IMDbDataAccessError:
                 print('timeout.......retry')
                 continue
-        self.title = movie['title']
+        self.title = movie['title'].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')
         self.year = movie['year']
         if watched is None:
             self.watched = ''
