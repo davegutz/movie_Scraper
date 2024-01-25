@@ -171,6 +171,12 @@ class IMDBdataBase:
         self.root.resizable(False, False)
         self.top_frame = tk.Frame(self.root)
         self.top_frame.pack(side='top', expand=True, fill='both')
+        self.mid_frame = tk.Frame(self.root)
+        self.mid_frame.pack(side='top', expand=True, fill='both')
+        self.mid_frame_left = tk.Frame(self.mid_frame, bg=blue_back_color)
+        self.mid_frame_left.pack(side='left', expand=True, fill='both')
+        self.mid_frame_right = tk.Frame(self.mid_frame, bg=bg_color)
+        self.mid_frame_right.pack(side='right', expand=True, fill='both')
         self.bot_frame = tk.Frame(self.root)
         self.bot_frame.pack(side='top', expand=True, fill='both')
         self.bot_frame_left = tk.Frame(self.bot_frame, bg=bg_color)
@@ -252,8 +258,18 @@ class IMDBdataBase:
         self.tree.bind("<Return>", self.OnDoubleClick)
         self.tree.pack(side='left')
 
-        # Search dictionaries
-        self.title_2_id = None  # title to tree id (not film ID)
+        # Search
+        self.search_entry = None
+        self.selections = []
+        self.search_title_lbl = tk.Label(self.mid_frame_left, text="Enter title search term:",
+                                         font=('David', 15, 'bold'), bg=blue_back_color, fg=blue_front_color)
+        self.search_title_lbl.pack(side='top')
+        self.search_title_entry = tk.Entry(self.mid_frame_left, width=30, font=('LilyUPC', 13, 'bold'),
+                                           fg=blue_front_color, bg=entry_color)
+        self.search_title_entry.pack(side='top')
+        self.search_title_btn = tk.Button(self.mid_frame_left, text="Search in titles", font=('LilyUPC', 13, 'bold'),
+                                      bg=light_purple, width=25, command=self.search_titles)
+        self.search_title_btn.pack(side='top')
 
         # Controls
         self.film_lbl = tk.Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
@@ -446,6 +462,15 @@ class IMDBdataBase:
                             out_str = "mv \"{:s}\" \"{:s}\"  # {:5.2f}\n".format(result[0], result[1], result[2])
                             outf.write(out_str)
 
+    def search_titles(self):
+        query = self.search_title_entry.get().strip().lower()
+        self.selections = []
+        for child in self.tree.get_children():
+            if query in str(self.tree.item(child)['values'][1]).lower():  # compare strings in  lower cases.
+                print(self.tree.item(child)['values'][1])
+                self.selections.append(child)
+        print('search completed')
+
     def delete_film(self):
         """Delete selected film from database"""
         try:
@@ -487,7 +512,6 @@ class IMDBdataBase:
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", tk.END, values=row)
-            # self.title_2_id
         self.conn.commit()
 
     def look_smart(self, title, year=None):
