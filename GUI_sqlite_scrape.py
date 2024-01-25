@@ -465,11 +465,18 @@ class IMDBdataBase:
     def search_titles(self):
         query = self.search_title_entry.get().strip().lower()
         self.selections = []
+        child = None
+        first_child = None
         for child in self.tree.get_children():
             if query in str(self.tree.item(child)['values'][1]).lower():  # compare strings in  lower cases.
+                if first_child is None:
+                    first_child = child
                 print(self.tree.item(child)['values'][1])
                 self.selections.append(child)
-        print('search completed')
+        # self.tree.focus_set()
+        # self.tree.focus(first_child)
+        self.tree.selection_set(self.selections)
+        self.tree.see(first_child)
 
     def delete_film(self):
         """Delete selected film from database"""
