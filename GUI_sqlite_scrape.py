@@ -260,7 +260,8 @@ class IMDBdataBase:
 
         # Search
         self.search_entry = None
-        self.selections = []
+        self.selected_id = []
+        self.selected_titles = []
         self.search_title_lbl = tk.Label(self.mid_frame_left, text="Enter title search term:",
                                          font=('David', 15, 'bold'), bg=blue_back_color, fg=blue_front_color)
         self.search_title_lbl.pack(side='top')
@@ -270,6 +271,9 @@ class IMDBdataBase:
         self.search_title_btn = tk.Button(self.mid_frame_left, text="Search in titles", font=('LilyUPC', 13, 'bold'),
                                       bg=light_purple, width=25, command=self.search_titles)
         self.search_title_btn.pack(side='top')
+        self.search_select = ttk.Combobox(self.mid_frame_right, value="")
+        self.search_select.pack(pady=20)
+        self.search_select.bind("<<ComboboxSelected>>", self.pick_title)
 
         # Controls
         self.film_lbl = tk.Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
@@ -462,21 +466,33 @@ class IMDBdataBase:
                             out_str = "mv \"{:s}\" \"{:s}\"  # {:5.2f}\n".format(result[0], result[1], result[2])
                             outf.write(out_str)
 
+    def pick_title(self, e):
+        selected_title = self.search_select.get()
+        for i in range(len(self.selected_id)):
+            if self.selected_titles[i] == selected_title:
+                self.tree.selection_set(self.selected_id[i])
+                self.tree.see(self.selected_id[i])
+
     def search_titles(self):
         query = self.search_title_entry.get().strip().lower()
-        self.selections = []
+        self.selected_id = []
+        self.selected_titles = []
         child = None
         first_child = None
         for child in self.tree.get_children():
-            if query in str(self.tree.item(child)['values'][1]).lower():  # compare strings in  lower cases.
+            can_Title = str(self.tree.item(child)['values'][1])
+            can_title = can_Title.lower()
+            if query in can_title:  # compare strings in  lower cases.
                 if first_child is None:
                     first_child = child
                 print(self.tree.item(child)['values'][1])
-                self.selections.append(child)
+                self.selected_id.append(child)
+                self.selected_titles.append(f"'{can_Title}'")
         # self.tree.focus_set()
         # self.tree.focus(first_child)
-        self.tree.selection_set(self.selections)
+        self.tree.selection_set(self.selected_id)
         self.tree.see(first_child)
+        self.search_select.config(values=self.selected_titles)
 
     def delete_film(self):
         """Delete selected film from database"""
