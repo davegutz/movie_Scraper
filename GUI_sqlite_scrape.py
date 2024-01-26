@@ -237,8 +237,8 @@ class IMDBdataBase:
         # Database
         self.conn = sqlite3.connect(self.db_path)
         self.c = self.conn.cursor()
-        self.c.execute(f"CREATE TABLE if not exists My_Films(id integer PRIMARY KEY,"
-                       "title text, year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, date text)")
+        self.c.execute(f"CREATE TABLE if not exists My_Films(IMDB_ID integer PRIMARY KEY,"
+                       "title text, year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, WATCHED text)")
         self.conn.commit()
 
         # Set up Tree style
@@ -247,9 +247,9 @@ class IMDBdataBase:
         self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
 
         # Set up the Tree columns
-        self.tree['columns'] = ('ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'Watched')
+        self.tree['columns'] = ('IMDB_ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'WATCHED')
         self.tree.column('#0', width=0, stretch=tk.NO)
-        self.tree.column('ID', width=50, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('IMDB_ID', width=70, minwidth=50, anchor=tk.CENTER)
         self.tree.column('Title', width=150, minwidth=150, anchor=tk.CENTER)
         self.tree.column('Year', width=50, minwidth=50, anchor=tk.CENTER)
         self.tree.column('Rating', width=55, minwidth=55, anchor=tk.CENTER)
@@ -259,11 +259,11 @@ class IMDBdataBase:
         self.tree.column('Generes', width=100, minwidth=100, anchor=tk.CENTER)
         self.tree.column('Summary', width=350, minwidth=350, anchor=tk.CENTER)
         self.tree.column('Cover', width=50, minwidth=50, anchor=tk.CENTER)
-        self.tree.column('Watched', width=80, minwidth=80, anchor=tk.CENTER)
+        self.tree.column('WATCHED', width=80, minwidth=80, anchor=tk.CENTER)
 
         # Set up the Tree headings
         self.tree.heading('#0', text='', anchor=tk.CENTER)
-        self.tree.heading('ID', text='ID', anchor=tk.CENTER)
+        self.tree.heading('IMDB_ID', text='IMDB_ID', anchor=tk.CENTER)
         self.tree.heading('Title', text='Title', anchor=tk.CENTER)
         self.tree.heading('Year', text='Year', anchor=tk.CENTER)
         self.tree.heading('Rating', text='Rating', anchor=tk.CENTER)
@@ -273,7 +273,7 @@ class IMDBdataBase:
         self.tree.heading('Generes', text='Generes', anchor=tk.CENTER)
         self.tree.heading('Summary', text='Summary', anchor=tk.CENTER)
         self.tree.heading('Cover', text='Cover', anchor=tk.CENTER)
-        self.tree.heading('Watched', text='Watched', anchor=tk.CENTER)
+        self.tree.heading('WATCHED', text='WATCHED', anchor=tk.CENTER)
 
         # Finish Tree
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
@@ -372,8 +372,8 @@ class IMDBdataBase:
                             if new_movie is not None:
                                 try:
                                     print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
-                                    self.c.execute(f"""INSERT INTO My_Films(ID, title, year, rating, my_rating,
-                                                    director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
+                                    self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
+                                                    director, actors, generes, summary, cover, WATCHED) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
                                                    (new_movie.ID, str(new_movie.title), int(year),
                                                     float(new_movie.rating), float(new_movie.my_rating),
                                                     str(new_movie.directors[0]), str(new_movie.casting),
@@ -416,8 +416,8 @@ class IMDBdataBase:
                     tk.messagebox.showerror(title="Error", message="There is an error with the film")
                 # Enter into BBDD
                 try:
-                    self.c.execute(f"""INSERT INTO My_Films(ID, title, year, rating, my_rating,
-                                    director, actors, generes, summary, cover, date) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
+                    self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
+                                    director, actors, generes, summary, cover, WATCHED) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
                                    (new_movie.ID, str(new_movie.title), int(new_movie.year),
                                     float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
                                     str(new_movie.casting), str(new_movie.genres), str(new_movie.summary[0]),
@@ -494,16 +494,30 @@ class IMDBdataBase:
                             outf.write(out_str)
 
     def enter_watched_date(self):
-        if self.entry_date.get() == "" or self.entry.get().isspace():
+        if self.picked is None or self.entry_date.get() == "" or self.entry.get().isspace():
             tk.messagebox.showerror(title="Error", message='You should pick something')
         else:
-            print(f"req watched date {self.entry_date.get()} need to connect to DB")
+            IMDB_ID = self.tree.item(self.picked)['values'][0]
+            WATCHED = str(self.tree.item(self.picked)['values'][10])
+            new_WATCHED = self.entry_date.get()
+            print(f"setting date = {new_WATCHED}")
+            print(f"old picked ID {self.picked} IMDB_ID {IMDB_ID} date {WATCHED}")
+            self.c.execute(f"""UPDATE My_Films SET WATCHED = (?) WHERE IMDB_ID = (?)""",
+                           (new_WATCHED, IMDB_ID)),
+            self.fill_tree_view()
 
     def enter_my_rating(self):
-        if self.entry_rating.get() == "" or self.entry_rating.get().isspace():
+        if self.picked is None or self.entry_rating.get() == "" or self.entry_rating.get().isspace():
             tk.messagebox.showerror(title="Error", message='You should pick something')
         else:
-            print(f"req rating {self.entry_rating.get()} need to connect to DB")
+            IMDB_ID = self.tree.item(self.picked)['values'][0]
+            my_rating = str(self.tree.item(self.picked)['values'][4])
+            new_my_rating = self.entry_rating.get()
+            print(f"setting rating = {new_my_rating}")
+            print(f"old picked ID {self.picked} IMDB_ID {IMDB_ID} rating {my_rating}")
+            self.c.execute(f"""UPDATE My_Films SET my_rating = (?) WHERE IMDB_ID = (?)""",
+                           (new_my_rating, IMDB_ID)),
+            self.fill_tree_view()
 
     def pick_title(self, e):
         selected_title = self.search_select.get()
@@ -572,7 +586,7 @@ class IMDBdataBase:
     def fill_tree_view(self):
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT ID, title, year, rating, my_rating, director, actors, generes, summary, cover, date FROM My_Films ORDER BY title")
+        self.c.execute(f"SELECT IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, WATCHED FROM My_Films ORDER BY title")
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", tk.END, values=row)
@@ -703,6 +717,8 @@ Viewed: {item['values'][10]}
             self.poster.image = my_img
         except IndexError:
             pass
+        self.picked = curItem
+        self.select_display.config(text=self.tree.item(self.picked)['values'][1])
 
     def renew(self):
         curItem = self.tree.focus()
