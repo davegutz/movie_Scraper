@@ -283,7 +283,7 @@ class IMDBdataBase:
 
         # Bind for tree double click item
         self.tree.bind("<ButtonRelease-1>", self.OnSingleClick)
-        self.tree.bind("<<TreeviewSelect>>", self.OnSingleClick)
+        # self.tree.bind("<<TreeviewSelect>>", self.OnSingleClick)
         self.tree.bind("<Double-1>", self.OnDoubleClick)
         self.tree.bind("<Return>", self.OnDoubleClick)
         self.tree.pack(side='left')
@@ -718,6 +718,7 @@ Viewed: {item['values'][10]}
         except IndexError:
             pass
         self.picked = curItem
+        print(f"OnSingleClick: {self.picked=}")
         self.select_display.config(text=self.tree.item(self.picked)['values'][1])
 
     def renew(self):
