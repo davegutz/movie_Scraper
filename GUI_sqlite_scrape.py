@@ -494,10 +494,16 @@ class IMDBdataBase:
                             outf.write(out_str)
 
     def enter_watched_date(self):
-        pass
+        if self.entry_date.get() == "" or self.entry.get().isspace():
+            tk.messagebox.showerror(title="Error", message='You should pick something')
+        else:
+            print(f"req watched date {self.entry_date.get()} need to connect to DB")
 
     def enter_my_rating(self):
-        pass
+        if self.entry_rating.get() == "" or self.entry_rating.get().isspace():
+            tk.messagebox.showerror(title="Error", message='You should pick something')
+        else:
+            print(f"req rating {self.entry_rating.get()} need to connect to DB")
 
     def pick_title(self, e):
         selected_title = self.search_select.get()
