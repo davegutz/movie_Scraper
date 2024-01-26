@@ -163,6 +163,11 @@ class IMDBdataBase:
         self.db_name = 'IMDB_Films.db'
         self.db_path = ''
         self.update_db_path()
+        self.year = datetime.now().year
+        self.search_entry = None
+        self.selected_id = []
+        self.selected_titles = []
+        self.picked = '<search and select something above>'
 
         # Set up main window
         self.path_disp_len = 25  # length of a path to reveal
@@ -184,10 +189,37 @@ class IMDBdataBase:
         self.bot_frame_right = tk.Frame(self.bot_frame, bg=blue_back_color)
         self.bot_frame_right.pack(side='right', expand=True, fill='both')
 
-        # film icon
+        # Lower left stuff
         img = ImageTk.PhotoImage(Image.open("blank.png"))
         self.poster = tk.Label(self.bot_frame_left, image=img)
         self.poster.pack(side='right')
+
+        self.select_label_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.select_label_frame.pack(side='top', fill='both')
+        self.select_label = tk.Label(self.select_label_frame, text='Selection =', bg=bg_color, anchor='w')
+        self.select_display = tk.Label(self.select_label_frame, text=self.picked, fg=blue_front_color, bg=blue_back_color)
+        self.select_label.pack(side='left')
+        self.select_display.pack(side='left', pady=10)
+
+        self.change_watched_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.change_watched_frame.pack(side='top', fill='both')
+        self.date_label = tk.Label(self.change_watched_frame, text="Change selection Watched   =", bg=bg_color)
+        self.entry_date = tk.Entry(self.change_watched_frame, width=10, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
+        self.entry_date_btn = tk.Button(self.change_watched_frame, text="Enter new Watched date", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                        width=20, command=self.enter_watched_date)
+        self.date_label.pack(side='left')
+        self.entry_date.pack(side="left", pady=5)
+        self.entry_date_btn.pack(side='left', pady=5)
+
+        self.change_rating_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.change_rating_frame.pack(side='top', fill='both')
+        self.rating_label = tk.Label(self.change_rating_frame, text="Change selection My Rating =", bg=bg_color)
+        self.entry_rating = tk.Entry(self.change_rating_frame, width=10, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
+        self.entry_rating_btn = tk.Button(self.change_rating_frame, text="Enter new My Rating", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                          width=20, command=self.enter_my_rating)
+        self.rating_label.pack(side='left')
+        self.entry_rating.pack(side="left", pady=5)
+        self.entry_rating_btn.pack(side='left', pady=5)
 
         self.working_label = tk.Label(self.bot_frame_left, text="DB location =", bg=bg_color)
         self.destination_folder_butt = myButton(self.bot_frame_left, text=self.db_folder,
@@ -199,8 +231,6 @@ class IMDBdataBase:
         self.destination_folder_butt.pack(side="left", fill='x')
         slash.pack(side="left", fill='x')
         self.title_butt.pack(side="left", fill='x')
-
-        self.year = datetime.now().year
 
         # IMDB API
         self.moviesDB = Cinemagoer()
@@ -259,9 +289,6 @@ class IMDBdataBase:
         self.tree.pack(side='left')
 
         # Search
-        self.search_entry = None
-        self.selected_id = []
-        self.selected_titles = []
         self.search_title_lbl = tk.Label(self.mid_frame_left, text="Enter title search term:",
                                          font=('David', 15, 'bold'), bg=blue_back_color, fg=blue_front_color)
         self.search_title_lbl.pack(side='top')
@@ -466,12 +493,20 @@ class IMDBdataBase:
                             out_str = "mv \"{:s}\" \"{:s}\"  # {:5.2f}\n".format(result[0], result[1], result[2])
                             outf.write(out_str)
 
+    def enter_watched_date(self):
+        pass
+
+    def enter_my_rating(self):
+        pass
+
     def pick_title(self, e):
         selected_title = self.search_select.get()
         for i in range(len(self.selected_id)):
             if self.selected_titles[i] == selected_title:
-                self.tree.selection_set(self.selected_id[i])
-                self.tree.see(self.selected_id[i])
+                self.picked = self.selected_id[i]
+                self.tree.selection_set(self.picked)
+                self.tree.see(self.picked)
+                self.select_display.config(text=self.selected_titles[i])
 
     def search_titles(self):
         query = self.search_title_entry.get().strip().lower()
