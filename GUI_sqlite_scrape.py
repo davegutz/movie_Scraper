@@ -33,8 +33,9 @@ from PIL import ImageTk, Image  # pillow
 import urllib.request
 import platform
 import numpy as np
-import PySimpleGUI as psg
+import PySimpleGUI as pSG
 if platform.system() == 'Darwin':
+    # noinspection PyUnresolvedReferences
     from ttwidgets import TTButton as myButton
 else:
     import tkinter as tk
@@ -104,6 +105,7 @@ class Feature:
         while movie is None:
             try:
                 movie = Cinemagoer().get_movie(self.ID)
+            # noinspection PyProtectedMember
             except imdb._exceptions.IMDbDataAccessError:
                 print('timeout.......retry')
                 continue
@@ -296,9 +298,9 @@ class IMDBdataBase:
                                            fg=blue_front_color, bg=entry_color)
         self.search_title_entry.pack(side='top')
         self.search_title_btn = tk.Button(self.mid_frame_left, text="Search in titles", font=('LilyUPC', 13, 'bold'),
-                                      bg=light_purple, width=25, command=self.search_titles)
+                                          bg=light_purple, width=25, command=self.search_titles)
         self.search_title_btn.pack(side='top')
-        self.search_select = ttk.Combobox(self.mid_frame_right, value="")
+        self.search_select = ttk.Combobox(self.mid_frame_right)
         self.search_select.pack(pady=20)
         self.search_select.bind("<<ComboboxSelected>>", self.pick_title)
 
@@ -403,6 +405,7 @@ class IMDBdataBase:
             if have_film_year:
                 tk.messagebox.showerror(title="Error", message="The film is already in the list")
             else:
+                id_film = None
                 try:
                     id_film = self.look_smart(film, year=year)
                     if id_film is None:
@@ -519,7 +522,8 @@ class IMDBdataBase:
                            (new_my_rating, IMDB_ID)),
             self.fill_tree_view()
 
-    def pick_title(self, e):
+    # noinspection
+    def pick_title(self, _e):
         selected_title = self.search_select.get()
         for i in range(len(self.selected_id)):
             if self.selected_titles[i] == selected_title:
@@ -532,7 +536,6 @@ class IMDBdataBase:
         query = self.search_title_entry.get().strip().lower()
         self.selected_id = []
         self.selected_titles = []
-        child = None
         first_child = None
         for child in self.tree.get_children():
             can_Title = str(self.tree.item(child)['values'][1])
@@ -543,8 +546,6 @@ class IMDBdataBase:
                 print(self.tree.item(child)['values'][1])
                 self.selected_id.append(child)
                 self.selected_titles.append(f"'{can_Title}'")
-        # self.tree.focus_set()
-        # self.tree.focus(first_child)
         self.tree.selection_set(self.selected_id)
         self.tree.see(first_child)
         self.search_select.config(values=self.selected_titles)
@@ -594,12 +595,12 @@ class IMDBdataBase:
 
     def look_smart(self, title, year=None):
         """Find IMDB match as good as possible, returning the ID"""
-        ID = None
         film = (title, year)
         candidates = None
         while candidates is None:
             try:
                 candidates = self.moviesDB.search_movie(title, results=12)
+            # noinspection PyProtectedMember
             except imdb._exceptions.IMDbDataAccessError:
                 print("timeout...retry")
                 continue
@@ -637,18 +638,18 @@ class IMDBdataBase:
                 ID = candidates[i].getID()
                 movie = Feature(ID)
                 select_list.append(f"{movie.ID}:   {movie.title} ({movie.year})   cast = {movie.casting}   dir = {movie.directors}")
-            except:
+            except IOError:
                 print(f"skipped: ", end='')
             print(f"{i}, ", end='')
         print(f"{select_list=}")
-        lst = psg.Listbox(select_list, size=(400, 100), font=('Arial Bold', 12), expand_y=True, enable_events=True,
+        lst = pSG.Listbox(select_list, size=(400, 100), font=('Arial Bold', 12), expand_y=True, enable_events=True,
                           key='-SELECTION-', horizontal_scroll=True)
-        layout = [[psg.Input(size=(20, 1), font=('Arial Bold', 14), expand_x=True, key='-INPUT-'), psg.Button('Process'), psg.Button('Cancel')], [lst], [psg.Text("", key='-MSG-', font=('Arial Bold', 14), justification='center')]]
-        window = psg.Window(f"Match to '{title} ({year})'", layout, size=(900, 400))
+        layout = [[pSG.Input(size=(20, 1), font=('Arial Bold', 14), expand_x=True, key='-INPUT-'), pSG.Button('Process'), pSG.Button('Cancel')], [lst], [pSG.Text("", key='-MSG-', font=('Arial Bold', 14), justification='center')]]
+        window = pSG.Window(f"Match to '{title} ({year})'", layout, size=(900, 400))
         event, selection = window.read()
         window.close()
         print(selection)
-        if event in (psg.WIN_CLOSED, 'Cancel'):
+        if event in (pSG.WIN_CLOSED, 'Cancel'):
             ID = None
         if event == '-SELECTION-':
             ID = selection['-SELECTION-'][0].split(':')[0]
@@ -657,7 +658,8 @@ class IMDBdataBase:
 
         return ID
 
-    def make_list_of_cans(self, cans):
+    @staticmethod
+    def make_list_of_cans(cans):
         """String together data; difficult to do for some reason.  Resort to this manual way"""
         result = []
         searchable_result = []
@@ -676,7 +678,7 @@ class IMDBdataBase:
             searchable_result.append(np.array([title, year]))
         return result, np.array(searchable_result), np.array(titles, dtype='<U78'), np.array(years, dtype='<U78')
 
-    def OnDoubleClick(self, event):
+    def OnDoubleClick(self, _event):
         """Called when user double clicks element from TreeView"""
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
@@ -702,7 +704,7 @@ Viewed: {item['values'][10]}
 """)
         pic.pack_forget()
 
-    def OnSingleClick(self, event):
+    def OnSingleClick(self, _event):
         """Called when user focuses element from TreeView"""
         curItem = self.tree.focus()
         item = self.tree.item(curItem)

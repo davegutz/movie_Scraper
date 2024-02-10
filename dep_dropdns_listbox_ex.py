@@ -11,7 +11,7 @@ medium_colors = ["Red", "Green"]
 large_colors = ["Blue", "Black"]
 
 
-def pick_color(e):
+def pick_color(_e):
     if my_combo.get() == "Small":
         color_combo.config(value=small_colors)
         color_combo.current(0)
@@ -46,7 +46,8 @@ my_list2 = Listbox(my_frame)
 my_list1.grid(row=0, column=0)
 my_list2.grid(row=0, column=1, padx=20)
 
-def list_color(e):
+
+def list_color(_e):
     my_list2.delete(0, END)
     if my_list1.get(ANCHOR) == "Small":
         for item in small_colors:
@@ -60,8 +61,8 @@ def list_color(e):
 
 
 # Add items
-for item in sizes:
-    my_list1.insert(END, item)
+for item_ in sizes:
+    my_list1.insert(END, item_)
 
 # Bind the Lisbox
 my_list1.bind("<<ListboxSelect>>", list_color)

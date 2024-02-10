@@ -51,7 +51,7 @@ tree.heading("one", text="Numer seryjny leku")
 tree.heading("two", text="Nazwa Leku")
 tree.heading("three", text="Ampułki/Tabletki")
 tree.heading("four", text="Data ważności")
-tree["show"]="headings"
+tree["show"] = "headings"
 tree.grid(row=0, column=2, rowspan=6, pady=20)
 
 root.geometry("840x580")
