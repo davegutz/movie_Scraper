@@ -416,6 +416,7 @@ class IMDBdataBase:
                 except KeyError:
                     print(f"{film=} {year=}")
                     tk.messagebox.showerror(title="Error", message="There is an error with the film")
+                    return
                 # Enter into BBDD
                 try:
                     self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
