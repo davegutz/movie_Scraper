@@ -105,8 +105,7 @@ class Feature:
         while movie is None:
             try:
                 movie = Cinemagoer().get_movie(self.ID)
-            # noinspection PyProtectedMember
-            except imdb._exceptions.IMDbDataAccessError:
+            except imdb.IMDbDataAccessError:
                 print('timeout.......retry')
                 continue
         self.title = movie['title'].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')
@@ -600,8 +599,7 @@ class IMDBdataBase:
         while candidates is None:
             try:
                 candidates = self.moviesDB.search_movie(title, results=12)
-            # noinspection PyProtectedMember
-            except imdb._exceptions.IMDbDataAccessError:
+            except imdb.IMDbDataAccessError:
                 print("timeout...retry")
                 continue
         list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
