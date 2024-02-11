@@ -13,18 +13,18 @@ large_colors = ["Blue", "Black"]
 
 def pick_color(_e):
     if my_combo.get() == "Small":
-        color_combo.config(value=small_colors)
+        color_combo.config(values=small_colors)
         color_combo.current(0)
     if my_combo.get() == "Medium":
-        color_combo.config(value=medium_colors)
+        color_combo.config(values=medium_colors)
         color_combo.current(0)
     if my_combo.get() == "Large":
-        color_combo.config(value=large_colors)
+        color_combo.config(values=large_colors)
         color_combo.current(0)
 
 
 # Create a drop box
-my_combo = ttk.Combobox(root, value=sizes)
+my_combo = ttk.Combobox(root, values=sizes)
 my_combo.current(0)
 my_combo.pack(pady=20)
 
@@ -32,7 +32,7 @@ my_combo.pack(pady=20)
 my_combo.bind("<<ComboboxSelected>>", pick_color)
 
 # Color Combo box
-color_combo = ttk.Combobox(root, value=[" "])
+color_combo = ttk.Combobox(root, values=[" "])
 color_combo.current(0)
 color_combo.pack(pady=20)
 
