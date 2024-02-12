@@ -557,7 +557,8 @@ class IMDBdataBase:
             item = self.tree.item(curItem)
             deleting = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "f"{(str(item['values'][1]))}?")
             if deleting:
-                self.c.execute(f"DELETE FROM My_Films where id = (?);", (item['values'][0],))
+                self.c.execute(f"DELETE FROM My_Films where IMDB_ID = (?);", (item['values'][0],))
+                print(f"deleted", item['values'][1])
         except IndexError:
             tk.messagebox.showinfo(title='Info', message='You should pick an entry')
             print("Index Error")
