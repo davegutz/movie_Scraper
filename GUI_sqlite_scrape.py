@@ -29,7 +29,7 @@ import csv
 import imdb
 from imdb import Cinemagoer
 from datetime import datetime
-from PIL import ImageTk, Image  # pillow
+from PIL import ImageTk, Image  # install pillow
 import urllib.request
 import platform
 import numpy as np
