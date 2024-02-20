@@ -27,7 +27,7 @@ import tkinter.messagebox
 import sqlite3
 import csv
 import imdb
-from imdb import Cinemagoer
+from imdb import Cinemagoer  # install cinemagoer
 from datetime import datetime
 from PIL import ImageTk, Image  # install pillow
 import urllib.request
