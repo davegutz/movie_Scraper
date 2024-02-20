@@ -1,2 +1,4 @@
 
 *.csv#
+.idea/misc.xml
+.idea/movie_Scraper.iml
