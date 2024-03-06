@@ -547,8 +547,11 @@ class IMDBdataBase:
                 self.selected_id.append(child)
                 self.selected_titles.append(f"'{can_Title}'")
         self.tree.selection_set(self.selected_id)
-        self.tree.see(first_child)
-        self.search_select.config(values=self.selected_titles)
+        if first_child is not None:
+            self.tree.see(first_child)
+            self.search_select.config(values=self.selected_titles)
+        else:
+            print("Nothing found")
 
     def delete_film(self):
         """Delete selected film from database"""
