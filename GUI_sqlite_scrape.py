@@ -401,10 +401,10 @@ class IMDBdataBase:
             else:
                 year = str(0)
             have_film_year = self.already_have_film_year((film, year))
+            id_film = None
             if have_film_year:
                 tk.messagebox.showerror(title="Error", message="The film is already in the list")
             else:
-                id_film = None
                 try:
                     id_film = self.look_smart(film, year=year)
                     if id_film is None:
@@ -426,6 +426,7 @@ class IMDBdataBase:
                                     str(new_movie.casting), str(new_movie.genres), str(new_movie.summary[0]),
                                     str(new_movie.cover), str(datetime.today().strftime('%Y/%m/%d')))),
                     self.fill_tree_view()
+                    self.highlight_new_film((str(new_movie.title).lower(), int(new_movie.year)))
                 except UnboundLocalError:
                     print(f"add_film:  couldn't enter film '{film} ({year}) id:{id_film}'")
                     pass
@@ -499,6 +500,8 @@ class IMDBdataBase:
     def enter_watched_date(self):
         if self.picked is None or self.entry_date.get() == "" or self.entry.get().isspace():
             tk.messagebox.showerror(title="Error", message='You should pick something')
+        elif self.picked == '<search and select something above>':
+            tk.messagebox.showerror(title="Error", message='You should select some features first')
         else:
             IMDB_ID = self.tree.item(self.picked)['values'][0]
             WATCHED = str(self.tree.item(self.picked)['values'][10])
@@ -512,6 +515,8 @@ class IMDBdataBase:
     def enter_my_rating(self):
         if self.picked is None or self.entry_rating.get() == "" or self.entry_rating.get().isspace():
             tk.messagebox.showerror(title="Error", message='You should pick something')
+        elif self.picked == '<search and select something above>':
+            tk.messagebox.showerror(title="Error", message='You should select some features first')
         else:
             IMDB_ID = self.tree.item(self.picked)['values'][0]
             my_rating = str(self.tree.item(self.picked)['values'][4])
@@ -523,6 +528,39 @@ class IMDBdataBase:
             self.fill_tree_view()
 
     # noinspection
+    def highlight_new_film(self, film):
+        """Check for existence by year and title (film = (year, title)) and return the id or None"""
+        (title, year) = film
+        if film == () or film is None:
+            print('nothing entered')
+            return
+        self.selected_id = []
+        first_child = None
+        for child in self.tree.get_children():
+            can_Title = str(self.tree.item(child)['values'][1])
+            can_title = can_Title.lower()
+            can_year = int(self.tree.item(child)['values'][2])
+            if title == can_title:
+                print(f"{title=} {year=} possible")
+            if title in can_title:
+                print(f"{title=} {year=} possible")
+                if year == can_year:
+                    if first_child is None:
+                        first_child = child
+                        print(f"First {title=} {year=} found as {first_child=}")
+                    print(f"{title=} {year=} found as {first_child=}")
+                    print(self.tree.item(child)['values'][1], self.tree.item(child)['values'][2])
+                    self.selected_id.append(child)
+                    self.selected_titles.append(f"'{can_Title}'")
+        self.tree.selection_set(self.selected_id)
+        if first_child is not None:
+            self.tree.see(first_child)
+            curItem = self.tree.focus(first_child)
+            item = self.tree.item(curItem)
+            self.raise_all(curItem, item)
+        else:
+            print(f"{title=} {year=} not found")
+
     def pick_title(self, _e):
         selected_title = self.search_select.get()
         for i in range(len(self.selected_id)):
@@ -532,8 +570,12 @@ class IMDBdataBase:
                 self.tree.see(self.picked)
                 self.select_display.config(text=self.selected_titles[i])
 
+
     def search_titles(self):
         query = self.search_title_entry.get().strip().lower()
+        if query == '':
+            print('nothing entered')
+            return
         self.selected_id = []
         self.selected_titles = []
         first_child = None
@@ -596,6 +638,10 @@ class IMDBdataBase:
         for row in rows:
             self.tree.insert("", tk.END, values=row)
         self.conn.commit()
+        # Clear stuff dependent on current view
+        # Clear stuff dependent on current view
+        self.picked = None
+        self.select_display.config(text='')
 
     def look_smart(self, title, year=None):
         """Find IMDB match as good as possible, returning the ID"""
@@ -713,6 +759,14 @@ Viewed: {item['values'][10]}
         item = self.tree.item(curItem)
         print(f"OnSingleClick: {curItem=} {item=}")
         self.renew()
+        self.raise_all(curItem, item)
+        self.picked = curItem
+        print(f"OnSingleClick: {self.picked=}")
+        self.select_display.config(text=self.tree.item(self.picked)['values'][1])
+
+    def raise_all(self, curItem, item):
+        """Called when user focuses element from TreeView"""
+        self.renew()
         try:
             with urllib.request.urlopen(item['values'][9]) as u:
                 raw_data = u.read()
@@ -722,9 +776,6 @@ Viewed: {item['values'][10]}
             self.poster.image = my_img
         except IndexError:
             pass
-        self.picked = curItem
-        print(f"OnSingleClick: {self.picked=}")
-        self.select_display.config(text=self.tree.item(self.picked)['values'][1])
 
     def renew(self):
         curItem = self.tree.focus()
