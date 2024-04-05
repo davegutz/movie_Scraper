@@ -556,11 +556,9 @@ class IMDBdataBase:
         if first_child is not None:
             self.tree.see(first_child)
             self.tree.selection_set(first_child)
-            self.tree.focus_set()
             self.tree.focus(first_child)
             curItem = self.tree.focus()
             item = self.tree.item(curItem)
-            self.raise_it(curItem, item)
             self.picked = curItem
             print(f"highlight_new_film: {self.picked=}")
             self.select_display.config(text=self.tree.item(self.picked)['values'][1])
