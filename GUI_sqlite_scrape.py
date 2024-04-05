@@ -534,31 +534,19 @@ class IMDBdataBase:
         if film == () or film is None:
             print('nothing entered')
             return
-        self.selected_id = []
         first_child = None
         for child in self.tree.get_children():
-            can_Title = str(self.tree.item(child)['values'][1])
-            can_title = can_Title.lower()
+            can_title = str(self.tree.item(child)['values'][1]).lower()
             can_year = int(self.tree.item(child)['values'][2])
-            if title == can_title:
-                print(f"{title=} {year=} possible")
-            if title in can_title:
-                print(f"{title=} {year=} possible")
-                if year == can_year:
-                    if first_child is None:
-                        first_child = child
-                        print(f"First {title=} {year=} found as {first_child=}")
-                    print(f"{title=} {year=} found as {first_child=}")
-                    print(self.tree.item(child)['values'][1], self.tree.item(child)['values'][2])
-                    self.selected_id.append(child)
-                    self.selected_titles.append(f"'{can_Title}'")
-        self.tree.selection_set(self.selected_id)
+            if title in can_title and year == can_year and first_child is None:
+                first_child = child
+                print(f"First {title=} {year=} found as {first_child=}")
+                break
         if first_child is not None:
             self.tree.see(first_child)
             self.tree.selection_set(first_child)
             self.tree.focus(first_child)
             curItem = self.tree.focus()
-            item = self.tree.item(curItem)
             self.picked = curItem
             print(f"highlight_new_film: {self.picked=}")
             self.select_display.config(text=self.tree.item(self.picked)['values'][1])
