@@ -284,7 +284,6 @@ class IMDBdataBase:
 
         # Bind for tree double click item
         self.tree.bind("<ButtonRelease-1>", self.OnSingleClick)
-        # self.tree.bind("<<TreeviewSelect>>", self.OnSingleClick)
         self.tree.bind("<Double-1>", self.OnDoubleClick)
         self.tree.bind("<Return>", self.OnDoubleClick)
         self.tree.pack(side='left')
@@ -296,6 +295,7 @@ class IMDBdataBase:
         self.search_title_entry = tk.Entry(self.mid_frame_left, width=30, font=('LilyUPC', 13, 'bold'),
                                            fg=blue_front_color, bg=entry_color)
         self.search_title_entry.pack(side='top')
+        self.search_title_entry.bind("<Return>", self.search_titles_event)
         self.search_title_btn = tk.Button(self.mid_frame_left, text="Search in titles", font=('LilyUPC', 13, 'bold'),
                                           bg=light_purple, width=25, command=self.search_titles)
         self.search_title_btn.pack(side='top')
@@ -570,7 +570,6 @@ class IMDBdataBase:
                 self.tree.see(self.picked)
                 self.select_display.config(text=self.selected_titles[i])
 
-
     def search_titles(self):
         query = self.search_title_entry.get().strip().lower()
         if query == '':
@@ -594,6 +593,9 @@ class IMDBdataBase:
             self.search_select.config(values=self.selected_titles)
         else:
             print("Nothing found")
+
+    def search_titles_event(self, _e):
+        self.search_titles()
 
     def delete_film(self):
         """Delete selected film from database"""
