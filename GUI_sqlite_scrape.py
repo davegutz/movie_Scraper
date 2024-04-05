@@ -529,7 +529,7 @@ class IMDBdataBase:
 
     # noinspection
     def highlight_new_film(self, film):
-        """Check for existence by year and title (film = (year, title)) and return the id or None"""
+        """Check for existence by year and title (film = (year, title)) and set focus in tree"""
         (title, year) = film
         if film == () or film is None:
             print('nothing entered')
@@ -555,9 +555,15 @@ class IMDBdataBase:
         self.tree.selection_set(self.selected_id)
         if first_child is not None:
             self.tree.see(first_child)
-            curItem = self.tree.focus(first_child)
+            self.tree.selection_set(first_child)
+            self.tree.focus_set()
+            self.tree.focus(first_child)
+            curItem = self.tree.focus()
             item = self.tree.item(curItem)
-            self.raise_all(curItem, item)
+            self.raise_it(curItem, item)
+            self.picked = curItem
+            print(f"highlight_new_film: {self.picked=}")
+            self.select_display.config(text=self.tree.item(self.picked)['values'][1])
         else:
             print(f"{title=} {year=} not found")
 
@@ -761,12 +767,12 @@ Viewed: {item['values'][10]}
         item = self.tree.item(curItem)
         print(f"OnSingleClick: {curItem=} {item=}")
         self.renew()
-        self.raise_all(curItem, item)
+        self.raise_it(curItem, item)
         self.picked = curItem
         print(f"OnSingleClick: {self.picked=}")
         self.select_display.config(text=self.tree.item(self.picked)['values'][1])
 
-    def raise_all(self, curItem, item):
+    def raise_it(self, curItem, item):
         """Called when user focuses element from TreeView"""
         self.renew()
         try:
