@@ -42,7 +42,7 @@ else:
     from tkinter import Button as myButton
 
 # Define frames
-min_width = 800
+min_width = 820
 main_height = 500
 folder_reveal = 25
 wrap_length = 500
@@ -99,8 +99,9 @@ class Begini(ConfigParser):
 
 class Feature:
     """Container of a film's information"""
-    def __init__(self, ID, watched=None, myRating=None):
+    def __init__(self, ID, watched=None, myRating=None, have_dvd=True):
         self.ID = ID
+        self.DVD = have_dvd
         movie = None
         while movie is None:
             try:
@@ -222,6 +223,12 @@ class IMDBdataBase:
         self.entry_rating.pack(side="left", pady=5)
         self.entry_rating_btn.pack(side='left', pady=5)
 
+        self.del_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.del_btn_frame.pack(side='top', fill='both')
+        self.del_btn = tk.Button(self.del_btn_frame, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+                                 width=25, command=self.delete_film)
+        self.del_btn.pack(side='left')
+
         self.working_label = tk.Label(self.bot_frame_left, text="DB location =", bg=bg_color)
         self.destination_folder_butt = myButton(self.bot_frame_left, text=self.db_folder,
                                                 command=self.enter_db_folder, fg="blue", bg=bg_color)
@@ -239,7 +246,7 @@ class IMDBdataBase:
         self.conn = sqlite3.connect(self.db_path)
         self.c = self.conn.cursor()
         self.c.execute(f"CREATE TABLE if not exists My_Films(IMDB_ID integer PRIMARY KEY,"
-                       "title text, year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, WATCHED text)")
+                       "title text, year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, WATCHED, DVD text)")
         self.conn.commit()
 
         # Set up Tree style
@@ -248,7 +255,7 @@ class IMDBdataBase:
         self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
 
         # Set up the Tree columns
-        self.tree['columns'] = ('IMDB_ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'WATCHED')
+        self.tree['columns'] = ('IMDB_ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'WATCHED', 'DVD')
         self.tree.column('#0', width=0, stretch=tk.NO)
         self.tree.column('IMDB_ID', width=70, minwidth=50, anchor=tk.CENTER)
         self.tree.column('Title', width=150, minwidth=150, anchor=tk.CENTER)
@@ -261,6 +268,7 @@ class IMDBdataBase:
         self.tree.column('Summary', width=350, minwidth=350, anchor=tk.CENTER)
         self.tree.column('Cover', width=50, minwidth=50, anchor=tk.CENTER)
         self.tree.column('WATCHED', width=80, minwidth=80, anchor=tk.CENTER)
+        self.tree.column('DVD', width=40, minwidth=40, anchor=tk.CENTER)
 
         # Set up the Tree headings
         self.tree.heading('#0', text='', anchor=tk.CENTER)
@@ -275,6 +283,7 @@ class IMDBdataBase:
         self.tree.heading('Summary', text='Summary', anchor=tk.CENTER)
         self.tree.heading('Cover', text='Cover', anchor=tk.CENTER)
         self.tree.heading('WATCHED', text='WATCHED', anchor=tk.CENTER)
+        self.tree.heading('DVD', text='DVD', anchor=tk.CENTER)
 
         # Finish Tree
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
@@ -321,9 +330,6 @@ class IMDBdataBase:
         self.add_file_btn = tk.Button(self.bot_frame_right, text="Add file(s)", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                       width=25, command=self.add_file)
         self.add_file_btn.pack(side='top')
-        self.del_btn = tk.Button(self.bot_frame_right, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
-                                 width=25, command=self.delete_film)
-        self.del_btn.pack(side='top')
         self.check_files_btn = tk.Button(self.bot_frame_right, text="Check file listing", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                          width=25, command=self.check_files)
         self.check_files_btn.pack(side='top')
@@ -374,12 +380,12 @@ class IMDBdataBase:
                                 try:
                                     print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
                                     self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
-                                                    director, actors, generes, summary, cover, WATCHED) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
+                                                    director, actors, generes, summary, cover, WATCHED, DVD) VALUES(?,?,?,?,?,?,?,?,?,?,?,?);""",
                                                    (new_movie.ID, str(new_movie.title), int(year),
                                                     float(new_movie.rating), float(new_movie.my_rating),
                                                     str(new_movie.directors[0]), str(new_movie.casting),
                                                     str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
-                                                    new_movie.watched)),
+                                                    new_movie.watched, new_movie.DVD)),
                                     self.fill_tree_view()
                                 except (UnboundLocalError, sqlite3.IntegrityError) as e:
                                     print(e)
@@ -420,11 +426,11 @@ class IMDBdataBase:
                 # Enter into BBDD
                 try:
                     self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
-                                    director, actors, generes, summary, cover, WATCHED) VALUES(?,?,?,?,?,?,?,?,?,?,?);""",
+                                    director, actors, generes, summary, cover, WATCHED, DVD) VALUES(?,?,?,?,?,?,?,?,?,?,?,?);""",
                                    (new_movie.ID, str(new_movie.title), int(new_movie.year),
                                     float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
                                     str(new_movie.casting), str(new_movie.genres), str(new_movie.summary[0]),
-                                    str(new_movie.cover), str(datetime.today().strftime('%Y/%m/%d')))),
+                                    str(new_movie.cover), str(datetime.today().strftime('%Y/%m/%d')), bool(new_movie.DVD))),
                     self.fill_tree_view()
                     self.highlight_new_film((str(new_movie.title).lower(), int(new_movie.year)))
                 except UnboundLocalError:
@@ -627,7 +633,7 @@ class IMDBdataBase:
     def fill_tree_view(self):
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, WATCHED FROM My_Films ORDER BY title")
+        self.c.execute(f"SELECT IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, WATCHED, DVD FROM My_Films ORDER BY title")
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", tk.END, values=row)
