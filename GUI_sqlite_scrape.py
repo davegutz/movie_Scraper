@@ -203,6 +203,16 @@ class IMDBdataBase:
         self.select_label.pack(side='left')
         self.select_display.pack(side='left', pady=10)
 
+        self.change_dvd_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.change_dvd_frame.pack(side='top', fill='both')
+        self.dvd_label = tk.Label(self.change_dvd_frame, text="Change DVD available   =", bg=bg_color)
+        self.entry_dvd = tk.Entry(self.change_dvd_frame, width=10, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
+        self.entry_dvd_btn = tk.Button(self.change_dvd_frame, text="Enter new DVD availability", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                       width=20, command=self.enter_dvd)
+        self.dvd_label.pack(side='left')
+        self.entry_dvd.pack(side="left", pady=5)
+        self.entry_dvd_btn.pack(side='left', pady=5)
+
         self.change_watched_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.change_watched_frame.pack(side='top', fill='both')
         self.date_label = tk.Label(self.change_watched_frame, text="Change selection Watched   =", bg=bg_color)
@@ -225,7 +235,7 @@ class IMDBdataBase:
 
         self.del_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.del_btn_frame.pack(side='top', fill='both')
-        self.del_btn = tk.Button(self.del_btn_frame, text="Delete record", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+        self.del_btn = tk.Button(self.del_btn_frame, text="Delete selection", font=('LilyUPC', 9, 'bold'), bg=light_purple,
                                  width=25, command=self.delete_film)
         self.del_btn.pack(side='left')
 
@@ -502,6 +512,21 @@ class IMDBdataBase:
                         if result[2] < 1.0:
                             out_str = "mv \"{:s}\" \"{:s}\"  # {:5.2f}\n".format(result[0], result[1], result[2])
                             outf.write(out_str)
+
+    def enter_dvd(self):
+        if self.picked is None or self.entry_dvd.get() == "" or self.entry_dvd.get().isspace():
+            tk.messagebox.showerror(title="Error", message='You should pick something')
+        elif self.picked == '<search and select something above>':
+            tk.messagebox.showerror(title="Error", message='You should select some features first')
+        else:
+            IMDB_ID = self.tree.item(self.picked)['values'][0]
+            dvd = str(self.tree.item(self.picked)['values'][11])
+            new_dvd = self.entry_dvd.get()
+            print(f"setting DVD = {new_dvd}")
+            print(f"old picked ID {self.picked} IMDB_ID {IMDB_ID} dvd {dvd}")
+            self.c.execute(f"""UPDATE My_Films SET DVD = (?) WHERE IMDB_ID = (?)""",
+                           (new_dvd, IMDB_ID)),
+            self.fill_tree_view()
 
     def enter_watched_date(self):
         if self.picked is None or self.entry_date.get() == "" or self.entry.get().isspace():
