@@ -300,6 +300,7 @@ class IMDBdataBase:
         self.scroll.pack(side='left')
         self.tree.config(yscrollcommand=self.scroll.set)
         self.scroll.config(command=self.tree.yview)
+        self.sort_title(self.tree, 1)
 
         # Bind for tree double click item
         self.tree.bind("<ButtonRelease-1>", self.OnSingleClick)
@@ -620,6 +621,13 @@ class IMDBdataBase:
     def search_titles_event(self, _e):
         self.search_titles()
 
+    def sort_title(self, tree, column):
+        data = [(ignore_articles(self.tree.set(child, column)), child) for child in self.tree.get_children('')]
+        data.sort()
+        for index, (_, child) in enumerate(data):
+            # print(f"{index=} {child=}")
+            self.tree.move(child, '', index)
+
     def delete_film(self):
         """Delete selected film from database"""
         try:
@@ -659,6 +667,7 @@ class IMDBdataBase:
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
         self.c.execute(f"SELECT IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, WATCHED, DVD FROM My_Films ORDER BY title")
+        title_col = 1
         rows = self.c.fetchall()
         for row in rows:
             self.tree.insert("", tk.END, values=row)
@@ -667,6 +676,7 @@ class IMDBdataBase:
         # Clear stuff dependent on current view
         self.picked = None
         self.select_display.config(text='')
+        self.sort_title(self.tree, title_col)
 
     def look_smart(self, title, year=None):
         """Find IMDB match as good as possible, returning the ID"""
@@ -819,6 +829,14 @@ def get_bigrams(string):
     """Take a string and return a list of bigrams"""
     s = string.lower()
     return [s[i:i + 2] for i in list(range(len(s) - 1))]
+
+
+def ignore_articles(text):
+    articles = ['the', 'a', 'an', 'la', "l'", 'le', 'les', 'el', 'lo', 'las', 'los']
+    for article in articles:
+        if text.lower().startswith(article + ' '):
+            return text[len(article)+1:].strip()
+    return text
 
 
 def string_similarity(str1, str2):
