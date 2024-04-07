@@ -601,6 +601,7 @@ class IMDBdataBase:
             return
         self.selected_id = []
         self.selected_titles = []
+        selected_child_title = []
         first_child = None
         for child in self.tree.get_children():
             can_Title = str(self.tree.item(child)['values'][1])
@@ -611,12 +612,17 @@ class IMDBdataBase:
                 print(self.tree.item(child)['values'][1])
                 self.selected_id.append(child)
                 self.selected_titles.append(f"'{can_Title}'")
+                selected_child_title.append((child, f"'{can_Title}'"))
         self.tree.selection_set(self.selected_id)
         if first_child is not None:
+            for index, (child, _) in enumerate(selected_child_title):
+                self.tree.move(child, '', index)
+            self.select_display.config(text='')
             self.tree.see(first_child)
             self.search_select.config(values=self.selected_titles)
         else:
             print("Nothing found")
+            self.fill_tree_view()
 
     def search_titles_event(self, _e):
         self.search_titles()
@@ -625,7 +631,6 @@ class IMDBdataBase:
         data = [(ignore_articles(self.tree.set(child, column)), child) for child in self.tree.get_children('')]
         data.sort()
         for index, (_, child) in enumerate(data):
-            # print(f"{index=} {child=}")
             self.tree.move(child, '', index)
 
     def delete_film(self):
@@ -674,6 +679,19 @@ class IMDBdataBase:
         self.conn.commit()
         # Clear stuff dependent on current view
         # Clear stuff dependent on current view
+        self.picked = None
+        self.select_display.config(text='')
+        self.sort_title(self.tree, title_col)
+
+    def fill_tree_view_unsorted(self):
+        """Fill the TreeView with database fields"""
+        self.tree.delete(*self.tree.get_children())
+        self.c.execute(f"SELECT IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, WATCHED, DVD FROM My_Films ORDER BY title")
+        title_col = 1
+        rows = self.c.fetchall()
+        for row in rows:
+            self.tree.insert("", tk.END, values=row)
+        self.conn.commit()
         self.picked = None
         self.select_display.config(text='')
         self.sort_title(self.tree, title_col)
