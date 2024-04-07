@@ -3,7 +3,7 @@ from tkinter import ttk
 
 
 def ignore_articles(text):
-    articles = ['the', 'a', 'an', 'le', 'les', 'el', 'los']
+    articles = ['the', 'a', 'an', 'la', "l'", 'le', 'les', 'el', 'lo', 'las', 'los']
     for article in articles:
         if text.lower().startswith(article + ' '):
             return text[len(article)+1:].strip()
@@ -29,11 +29,12 @@ def main():
     title_column = 1
 
     data = [("1", "The Apple"),
-            ("3", "An Orange"),
-            ("2", "Banana"),
+            ("2", "An Orange"),
+            ("3", "Banana"),
             ("4", "A Mango"),
             ("5", "Les Miserables"),
-            ("6", "El Lobo")]
+            ("6", "El Lobo"),
+            ("7", "L' Enfant")]
 
     for item in data:
         print(f"{item=}")
