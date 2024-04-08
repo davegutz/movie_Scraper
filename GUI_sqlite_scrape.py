@@ -872,10 +872,12 @@ Viewed: {item['values'][10]}
             count += 1
             can_time = str(self.tree.item(child)['values'][12]).lower()
             can_cert = str(self.tree.item(child)['values'][13]).lower()
-            if (can_cert == 'nr' or can_cert == '') and (can_time == '0:00' or can_time == '0') and change < 40:
+            self.selected_id = child
+            IMDB_ID = self.tree.item(self.selected_id)['values'][0]
+            if IMDB_ID < 10000:
+                continue
+            if (can_cert == 'nr' or can_cert == '') and (can_time == '0:00' or can_time == '0'):
                 can_title = self.tree.item(child)['values'][1]
-                self.selected_id = child
-                IMDB_ID = self.tree.item(self.selected_id)['values'][0]
                 movie = Feature(IMDB_ID)
                 new_cert = movie.certification
                 new_time = movie.runtime
