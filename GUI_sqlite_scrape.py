@@ -294,6 +294,8 @@ class IMDBdataBase:
         self.tree.heading('Cover', text='Cover', anchor=tk.CENTER)
         self.tree.heading('WATCHED', text='WATCHED', anchor=tk.CENTER)
         self.tree.heading('DVD', text='DVD', anchor=tk.CENTER)
+        self.tree["displaycolumns"] = ("IMDB_ID", "Title", "Year", "Rating", "MyRating", "WATCHED", "DVD", "Director", "Actors",
+                                       "Generes", "Summary")
 
         # Finish Tree
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
@@ -683,8 +685,6 @@ class IMDBdataBase:
         for row in rows:
             self.tree.insert("", tk.END, values=row)
         self.conn.commit()
-        # Clear stuff dependent on current view
-        # Clear stuff dependent on current view
         self.picked = None
         self.select_display.config(text='')
         self.sort_title(self.tree, title_col)
