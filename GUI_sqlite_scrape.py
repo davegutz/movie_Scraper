@@ -149,6 +149,15 @@ class Feature:
             self.cover = movie['cover url']
         except KeyError:
             self.cover = ''
+        try:
+            self.runtime = movie['runtimes'][0]
+        except KeyError:
+            self.runtime = ''
+        try:
+            us_cert = [s for s in movie['certifications'] if "United States" in s][0]  # assume first is of interest
+            self.certification = us_cert[str.index(us_cert, ":")+1:]
+        except (KeyError, IndexError):
+            self.certification = 'NR'
 
 
 class IMDBdataBase:
@@ -256,7 +265,8 @@ class IMDBdataBase:
         self.conn = sqlite3.connect(self.db_path)
         self.c = self.conn.cursor()
         self.c.execute(f"CREATE TABLE if not exists My_Films(IMDB_ID integer PRIMARY KEY,"
-                       "title text, year integer, rating real, my_rating real, director text, actors text, generes text, summary text, cover text, WATCHED, DVD text)")
+                       "title text, year integer, rating real, my_rating real,  director text, actors text,\
+                        generes text, summary text, cover text, WATCHED, DVD text, runtime text, certification text)")
         self.conn.commit()
 
         # Set up Tree style
@@ -265,7 +275,8 @@ class IMDBdataBase:
         self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
 
         # Set up the Tree columns
-        self.tree['columns'] = ('IMDB_ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes', 'Summary', 'Cover', 'WATCHED', 'DVD')
+        self.tree['columns'] = ('IMDB_ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes',
+                                'Summary', 'Cover', 'WATCHED', 'DVD', 'Runtime', 'Certification')
         self.tree.column('#0', width=0, stretch=tk.NO)
         self.tree.column('IMDB_ID', width=70, minwidth=50, anchor=tk.CENTER)
         self.tree.column('Title', width=150, minwidth=150, anchor=tk.CENTER)
@@ -279,6 +290,8 @@ class IMDBdataBase:
         self.tree.column('Cover', width=50, minwidth=50, anchor=tk.CENTER)
         self.tree.column('WATCHED', width=80, minwidth=80, anchor=tk.CENTER)
         self.tree.column('DVD', width=40, minwidth=40, anchor=tk.CENTER)
+        self.tree.column('Runtime', width=50, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('Certification', width=50, minwidth=50, anchor=tk.CENTER)
 
         # Set up the Tree headings
         self.tree.heading('#0', text='', anchor=tk.CENTER)
@@ -294,8 +307,10 @@ class IMDBdataBase:
         self.tree.heading('Cover', text='Cover', anchor=tk.CENTER)
         self.tree.heading('WATCHED', text='WATCHED', anchor=tk.CENTER)
         self.tree.heading('DVD', text='DVD', anchor=tk.CENTER)
-        self.tree["displaycolumns"] = ("IMDB_ID", "Title", "Year", "Rating", "MyRating", "WATCHED", "DVD", "Director", "Actors",
-                                       "Generes", "Summary")
+        self.tree.heading('Runtime', text='Time', anchor=tk.CENTER)
+        self.tree.heading('Certification', text='Cert', anchor=tk.CENTER)
+        self.tree["displaycolumns"] = ("IMDB_ID", "Title", "Certification", "Runtime", "Year", "Rating",
+                                       "MyRating", "WATCHED", "DVD", "Director", "Actors", "Generes", "Summary")
 
         # Finish Tree
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
@@ -394,12 +409,14 @@ class IMDBdataBase:
                                 try:
                                     print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
                                     self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
-                                                    director, actors, generes, summary, cover, WATCHED, DVD) VALUES(?,?,?,?,?,?,?,?,?,?,?,?);""",
+                                                    director, actors, generes, summary, cover, WATCHED, DVD, runtime,
+                                                    certification) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);""",
                                                    (new_movie.ID, str(new_movie.title), int(year),
                                                     float(new_movie.rating), float(new_movie.my_rating),
                                                     str(new_movie.directors[0]), str(new_movie.casting),
                                                     str(new_movie.genres), str(new_movie.summary[0]), str(new_movie.cover),
-                                                    new_movie.watched, new_movie.DVD)),
+                                                    new_movie.watched, new_movie.DVD, new_movie.runtime,
+                                                    new_movie.certification)),
                                     self.fill_tree_view()
                                 except (UnboundLocalError, sqlite3.IntegrityError) as e:
                                     print(e)
@@ -440,11 +457,13 @@ class IMDBdataBase:
                 # Enter into BBDD
                 try:
                     self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
-                                    director, actors, generes, summary, cover, WATCHED, DVD) VALUES(?,?,?,?,?,?,?,?,?,?,?,?);""",
+                                    director, actors, generes, summary, cover, WATCHED, DVD, runtime, certification)
+                                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);""",
                                    (new_movie.ID, str(new_movie.title), int(new_movie.year),
                                     float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
                                     str(new_movie.casting), str(new_movie.genres), str(new_movie.summary[0]),
-                                    str(new_movie.cover), str(datetime.today().strftime('%Y/%m/%d')), bool(new_movie.DVD))),
+                                    str(new_movie.cover), str(datetime.today().strftime('%Y/%m/%d')),
+                                    bool(new_movie.DVD), str(new_movie.runtime), str(new_movie.certification)),)
                     self.fill_tree_view()
                     self.highlight_new_film((str(new_movie.title).lower(), int(new_movie.year)))
                 except UnboundLocalError:
@@ -678,7 +697,7 @@ class IMDBdataBase:
     def fill_tree_view(self):
         """Fill the TreeView with database fields"""
         self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, WATCHED, DVD FROM My_Films ORDER BY title")
+        self.c.execute(f"SELECT IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, WATCHED, DVD, runtime, certification FROM My_Films ORDER BY title")
         self.tree_modified = False
         title_col = 1
         rows = self.c.fetchall()
