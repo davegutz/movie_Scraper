@@ -34,6 +34,7 @@ import urllib.request
 import platform
 import numpy as np
 import PySimpleGUI as pSG
+from time import sleep
 if platform.system() == 'Darwin':
     # noinspection PyUnresolvedReferences
     from ttwidgets import TTButton as myButton
@@ -105,9 +106,11 @@ class Feature:
         movie = None
         while movie is None:
             try:
+                sleep(0.5)
                 movie = Cinemagoer().get_movie(self.ID)
             except imdb.IMDbDataAccessError:
-                print('timeout.......retry')
+                print('timeout.......retry after 1 second')
+                sleep(0.5)
                 continue
         self.title = movie['title'].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')
         self.year = movie['year']
@@ -362,6 +365,9 @@ class IMDBdataBase:
         self.check_files_btn = tk.Button(self.bot_frame_right, text="Check file listing", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                          width=25, command=self.check_files)
         self.check_files_btn.pack(side='top')
+        self.update_cert_time_btn = tk.Button(self.bot_frame_right, text="Update Cert and Time", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+                                              width=25, command=self.update_cert_time)
+        self.update_cert_time_btn.pack(side='top')
         self.fill_tree_view()
 
         self.root.title(f"Features ({len(self.tree.get_children())})")
@@ -827,7 +833,10 @@ Viewed: {item['values'][10]}
         self.raise_it(curItem, item)
         self.picked = curItem
         print(f"OnSingleClick: {self.picked=}")
-        self.select_display.config(text=self.tree.item(self.picked)['values'][1])
+        try:
+            self.select_display.config(text=self.tree.item(self.picked)['values'][1])
+        except IndexError:
+            pass
 
     def raise_it(self, curItem, item):
         """Called when user focuses element from TreeView"""
@@ -853,6 +862,33 @@ Viewed: {item['values'][10]}
 
     def update_db_path(self):
         self.db_path = os.path.join(self.db_folder, self.db_name)
+
+    def update_cert_time(self):
+        """Check all Cert and Time values.  If NR or 0:00 go lookup the actual and save"""
+        print("update_cert_time")
+        count = 0
+        change = 0
+        for child in self.tree.get_children():
+            count += 1
+            can_time = str(self.tree.item(child)['values'][12]).lower()
+            can_cert = str(self.tree.item(child)['values'][13]).lower()
+            if (can_cert == 'nr' or can_cert == '') and (can_time == '0:00' or can_time == '0') and change < 40:
+                can_title = self.tree.item(child)['values'][1]
+                self.selected_id = child
+                IMDB_ID = self.tree.item(self.selected_id)['values'][0]
+                movie = Feature(IMDB_ID)
+                new_cert = movie.certification
+                new_time = movie.runtime
+                self.c.execute(f"""UPDATE My_Films SET certification = (?) WHERE IMDB_ID = (?)""",
+                               (new_cert, IMDB_ID))
+                self.c.execute(f"""UPDATE My_Films SET runtime = (?) WHERE IMDB_ID = (?)""",
+                               (new_time, IMDB_ID))
+                self.conn.commit()
+                print(f"title {can_title} ID {self.selected_id} IMDB_ID {IMDB_ID} certificate {can_cert}-->\
+{new_cert} runtime {can_time}-->{new_time}")
+                change += 1
+        self.fill_tree_view()
+        print(f"{count=} {change=}")
 
 
 def get_bigrams(string):
