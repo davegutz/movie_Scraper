@@ -109,7 +109,7 @@ class Feature:
                 sleep(0.5)
                 movie = Cinemagoer().get_movie(self.ID)
             except imdb.IMDbDataAccessError:
-                print('timeout.......retry after 1 second')
+                print('timeout.......retry after 0.5 second')
                 sleep(0.5)
                 continue
         self.title = movie['title'].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')
