@@ -714,6 +714,8 @@ class IMDBdataBase:
             tv.move(k, '', index)
         # reverse sort next time
         tv.heading(col, text=col, command=lambda _col=col: self.treeview_sort_column(tv, _col, not reverse))
+        # jump to top
+        self.tree.yview_moveto(0)
 
     def delete_film(self):
         """Delete selected film from database"""
