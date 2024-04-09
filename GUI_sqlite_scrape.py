@@ -525,7 +525,7 @@ class IMDBdataBase:
                         file_name = line[0]
                         file_root_name, ext = os.path.splitext(file_name)
                         for row in rows:
-                            # Consider translate to names compatible both Windows and linux
+                            # Consider translate to names compatible both Windows and Linux
                             # You may need to work over your file system names to make this go smoothly
                             db_can = f"{row[0].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')} ({row[1]}){ext}"
                             val = string_similarity(file_name, db_can)
