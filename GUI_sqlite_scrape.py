@@ -329,6 +329,11 @@ class IMDBdataBase:
         self.tree.bind("<Return>", self.OnDoubleClick)
         self.tree.pack(side='left')
 
+        # Bind for click column sort
+        for col in self.tree["displaycolumns"]:
+            self.tree.heading(col, text=col, command=lambda _col=col:\
+                              self.treeview_sort_column(self.tree, _col, False))
+
         # Search
         self.search_title_lbl = tk.Label(self.mid_frame_left, text="Enter title search term:",
                                          font=('David', 15, 'bold'), bg=blue_back_color, fg=blue_front_color)
@@ -652,6 +657,15 @@ class IMDBdataBase:
         for index, (_, child) in enumerate(data):
             self.tree.move(child, '', index)
 
+    def treeview_sort_column(self, tv, col, reverse):
+        items = [(tv.set(k, col), k) for k in tv.get_children('')]
+        items.sort(reverse=reverse)
+        # rearrange items in sorted positions
+        for index, (val, k) in enumerate(items):
+            tv.move(k, '', index)
+        # reverse sort next time
+        tv.heading(col, text=col, command=lambda _col=col: self.treeview_sort_column(tv, _col, not reverse))
+
     def delete_film(self):
         """Delete selected film from database"""
         try:
@@ -800,7 +814,7 @@ class IMDBdataBase:
 IMDB_ID: {item['values'][0]}\n
 Title: {item['values'][1]}\n
 Cert: {item['values'][13]}\n
-Runtime: {item['values'][12]}\n
+Time: {item['values'][12]}\n
 Year: {item['values'][2]}\n
 Rating: {item['values'][3]}\n
 MyRating: {item['values'][4]}\n
