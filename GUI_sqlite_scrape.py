@@ -331,7 +331,7 @@ class IMDBdataBase:
 
         # Bind for click column sort
         for col in self.tree["displaycolumns"]:
-            self.tree.heading(col, text=col, command=lambda _col=col:\
+            self.tree.heading(col, text=col, command=lambda _col=col:
                               self.treeview_sort_column(self.tree, _col, False))
 
         # Search
@@ -345,6 +345,26 @@ class IMDBdataBase:
         self.search_title_btn = tk.Button(self.mid_frame_left, text="Search in titles", font=('LilyUPC', 13, 'bold'),
                                           bg=light_purple, width=25, command=self.search_titles)
         self.search_title_btn.pack(side='top')
+
+        self.search_dirs_frame = tk.Frame(self.mid_frame_right, bg=bg_color)
+        self.search_dirs_frame.pack(side='top')
+        self.search_dirs_lbl = tk.Label(self.search_dirs_frame, text="Enter Director search term:",
+                                        font=('David', 15, 'bold'), bg=blue_back_color, fg=blue_front_color)
+        self.search_dirs_lbl.pack(side='left')
+        self.search_dirs_entry = tk.Entry(self.search_dirs_frame, width=30, font=('LilyUPC', 13, 'bold'),
+                                          fg=blue_front_color, bg=entry_color)
+        self.search_dirs_entry.pack(side='left')
+        self.search_dirs_entry.bind("<Return>", self.search_dirs_event)
+
+        self.search_acts_frame = tk.Frame(self.mid_frame_right, bg=bg_color)
+        self.search_acts_frame.pack(side='top')
+        self.search_acts_lbl = tk.Label(self.search_acts_frame, text="Enter Actor search term:",
+                                        font=('David', 15, 'bold'), bg=blue_back_color, fg=blue_front_color)
+        self.search_acts_lbl.pack(side='left')
+        self.search_acts_entry = tk.Entry(self.search_acts_frame, width=30, font=('LilyUPC', 13, 'bold'),
+                                          fg=blue_front_color, bg=entry_color)
+        self.search_acts_entry.pack(side='left')
+        self.search_acts_entry.bind("<Return>", self.search_acts_event)
 
         # Controls
         self.film_lbl = tk.Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
@@ -615,6 +635,26 @@ class IMDBdataBase:
         else:
             print(f"{title=} {year=} not found")
 
+    def search_acts(self):
+        # Reset from previous sorts first
+        if self.tree_modified is True:
+            self.fill_tree_view()
+        query = self.search_acts_entry.get().strip().lower()
+        if query == '':
+            print('nothing entered')
+            return
+        self.search_term(query, 6)
+
+    def search_dirs(self):
+        # Reset from previous sorts first
+        if self.tree_modified is True:
+            self.fill_tree_view()
+        query = self.search_dirs_entry.get().strip().lower()
+        if query == '':
+            print('nothing entered')
+            return
+        self.search_term(query, 5)
+
     def search_titles(self):
         # Reset from previous sorts first
         if self.tree_modified is True:
@@ -623,17 +663,26 @@ class IMDBdataBase:
         if query == '':
             print('nothing entered')
             return
+        self.search_term(query, 1)
+
+    def search_acts_event(self, _e):
+        self.search_acts()
+
+    def search_dirs_event(self, _e):
+        self.search_dirs()
+
+    def search_term(self, query, ind):
         self.selected_id = []
         self.selected_titles = []
         selected_child_title = []
         first_child = None
         for child in self.tree.get_children():
-            can_Title = str(self.tree.item(child)['values'][1])
+            can_Title = str(self.tree.item(child)['values'][ind])
             can_title = can_Title.lower()
             if query in can_title:  # compare strings in  lower cases.
                 if first_child is None:
                     first_child = child
-                print(self.tree.item(child)['values'][1])
+                print(self.tree.item(child)['values'][ind])
                 self.selected_id.append(child)
                 self.selected_titles.append(f"'{can_Title}'")
                 selected_child_title.append((child, f"'{can_Title}'"))
