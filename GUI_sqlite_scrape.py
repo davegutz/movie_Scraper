@@ -340,9 +340,6 @@ class IMDBdataBase:
         self.search_title_btn = tk.Button(self.mid_frame_left, text="Search in titles", font=('LilyUPC', 13, 'bold'),
                                           bg=light_purple, width=25, command=self.search_titles)
         self.search_title_btn.pack(side='top')
-        self.search_select = ttk.Combobox(self.mid_frame_right)
-        self.search_select.pack(pady=20)
-        self.search_select.bind("<<ComboboxSelected>>", self.pick_title)
 
         # Controls
         self.film_lbl = tk.Label(self.bot_frame_right, text="Enter film:", font=('David', 15, 'bold'), bg=blue_back_color,
@@ -613,15 +610,6 @@ class IMDBdataBase:
         else:
             print(f"{title=} {year=} not found")
 
-    def pick_title(self, _e):
-        selected_title = self.search_select.get()
-        for i in range(len(self.selected_id)):
-            if self.selected_titles[i] == selected_title:
-                self.picked = self.selected_id[i]
-                self.tree.selection_set(self.picked)
-                self.tree.see(self.picked)
-                self.select_display.config(text=self.selected_titles[i])
-
     def search_titles(self):
         # Reset from previous sorts first
         if self.tree_modified is True:
@@ -650,7 +638,6 @@ class IMDBdataBase:
                 self.tree.move(child, '', index)
             self.select_display.config(text='')
             self.tree.see(first_child)
-            self.search_select.config(values=self.selected_titles)
             self.tree_modified = True
         else:
             print("Nothing found")
@@ -810,8 +797,10 @@ class IMDBdataBase:
         pic = tk.Label(self.root, image=my_img)
         pic.pack(side='left')
         tk.messagebox.showinfo(title=f"{item['values'][1]}", message=f"""
-ID: {item['values'][0]}\n
+IMDB_ID: {item['values'][0]}\n
 Title: {item['values'][1]}\n
+Cert: {item['values'][13]}\n
+Runtime: {item['values'][12]}\n
 Year: {item['values'][2]}\n
 Rating: {item['values'][3]}\n
 MyRating: {item['values'][4]}\n
@@ -819,8 +808,7 @@ Director: {item['values'][5]}\n
 Actors: {item['values'][6]}\n
 Generes: {item['values'][7]}\n
 Summary: {item['values'][8]}\n
-Cover: {item['values'][9]}\n
-Viewed: {item['values'][10]}
+Watched: {item['values'][10]}
 """)
         pic.pack_forget()
 
@@ -830,15 +818,14 @@ Viewed: {item['values'][10]}
         item = self.tree.item(curItem)
         print(f"OnSingleClick: {curItem=} {item=}")
         self.renew()
-        self.raise_it(curItem, item)
+        self.raise_it(item)
         self.picked = curItem
-        print(f"OnSingleClick: {self.picked=}")
         try:
             self.select_display.config(text=self.tree.item(self.picked)['values'][1])
         except IndexError:
             pass
 
-    def raise_it(self, curItem, item):
+    def raise_it(self, item):
         """Called when user focuses element from TreeView"""
         self.renew()
         try:
