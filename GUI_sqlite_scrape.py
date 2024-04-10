@@ -320,7 +320,7 @@ class IMDBdataBase:
         self.scroll.pack(side='right')
         self.tree.config(yscrollcommand=self.scroll.set)
         self.scroll.config(command=self.tree.yview)
-        self.sort_title(self.tree, 1)
+        self.sort_title(1)
         self.tree_modified = False
 
         # Bind for tree double click item
@@ -474,7 +474,6 @@ class IMDBdataBase:
             else:
                 year = str(0)
             have_film_year = self.already_have_film_year((film, year))
-            id_film = None
             if have_film_year:
                 tk.messagebox.showerror(title="Error", message="The film is already in the list")
             else:
@@ -498,7 +497,7 @@ class IMDBdataBase:
                                    (new_movie.ID, str(new_movie.title), int(new_movie.year),
                                     float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
                                     str(new_movie.casting), str(new_movie.genres), str(new_movie.summary[0]),
-                                    str(new_movie.cover), str(datetime.today().strftime('%Y/%m/%d')),
+                                    str(new_movie.cover), str(datetime.today().strftime('%Y-%m-%d')),
                                     bool(new_movie.DVD), str(new_movie.runtime), str(new_movie.certification)),)
                     self.fill_tree_view()
                     self.highlight_new_film((str(new_movie.title).lower(), int(new_movie.year)))
@@ -708,7 +707,7 @@ class IMDBdataBase:
     def search_titles_event(self, _e):
         self.search_titles()
 
-    def sort_title(self, tree, column):
+    def sort_title(self, column):
         data = [(ignore_articles(self.tree.set(child, column)), child) for child in self.tree.get_children('')]
         data.sort()
         for index, (_, child) in enumerate(data):
@@ -804,7 +803,7 @@ class IMDBdataBase:
         self.conn.commit()
         self.picked = None
         self.select_display.config(text='')
-        self.sort_title(self.tree, title_col)
+        self.sort_title(title_col)
 
     def look_smart(self, title, year=None):
         """Find IMDB match as good as possible, returning the ID"""
