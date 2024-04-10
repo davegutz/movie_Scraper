@@ -317,7 +317,7 @@ class IMDBdataBase:
 
         # Finish Tree
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
-        self.scroll.pack(side='left')
+        self.scroll.pack(side='right')
         self.tree.config(yscrollcommand=self.scroll.set)
         self.scroll.config(command=self.tree.yview)
         self.sort_title(self.tree, 1)
@@ -331,8 +331,16 @@ class IMDBdataBase:
 
         # Bind for click column sort
         for col in self.tree["displaycolumns"]:
-            self.tree.heading(col, text=col, command=lambda _col=col:
-                              self.treeview_sort_column(self.tree, _col, False))
+            print(f"{col=}")
+            if col == 'IMDB_ID' or col == 'Runtime' or col == 'Year':
+                self.tree.heading(col, text=col, command=lambda _col=col:
+                                  self.treeview_sort_column_int(self.tree, _col, False))
+            elif col == 'MyRating' or col == 'Rating':
+                self.tree.heading(col, text=col, command=lambda _col=col:
+                                  self.treeview_sort_column_float(self.tree, _col, False))
+            else:
+                self.tree.heading(col, text=col, command=lambda _col=col:
+                                  self.treeview_sort_column(self.tree, _col, False))
 
         # Search
         self.search_title_lbl = tk.Label(self.mid_frame_left, text="Enter title search term:",
@@ -714,6 +722,38 @@ class IMDBdataBase:
             tv.move(k, '', index)
         # reverse sort next time
         tv.heading(col, text=col, command=lambda _col=col: self.treeview_sort_column(tv, _col, not reverse))
+        # jump to top
+        self.tree.yview_moveto(0)
+
+    def treeview_sort_column_int(self, tv, col, reverse):
+        items = []
+        for k in tv.get_children(''):
+            try:
+                items.append((float(tv.set(k, col)), k))
+            except ValueError:
+                items.append((0, k))
+        items.sort(reverse=reverse)
+        # rearrange items in sorted positions
+        for index, (val, k) in enumerate(items):
+            tv.move(k, '', index)
+        # reverse sort next time
+        tv.heading(col, text=col, command=lambda _col=col: self.treeview_sort_column_int(tv, _col, not reverse))
+        # jump to top
+        self.tree.yview_moveto(0)
+
+    def treeview_sort_column_float(self, tv, col, reverse):
+        items = []
+        for k in tv.get_children(''):
+            try:
+                items.append((float(tv.set(k, col)), k))
+            except ValueError:
+                items.append((0., k))
+        items.sort(reverse=reverse)
+        # rearrange items in sorted positions
+        for index, (val, k) in enumerate(items):
+            tv.move(k, '', index)
+        # reverse sort next time
+        tv.heading(col, text=col, command=lambda _col=col: self.treeview_sort_column_float(tv, _col, not reverse))
         # jump to top
         self.tree.yview_moveto(0)
 
