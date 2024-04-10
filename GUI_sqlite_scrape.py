@@ -17,6 +17,12 @@
 # Lesser General Public License for more details.
 #
 # See http://www.fsf.org/licensing/licenses/lgpl.txt for full license text
+#
+# Can create Windows executable as follows:
+#  use pycharm settings to install pyinstaller
+#  use pycharm terminal app to run > pyinstaller .\GUI_sqlite_scrape.py
+#  result found in dist folder
+#
 import io
 import os
 import sys
@@ -331,7 +337,6 @@ class IMDBdataBase:
 
         # Bind for click column sort
         for col in self.tree["displaycolumns"]:
-            print(f"{col=}")
             if col == 'IMDB_ID' or col == 'Runtime' or col == 'Year':
                 self.tree.heading(col, text=col, command=lambda _col=col:
                                   self.treeview_sort_column_int(self.tree, _col, False))
