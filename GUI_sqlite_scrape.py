@@ -21,6 +21,8 @@
 # Can create Windows executable as follows:
 #  use pycharm settings to install pyinstaller
 #  use pycharm terminal app to run > pyinstaller .\GUI_sqlite_scrape.py
+#  > cp blank.png .\dist\GUI_sqlite_scrape\.
+#  > cp popcorn.png .\dist\GUI_sqlite_scrape\.
 #  result found in dist folder
 #
 import io
@@ -358,6 +360,10 @@ class IMDBdataBase:
         self.search_title_btn = tk.Button(self.mid_frame_left, text="Search in titles", font=('LilyUPC', 13, 'bold'),
                                           bg=light_purple, width=25, command=self.search_titles)
         self.search_title_btn.pack(side='top')
+
+        img = ImageTk.PhotoImage(Image.open("popcorn.png"))  # for some reason this has to be separate line
+        self.icon = tk.Label(self.mid_frame_right, image=img)
+        self.icon.pack(side='left')
 
         self.search_dirs_frame = tk.Frame(self.mid_frame_right, bg=bg_color)
         self.search_dirs_frame.pack(side='top')
