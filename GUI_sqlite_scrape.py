@@ -26,8 +26,8 @@
 #  double-click, browse to database, and pin to taskbar
 #
 #  Linux:
-#  > pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --onefile --add-data "popcorn.ico;." --icon="popcorn.ico"
-#  > cp blank.png ./dist/.; cp popcorn.png ./dist/.
+#    pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --icon="popcorn.ico"
+#    cp blank.png ./dist/GUI_sqlite_scrape/.; cp popcorn.png ./dist/GUI_sqlite_scrape/.
 #  result found in dist folder
 #
 import io
