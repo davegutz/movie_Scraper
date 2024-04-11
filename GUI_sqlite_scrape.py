@@ -22,6 +22,7 @@
 #  use pycharm settings to install pyinstaller
 #  use pycharm terminal app to run > pyinstaller .\GUI_sqlite_scrape.py --onefile --i popcorn.ico
 #  cp dist\GUI_sqlite_scrape.exe .
+#  double-click and pin to taskbar
 #
 #  Linux:
 #  > pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --onefile --add-data "popcorn.ico;." --icon="popcorn.ico"
