@@ -20,9 +20,10 @@
 #
 # Can create Windows executable as follows:
 #  use pycharm settings to install pyinstaller
-#  use pycharm terminal app to run > pyinstaller .\GUI_sqlite_scrape.py --onefile --i popcorn.ico
-#  cp dist\GUI_sqlite_scrape.exe .
-#  double-click and pin to taskbar
+#  use pycharm terminal app to run:
+#    pyinstaller .\GUI_sqlite_scrape.py --i popcorn.ico
+#    cp blank.png .\dist\GUI_sqlite_scrape\.; cp popcorn.png .\dist\GUI_sqlite_scrape\.
+#  double-click, browse to database, and pin to taskbar
 #
 #  Linux:
 #  > pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --onefile --add-data "popcorn.ico;." --icon="popcorn.ico"
@@ -276,82 +277,15 @@ class IMDBdataBase:
 
         # IMDB API
         self.moviesDB = Cinemagoer()
+
         # Database
-        self.conn = sqlite3.connect(self.db_path)
-        self.c = self.conn.cursor()
-        self.c.execute(f"CREATE TABLE if not exists My_Films(IMDB_ID integer PRIMARY KEY,"
-                       "title text, year integer, rating real, my_rating real,  director text, actors text,\
-                        generes text, summary text, cover text, WATCHED, DVD text, runtime text, certification text)")
-        self.conn.commit()
-
-        # Set up Tree style
-        self.style = ttk.Style()
-        self.style.configure("mystyle.Treeview.Heading", font=('Calibri', 12, 'bold'))
-        self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
-
-        # Set up the Tree columns
-        self.tree['columns'] = ('IMDB_ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes',
-                                'Summary', 'Cover', 'WATCHED', 'DVD', 'Runtime', 'Certification')
-        self.tree.column('#0', width=0, stretch=tk.NO)
-        self.tree.column('IMDB_ID', width=70, minwidth=50, anchor=tk.CENTER)
-        self.tree.column('Title', width=150, minwidth=150, anchor=tk.CENTER)
-        self.tree.column('Year', width=50, minwidth=50, anchor=tk.CENTER)
-        self.tree.column('Rating', width=55, minwidth=55, anchor=tk.CENTER)
-        self.tree.column('MyRating', width=78, minwidth=78, anchor=tk.CENTER)
-        self.tree.column('Director', width=100, minwidth=100, anchor=tk.CENTER)
-        self.tree.column('Actors', width=150, minwidth=150, anchor=tk.CENTER)
-        self.tree.column('Generes', width=100, minwidth=100, anchor=tk.CENTER)
-        self.tree.column('Summary', width=350, minwidth=350, anchor=tk.CENTER)
-        self.tree.column('Cover', width=50, minwidth=50, anchor=tk.CENTER)
-        self.tree.column('WATCHED', width=80, minwidth=80, anchor=tk.CENTER)
-        self.tree.column('DVD', width=40, minwidth=40, anchor=tk.CENTER)
-        self.tree.column('Runtime', width=50, minwidth=50, anchor=tk.CENTER)
-        self.tree.column('Certification', width=50, minwidth=50, anchor=tk.CENTER)
-
-        # Set up the Tree headings
-        self.tree.heading('#0', text='', anchor=tk.CENTER)
-        self.tree.heading('IMDB_ID', text='IMDB_ID', anchor=tk.CENTER)
-        self.tree.heading('Title', text='Title', anchor=tk.CENTER)
-        self.tree.heading('Year', text='Year', anchor=tk.CENTER)
-        self.tree.heading('Rating', text='Rating', anchor=tk.CENTER)
-        self.tree.heading('MyRating', text='My Rating', anchor=tk.CENTER)
-        self.tree.heading('Director', text='Director', anchor=tk.CENTER)
-        self.tree.heading('Actors', text='Actors', anchor=tk.CENTER)
-        self.tree.heading('Generes', text='Generes', anchor=tk.CENTER)
-        self.tree.heading('Summary', text='Summary', anchor=tk.CENTER)
-        self.tree.heading('Cover', text='Cover', anchor=tk.CENTER)
-        self.tree.heading('WATCHED', text='WATCHED', anchor=tk.CENTER)
-        self.tree.heading('DVD', text='DVD', anchor=tk.CENTER)
-        self.tree.heading('Runtime', text='Time', anchor=tk.CENTER)
-        self.tree.heading('Certification', text='Cert', anchor=tk.CENTER)
-        self.tree["displaycolumns"] = ("IMDB_ID", "Title", "Certification", "Runtime", "Year", "Rating",
-                                       "MyRating", "WATCHED", "DVD", "Director", "Actors", "Generes", "Summary")
-
-        # Finish Tree
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
-        self.scroll.pack(side='right')
-        self.tree.config(yscrollcommand=self.scroll.set)
-        self.scroll.config(command=self.tree.yview)
-        self.sort_title(1)
-        self.tree_modified = False
-
-        # Bind for tree double click item
-        self.tree.bind("<ButtonRelease-1>", self.OnSingleClick)
-        self.tree.bind("<Double-1>", self.OnDoubleClick)
-        self.tree.bind("<Return>", self.OnDoubleClick)
-        self.tree.pack(side='left')
-
-        # Bind for click column sort
-        for col in self.tree["displaycolumns"]:
-            if col == 'IMDB_ID' or col == 'Runtime' or col == 'Year':
-                self.tree.heading(col, text=col, command=lambda _col=col:
-                                  self.treeview_sort_column_int(self.tree, _col, False))
-            elif col == 'MyRating' or col == 'Rating':
-                self.tree.heading(col, text=col, command=lambda _col=col:
-                                  self.treeview_sort_column_float(self.tree, _col, False))
-            else:
-                self.tree.heading(col, text=col, command=lambda _col=col:
-                                  self.treeview_sort_column(self.tree, _col, False))
+        self.conn = sqlite3.connect(self.db_path)
+        self.c = None
+        self.style = ttk.Style()
+        self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
+        self.tree_modified = None
+        self.db_tree_init()
 
         # Search
         self.search_title_lbl = tk.Label(self.mid_frame_left, text="Enter title search term:",
@@ -413,13 +347,10 @@ class IMDBdataBase:
         self.update_cert_time_btn = tk.Button(self.bot_frame_right, text="Update Cert and Time", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                               width=25, command=self.update_cert_time)
         self.update_cert_time_btn.pack(side='top')
-        self.fill_tree_view()
 
         self.root.title(f"Features ({len(self.tree.get_children())})")
-
         self.root.mainloop()
         self.conn.close()
-        print("Connection finished")
 
     def add_file(self):
         """Insert film fields to Database"""
@@ -585,6 +516,84 @@ class IMDBdataBase:
                         if result[2] < 1.0:
                             out_str = "mv \"{:s}\" \"{:s}\"  # {:5.2f}\n".format(result[0], result[1], result[2])
                             outf.write(out_str)
+
+    def db_tree_init(self):
+        # Initialize database
+        self.conn = sqlite3.connect(self.db_path)
+        self.c = self.conn.cursor()
+        self.c.execute(f"CREATE TABLE if not exists My_Films(IMDB_ID integer PRIMARY KEY,"
+                       "title text, year integer, rating real, my_rating real,  director text, actors text,\
+                        generes text, summary text, cover text, WATCHED, DVD text, runtime text, certification text)")
+        self.conn.commit()
+
+        # Set up Tree style
+        self.style.configure("mystyle.Treeview.Heading", font=('Calibri', 12, 'bold'))
+
+        # Set up the Tree columns
+        self.tree['columns'] = ('IMDB_ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes',
+                                'Summary', 'Cover', 'WATCHED', 'DVD', 'Runtime', 'Certification')
+        self.tree.column('#0', width=0, stretch=tk.NO)
+        self.tree.column('IMDB_ID', width=70, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('Title', width=150, minwidth=150, anchor=tk.CENTER)
+        self.tree.column('Year', width=50, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('Rating', width=55, minwidth=55, anchor=tk.CENTER)
+        self.tree.column('MyRating', width=78, minwidth=78, anchor=tk.CENTER)
+        self.tree.column('Director', width=100, minwidth=100, anchor=tk.CENTER)
+        self.tree.column('Actors', width=150, minwidth=150, anchor=tk.CENTER)
+        self.tree.column('Generes', width=100, minwidth=100, anchor=tk.CENTER)
+        self.tree.column('Summary', width=350, minwidth=350, anchor=tk.CENTER)
+        self.tree.column('Cover', width=50, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('WATCHED', width=80, minwidth=80, anchor=tk.CENTER)
+        self.tree.column('DVD', width=40, minwidth=40, anchor=tk.CENTER)
+        self.tree.column('Runtime', width=50, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('Certification', width=50, minwidth=50, anchor=tk.CENTER)
+
+        # Set up the Tree headings
+        self.tree.heading('#0', text='', anchor=tk.CENTER)
+        self.tree.heading('IMDB_ID', text='IMDB_ID', anchor=tk.CENTER)
+        self.tree.heading('Title', text='Title', anchor=tk.CENTER)
+        self.tree.heading('Year', text='Year', anchor=tk.CENTER)
+        self.tree.heading('Rating', text='Rating', anchor=tk.CENTER)
+        self.tree.heading('MyRating', text='My Rating', anchor=tk.CENTER)
+        self.tree.heading('Director', text='Director', anchor=tk.CENTER)
+        self.tree.heading('Actors', text='Actors', anchor=tk.CENTER)
+        self.tree.heading('Generes', text='Generes', anchor=tk.CENTER)
+        self.tree.heading('Summary', text='Summary', anchor=tk.CENTER)
+        self.tree.heading('Cover', text='Cover', anchor=tk.CENTER)
+        self.tree.heading('WATCHED', text='WATCHED', anchor=tk.CENTER)
+        self.tree.heading('DVD', text='DVD', anchor=tk.CENTER)
+        self.tree.heading('Runtime', text='Time', anchor=tk.CENTER)
+        self.tree.heading('Certification', text='Cert', anchor=tk.CENTER)
+        self.tree["displaycolumns"] = ("IMDB_ID", "Title", "Certification", "Runtime", "Year", "Rating",
+                                       "MyRating", "WATCHED", "DVD", "Director", "Actors", "Generes", "Summary")
+
+        # Finish Tree
+        self.scroll.pack(side='right')
+        self.tree.config(yscrollcommand=self.scroll.set)
+        self.scroll.config(command=self.tree.yview)
+        self.sort_title(1)
+        self.tree_modified = False
+        self.tree.pack(side='left')
+
+        # Bind for tree double click item
+        self.tree.bind("<ButtonRelease-1>", self.OnSingleClick)
+        self.tree.bind("<Double-1>", self.OnDoubleClick)
+        self.tree.bind("<Return>", self.OnDoubleClick)
+
+        # Bind for click column sort
+        for col in self.tree["displaycolumns"]:
+            if col == 'IMDB_ID' or col == 'Runtime' or col == 'Year':
+                self.tree.heading(col, text=col, command=lambda _col=col:
+                                  self.treeview_sort_column_int(self.tree, _col, False))
+            elif col == 'MyRating' or col == 'Rating':
+                self.tree.heading(col, text=col, command=lambda _col=col:
+                                  self.treeview_sort_column_float(self.tree, _col, False))
+            else:
+                self.tree.heading(col, text=col, command=lambda _col=col:
+                                  self.treeview_sort_column(self.tree, _col, False))
+
+        self.fill_tree_view()
+        print("tree initialized and packed")
 
     def enter_dvd(self):
         if self.picked is None or self.entry_dvd.get() == "" or self.entry_dvd.get().isspace():
@@ -796,6 +805,12 @@ class IMDBdataBase:
         cf['path']['db_name'] = self.db_name
         cf.save_to_file()
         self.title_butt.config(text=self.db_name)
+        self.update_db_path()
+        self.scroll.pack_forget()
+        self.tree.pack_forget()
+        self.tree.delete()
+        self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
+        self.db_tree_init()
 
     def enter_db_folder(self):
         """Select database folder"""
@@ -805,6 +820,13 @@ class IMDBdataBase:
         self.cf['path']['db_folder'] = self.db_folder
         self.cf.save_to_file()
         self.destination_folder_butt.config(text=self.db_folder)
+        self.update_db_path()
+        print("delete tree")
+        self.scroll.pack_forget()
+        self.tree.pack_forget()
+        self.tree.delete()
+        self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
+        self.db_tree_init()
 
     def fill_tree_view(self):
         """Fill the TreeView with database fields"""
