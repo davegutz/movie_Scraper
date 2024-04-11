@@ -20,15 +20,12 @@
 #
 # Can create Windows executable as follows:
 #  use pycharm settings to install pyinstaller
-#  use pycharm terminal app to run > pyinstaller .\GUI_sqlite_scrape.py --i='popcorn.icns'
-#  > cp blank.png .\dist\GUI_sqlite_scrape\.
-#  > cp popcorn.png .\dist\GUI_sqlite_scrape\.
-#  result found in dist folder
+#  use pycharm terminal app to run > pyinstaller .\GUI_sqlite_scrape.py --onefile --i popcorn.ico
+#  cp dist\GUI_sqlite_scrape.exe .
 #
 #  Linux:
-#  > pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --i='popcorn.icns'
-#  > cp blank.png ./dist/GUI_sqlite_scrape/.
-#  > cp popcorn.png ./dist/GUI_sqlite_scrape/.
+#  > pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --onefile --add-data "popcorn.ico;." --icon="popcorn.ico"
+#  > cp blank.png ./dist/.; cp popcorn.png ./dist/.
 #  result found in dist folder
 #
 import io
