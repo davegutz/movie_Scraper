@@ -21,12 +21,12 @@
 # Can create Windows executable as follows:
 #  use pycharm settings to install pyinstaller
 #  use pycharm terminal app to run:
-#    pyinstaller .\GUI_sqlite_scrape.py --i popcorn.ico
+#    pyinstaller .\GUI_sqlite_scrape.py --i popcorn.ico -y
 #    cp blank.png .\dist\GUI_sqlite_scrape\.; cp popcorn.png .\dist\GUI_sqlite_scrape\.
 #  double-click, browse to database, and pin to taskbar
 #
 #  Linux:
-#    pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --icon="popcorn.ico"
+#    pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --icon="popcorn.ico" -y
 #    cp blank.png ./dist/GUI_sqlite_scrape/.; cp popcorn.png ./dist/GUI_sqlite_scrape/.
 #  result found in dist folder
 #
@@ -956,15 +956,18 @@ Watched: {item['values'][10]}
     def OnSingleClick(self, _event):
         """Called when user focuses element from TreeView"""
         curItem = self.tree.focus()
-        item = self.tree.item(curItem)
-        print(f"OnSingleClick: {curItem=} {item=}")
-        self.renew()
-        self.raise_it(item)
-        self.picked = curItem
-        try:
-            self.select_display.config(text=self.tree.item(self.picked)['values'][1])
-        except IndexError:
-            pass
+        if curItem != '':
+            item = self.tree.item(curItem)
+            print(f"OnSingleClick: {curItem=} {item=}")
+            self.renew()
+            self.raise_it(item)
+            self.picked = curItem
+            try:
+                self.select_display.config(text=self.tree.item(self.picked)['values'][1])
+            except IndexError:
+                pass
+        else:
+            pass  # print(f"OnSingleClick: ignoring header")
 
     def raise_it(self, item):
         """Called when user focuses element from TreeView"""
@@ -976,8 +979,8 @@ Watched: {item['values'][10]}
             my_img = ImageTk.PhotoImage(image)
             self.poster.configure(image=my_img)
             self.poster.image = my_img
-        except IndexError:
-            pass
+        except (IndexError, ValueError):
+            print(f"Invalid values for raise_it {item['values'][1]}")
 
     def renew(self):
         curItem = self.tree.focus()
