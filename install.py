@@ -102,3 +102,12 @@ if sys.platform == 'linux':
     else:
         print(Colors.fg.green, 'success', Colors.reset)
 
+# Instructions
+if sys.platform == 'linux':
+    print(f"open applications, find GUI... and add to favorites")
+elif sys.platform == 'Darwin':
+    print(f"macOS not done yet")
+else:
+    print(Colors.fg.green,
+          f"double-click on  'GUI_sqlite_scrape.exe - Shortcut', browse to DB folder, pin to taskbar",
+          Colors.reset)
