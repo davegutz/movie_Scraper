@@ -36,6 +36,7 @@ else:
 result = run_shell_cmd(test_cmd_create, silent=False)
 if result == -1:
     print(Colors.fg.red, 'failed', Colors.reset)
+    exit(1)
 else:
     print(Colors.fg.green, 'success', Colors.reset)
 
@@ -44,6 +45,7 @@ shutil.copyfile(popcorn_path, popcorn_dest_path)
 shutil.copystat(popcorn_path, popcorn_dest_path)
 shutil.copyfile(blank_path, blank_dest_path)
 shutil.copystat(blank_path, blank_dest_path)
+print(Colors.fg.green, "copied files", Colors.reset)
 
 # Install as deeply as possible
 test_cmd_install = None
@@ -91,12 +93,20 @@ Categories=Utility
         print(Colors.fg.green, 'chmod success', Colors.reset)
 
     # Move file
-    result = shutil.move('/home/daveg/Desktop/GUI_sqlite_scrape.desktop', '/usr/share/applications/GUI_sqlite_scrape.desktop')
+    try:
+        result = shutil.move('/home/daveg/Desktop/GUI_sqlite_scrape.desktop', '/usr/share/applications/GUI_sqlite_scrape.desktop')
+    except PermissionError:
+        print(Colors.fg.red, f"Stop and establish sudo permissions", Colors.reset)
+        print(Colors.fg.red, f"  or", Colors.reset)
+        print(Colors.fg.red, f"sudo mv /home/daveg/Desktop/GUI_sqlite_scrape.desktop /usr/share/applications/.", Colors.reset)
+        exit(1)
     if result != '/usr/share/applications/GUI_sqlite_scrape.desktop':
         print(Colors.fg.red, f"'mv ...' failed code {result}", Colors.reset)
     else:
         print(Colors.fg.green, 'mv success.  Browse apps :: and make it favorites.  Open and set path to dataReduction', Colors.reset)
+        print(Colors.fg.green, "you shouldn't have to remake shortcuts", Colors.reset)
 elif sys.platform == 'Darwin':
     print(f"macOS install not done yet")
 else:
-    print(f"double-click ")
+    print(f"browse to executable in 'dist/GUI_sqlite_scrape' and double-click.  Create shortcut first time")
+    print(Colors.fg.green, "you shouldn't have to remake shortcuts", Colors.reset)
