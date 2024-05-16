@@ -108,5 +108,5 @@ Categories=Utility
 elif sys.platform == 'Darwin':
     print(f"macOS install not done yet")
 else:
-    print(f"browse to executable in 'dist/GUI_sqlite_scrape' and double-click.  Create shortcut first time")
+    print(Colors.fg.green, f"browse to executable in 'dist/GUI_sqlite_scrape' and double-click.  Create shortcut first time", Colors.reset)
     print(Colors.fg.green, "you shouldn't have to remake shortcuts", Colors.reset)
