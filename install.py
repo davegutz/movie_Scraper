@@ -29,23 +29,25 @@ blank_dest_path = os.path.join(os.getcwd(), 'dist', 'GUI_sqlite_scrape', 'blank.
 # Create executable
 if sys.platform == 'linux':
     test_cmd_create = "pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --icon='popcorn.ico' -y"
-elif sys.platform == 'Darwin':
+elif sys.platform == 'darwin':
     print(f"macOS not done yet")
 else:
     test_cmd_create = 'pyinstaller .\\GUI_sqlite_scrape.py --i popcorn.ico -y'
-result = run_shell_cmd(test_cmd_create, silent=False)
-if result == -1:
-    print(Colors.fg.red, 'failed', Colors.reset)
-    exit(1)
-else:
-    print(Colors.fg.green, 'success', Colors.reset)
 
-# Provide dependencies
-shutil.copyfile(popcorn_path, popcorn_dest_path)
-shutil.copystat(popcorn_path, popcorn_dest_path)
-shutil.copyfile(blank_path, blank_dest_path)
-shutil.copystat(blank_path, blank_dest_path)
-print(Colors.fg.green, "copied files", Colors.reset)
+if sys.platform != 'darwin':
+    result = run_shell_cmd(test_cmd_create, silent=False)
+    if result == -1:
+        print(Colors.fg.red, 'failed', Colors.reset)
+        exit(1)
+    else:
+        print(Colors.fg.green, 'success', Colors.reset)
+
+    # Provide dependencies
+    shutil.copyfile(popcorn_path, popcorn_dest_path)
+    shutil.copystat(popcorn_path, popcorn_dest_path)
+    shutil.copyfile(blank_path, blank_dest_path)
+    shutil.copystat(blank_path, blank_dest_path)
+    print(Colors.fg.green, "copied files", Colors.reset)
 
 # Install as deeply as possible
 test_cmd_install = None
