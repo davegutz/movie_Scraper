@@ -13,7 +13,6 @@
 # Lesser General Public License for more details.
 #
 # See http://www.fsf.org/licensing/licenses/lgpl.txt for full license text.
-import os
 import sys
 import subprocess
 from Colors import Colors
@@ -46,7 +45,6 @@ def run_shell_cmd(cmd, silent=False, save_stdout=False, colorize=False):
         print(Colors.reset)
     if save_stdout and not silent:
         print('stdout', stdout_line)
-    output = proc.communicate()[0]
     exit_code = proc.returncode
     if exit_code == 0:
         if save_stdout:
@@ -55,5 +53,3 @@ def run_shell_cmd(cmd, silent=False, save_stdout=False, colorize=False):
             return exit_code
     else:
         return -1
-
-

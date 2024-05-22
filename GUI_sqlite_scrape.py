@@ -335,6 +335,7 @@ class IMDBdataBase:
         self.year_lbl.pack(side='top')
         self.entry_year = tk.Entry(self.bot_frame_right, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
         self.entry_year.pack(side='top')
+        self.entry_year.bind("<Return>", self.add_film)
         self.add_film_btn = tk.Button(self.bot_frame_right, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                       width=25, command=self.add_film)
         self.add_film_btn.pack(side='top')
@@ -408,7 +409,7 @@ class IMDBdataBase:
                         self.conn.commit()
                 print(f"{filepath=} done")
 
-    def add_film(self):
+    def add_film(self, _event):
         """Insert film fields to Database"""
         self.root.focus_set()
         if self.entry.get() == "" or self.entry.get().isspace():
@@ -428,6 +429,10 @@ class IMDBdataBase:
                     if id_film is None:
                         print(f"add_film:  not found at IMDB {film} ({year})")
                         tk.messagebox.showerror(title="Error", message="The film is not found")
+                        return
+                    have_id = self.already_have_id(id_film)
+                    if have_id:
+                        tk.messagebox.showerror(title="Error", message="The selected film is already in the list")
                         return
                     new_movie = Feature(id_film)
                     print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
@@ -469,13 +474,13 @@ class IMDBdataBase:
         return have
 
     def already_have_id(self, id_):
-        """Check for existence by year and title (film = (year))"""
+        """Check for existence by IMDB_ID"""
         have = False
-        self.c.execute(f"SELECT ID FROM My_Films ORDER BY ID")
+        self.c.execute(f"SELECT IMDB_ID FROM My_Films ORDER BY IMDB_ID")
         rows = self.c.fetchall()
         print(f"{rows=}")
         row = [item[0] for item in rows]
-        if id_ in row:
+        if int(id_) in row:
             have = True
         return have
 
