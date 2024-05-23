@@ -48,9 +48,10 @@ import platform
 import numpy as np
 import PySimpleGUI as pSG
 from time import sleep
-if platform.system() == 'Darwin':
+if sys.platform == 'darwin':
     # noinspection PyUnresolvedReferences
     from ttwidgets import TTButton as myButton
+    import tkinter as tk
 else:
     import tkinter as tk
     from tkinter import Button as myButton
@@ -1060,7 +1061,13 @@ def string_similarity(str1, str2):
 if __name__ == "__main__":
 
     # Configuration for entire folder selection read with filepaths
-    default_dict = {'path': {"db_folder": './', "db_name": 'myMovies.db'}}
+    if sys.platform == 'linux':
+        default_dict = {'path': {"db_folder": '/home/daveg/google-drive/Movie Stuff', "db_name": 'myMovies.db'}}
+    elif sys.platform == 'darwin':
+        default_dict = {'path': {"db_folder": '/Users/daveg/Library/CloudStorage/GoogleDrive-davegutz2006@gmail.com/My Drive/Movies Stuff'
+, "db_name": 'myMovies.db'}}
+    else:
+        default_dict = {'path': {"db_folder": 'G:/My Drive/Movie Stuff', "db_name": 'myMovies.db'}}
 
     cf = Begini(__file__, default_dict)
     imdb = IMDBdataBase(cf_=cf)
