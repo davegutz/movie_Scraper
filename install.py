@@ -30,7 +30,7 @@ blank_dest_path = os.path.join(os.getcwd(), 'dist', 'GUI_sqlite_scrape', 'blank.
 if sys.platform == 'linux':
     test_cmd_create = "pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --icon='popcorn.ico' -y"
 elif sys.platform == 'darwin':
-    print(f"macOS not done yet")
+    print("simplified...wait for green comments")
 else:
     test_cmd_create = 'pyinstaller .\\GUI_sqlite_scrape.py --i popcorn.ico -y'
 
