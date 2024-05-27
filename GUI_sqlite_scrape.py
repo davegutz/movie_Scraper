@@ -44,7 +44,6 @@ from imdb import Cinemagoer  # install cinemagoer
 from datetime import datetime
 from PIL import ImageTk, Image  # install pillow
 import urllib.request
-import platform
 import numpy as np
 import PySimpleGUI as pSG
 from time import sleep
@@ -1064,8 +1063,7 @@ if __name__ == "__main__":
     if sys.platform == 'linux':
         default_dict = {'path': {"db_folder": '/home/daveg/google-drive/Movies Stuff', "db_name": 'myMovies.db'}}
     elif sys.platform == 'darwin':
-        default_dict = {'path': {"db_folder": '/Users/daveg/Library/CloudStorage/GoogleDrive-davegutz2006@gmail.com/My Drive/Movies Stuff'
-, "db_name": 'myMovies.db'}}
+        default_dict = {'path': {"db_folder": '/Users/daveg/Library/CloudStorage/GoogleDrive-davegutz2006@gmail.com/My Drive/Movies Stuff', "db_name": 'myMovies.db'}}
     else:
         default_dict = {'path': {"db_folder": 'G:/My Drive/Movies Stuff', "db_name": 'myMovies.db'}}
 
