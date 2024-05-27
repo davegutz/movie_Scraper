@@ -81,11 +81,13 @@ class Begini(ConfigParser):
         (config_path, config_basename) = os.path.split(name)
         if sys.platform == 'linux':
             config_txt = os.path.splitext(config_basename)[0] + '_linux.ini'
-        elif sys.platform == 'Darwin':
+            self.config_file_path = os.path.join('/home/daveg/.local/', config_txt)
+        elif sys.platform == 'darwin':
             config_txt = os.path.splitext(config_basename)[0] + '_macos.ini'
+            self.config_file_path = os.path.join('/Users/daveg/.local/', config_txt)
         else:
             config_txt = os.path.splitext(config_basename)[0] + '.ini'
-        self.config_file_path = os.path.join(config_path, config_txt)
+            self.config_file_path = os.path.join('/home/daveg/.local/', config_txt)
         print('config file', self.config_file_path)
         if os.path.isfile(self.config_file_path):
             self.read(self.config_file_path)
