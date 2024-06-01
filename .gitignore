@@ -7,3 +7,4 @@
 GUI_sqlite_scrape.spec
 IMDB_Films.db-journal
 *.pyc
+GUI_sqlite_scrape copy.py
