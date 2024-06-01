@@ -28,13 +28,13 @@ blank_dest_path = os.path.join(os.getcwd(), 'dist', 'GUI_sqlite_scrape', 'blank.
 
 # Create executable
 if sys.platform == 'linux':
-    test_cmd_create = "pyinstaller ./GUI_sqlite_scrape.py --hidden-import='PIL._tkinter_finder' --icon='popcorn.ico' -y"
+    pass
 elif sys.platform == 'darwin':
     print("simplified...wait for green comments")
 else:
     test_cmd_create = 'pyinstaller .\\GUI_sqlite_scrape.py --i popcorn.ico -y'
 
-if sys.platform != 'darwin':
+if sys.platform == 'win32':
     result = run_shell_cmd(test_cmd_create, silent=False)
     if result == -1:
         print(Colors.fg.red, 'failed', Colors.reset)
