@@ -51,14 +51,15 @@ if sys.platform == 'win32':
 
 # Install as deeply as possible
 test_cmd_install = None
+login = os.getlogin()
 if sys.platform == 'linux':
 
     # Install
-    desktop_entry = """[Desktop Entry]
+    desktop_entry = f"""[Desktop Entry]
 Name=GUI_sqlite_scrape
-Exec=/home/daveg/Documents/GitHub/movie_Scraper/dist/GUI_sqlite_scrape/GUI_sqlite_scrape
-Path=/home/daveg/Documents/GitHub/movie_Scraper/dist/GUI_sqlite_scrape
-Icon=/home/daveg/Documents/GitHub/movie_Scraper/popcorn.ico
+Exec=/home/{login}/Documents/GitHub/movie_Scraper/venv/bin/python3.10 /home/{login}/Documents/GitHub/movie_Scraper/GUI_sqlite_scrape.py
+Path=/home/{login}/Documents/GitHub/movie_Scraper
+Icon=/home/{login}/Documents/GitHub/movie_Scraper/popcorn.ico
 comment=app
 Type=Application
 Terminal=true
