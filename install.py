@@ -27,14 +27,8 @@ blank_path = os.path.join(os.getcwd(), 'blank.png')
 blank_dest_path = os.path.join(os.getcwd(), 'dist', 'GUI_sqlite_scrape', 'blank.png')
 
 # Create executable
-if sys.platform == 'linux':
-    pass
-elif sys.platform == 'darwin':
-    print("simplified...wait for green comments")
-else:
-    test_cmd_create = 'pyinstaller .\\GUI_sqlite_scrape.py --i popcorn.ico -y'
-
 if sys.platform == 'win32':
+    test_cmd_create = 'pyinstaller .\\GUI_sqlite_scrape.py --i popcorn.ico -y'
     result = run_shell_cmd(test_cmd_create, silent=False)
     if result == -1:
         print(Colors.fg.red, 'failed', Colors.reset)
@@ -53,8 +47,6 @@ if sys.platform == 'win32':
 test_cmd_install = None
 login = os.getlogin()
 if sys.platform == 'linux':
-
-    # Install
     desktop_entry = f"""[Desktop Entry]
 Name=GUI_sqlite_scrape
 Exec=/home/{login}/Documents/GitHub/movie_Scraper/venv/bin/python3 /home/{login}/Documents/GitHub/movie_Scraper/GUI_sqlite_scrape.py
