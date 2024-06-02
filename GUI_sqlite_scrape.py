@@ -1,6 +1,6 @@
 #! /bin/sh
 "exec" "`dirname $0`/venv/bin/python3" "$0" "$@"
-#! /users/daveg/Documents/GitHub/myStateOfCharge/SOC_Particle/py/venv/bin/python3.12
+##! /users/daveg/Documents/GitHub/myStateOfCharge/SOC_Particle/py/venv/bin/python3.12
 #  Manage movie database in conjunction with 'DB Browser for SQLite'
 #  Run in PyCharm
 #     or
