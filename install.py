@@ -112,12 +112,11 @@ Categories=Utility
               Colors.reset)
         print(Colors.fg.green, "you shouldn't have to remake shortcuts", Colors.reset)
 elif sys.platform == 'darwin':
-    print(Colors.fg.green, f"macOS: modify #! at top of 'GUI_sqlite_scrape.py' to be the same as what PyCharm calls\n"
-          f"  - see first line of PyCharm execution at the top of the screen your looking at.  Copy/past that whole line.\n"
+    print(Colors.fg.green,
           f"Make sure 'Python Launcher' (Python Script Preferences) option for 'Allow override with #! in script' is checked.\n"
-          f"in Finder ctrl-click on 'GUI_sqlite_scrape.py' select 'duplicate.'\n"
+          f"in Finder ctrl-click on 'GUI_sqlite_scrape.py'\n"
           f"   - Open and copy icon into paste buffer.\n"
-          f"   - Then 'Get Info' on the duplicate, click on 2nd icon, paste.   Drag duplicate item to taskbar.", Colors.reset)
+          f"   - Then 'Get Info' on the duplicate, click on 2nd icon, paste.   Drag item to taskbar.", Colors.reset)
 else:
     print(Colors.fg.green, f"double-click on  'GUI_sqlite_scrape.exe - Shortcut', browse to DB folder, pin to taskbar",
           Colors.reset)
