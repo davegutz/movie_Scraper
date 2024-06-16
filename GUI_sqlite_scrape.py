@@ -341,7 +341,7 @@ class IMDBdataBase:
         self.year_lbl.pack(side='top')
         self.entry_year = tk.Entry(self.bot_frame_right, width=30, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
         self.entry_year.pack(side='top')
-        self.entry_year.bind("<Return>", self.add_film)
+        self.entry_year.bind("<Return>", self.add_film_auto)
         self.add_film_btn = tk.Button(self.bot_frame_right, text="Add film", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                       width=25, command=self.add_film)
         self.add_film_btn.pack(side='top')
@@ -415,7 +415,10 @@ class IMDBdataBase:
                         self.conn.commit()
                 print(f"{filepath=} done")
 
-    def add_film(self, _event):
+    def add_film_auto(self, _e):
+        self.add_film()
+
+    def add_film(self):
         """Insert film fields to Database"""
         self.root.focus_set()
         if self.entry.get() == "" or self.entry.get().isspace():
@@ -484,7 +487,6 @@ class IMDBdataBase:
         have = False
         self.c.execute(f"SELECT IMDB_ID FROM My_Films ORDER BY IMDB_ID")
         rows = self.c.fetchall()
-        print(f"{rows=}")
         row = [item[0] for item in rows]
         if int(id_) in row:
             have = True
