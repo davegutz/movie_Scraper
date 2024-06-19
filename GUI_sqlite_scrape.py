@@ -119,7 +119,7 @@ class Begini(ConfigParser):
 
 class Feature:
     """Container of a film's information"""
-    def __init__(self, ID, watched=None, myRating=None, have_dvd=True):
+    def __init__(self, ID, watched=None, myRating=None, have_dvd=0):
         self.ID = ID
         self.DVD = have_dvd
         movie = None
@@ -446,7 +446,7 @@ class IMDBdataBase:
                     if have_id:
                         tk.messagebox.showerror(title="Error", message="The selected film is already in the list")
                         return
-                    new_movie = Feature(id_film)
+                    new_movie = Feature(id_film, have_dvd=4)  # 4=screencast copy
                     print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
                 except KeyError:
                     print(f"{film=} {year=}")
@@ -454,14 +454,15 @@ class IMDBdataBase:
                     return
                 # Enter into BBDD
                 try:
+                    today_date = str(datetime.today().strftime('%Y-%m-%d'))
                     self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
                                     director, actors, generes, summary, cover, WATCHED, DVD, runtime, certification)
                                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);""",
                                    (new_movie.ID, str(new_movie.title), int(new_movie.year),
                                     float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
                                     str(new_movie.casting), str(new_movie.genres), str(new_movie.summary[0]),
-                                    str(new_movie.cover), str(datetime.today().strftime('%Y-%m-%d')),
-                                    bool(new_movie.DVD), str(new_movie.runtime), str(new_movie.certification)),)
+                                    str(new_movie.cover), str(''),
+                                    int(new_movie.DVD), str(new_movie.runtime), str(new_movie.certification)),)
                     self.fill_tree_view()
                     self.highlight_new_film((str(new_movie.title).lower(), int(new_movie.year)))
                 except UnboundLocalError:
@@ -630,8 +631,8 @@ class IMDBdataBase:
             self.highlight_new_film((str(title).lower(), int(year)))
 
     def enter_watched_date(self):
-        if self.picked is None or self.entry_date.get() == "" or self.entry.get().isspace():
-            tk.messagebox.showerror(title="Error", message='You should pick something')
+        if self.picked is None:
+            tk.messagebox.showerror(title="Error", message='You should pick a film')
         elif self.picked == '<search and select something above>':
             tk.messagebox.showerror(title="Error", message='You should select some features first')
         else:
