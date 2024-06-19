@@ -132,7 +132,10 @@ class Feature:
                 sleep(0.5)
                 continue
         self.title = movie['title'].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')
-        self.year = movie['year']
+        try:
+            self.year = movie['year']
+        except KeyError:
+            self.year = 1900
         if watched is None:
             self.watched = ''
         else:
@@ -615,6 +618,8 @@ class IMDBdataBase:
             tk.messagebox.showerror(title="Error", message='You should select some features first')
         else:
             IMDB_ID = self.tree.item(self.picked)['values'][0]
+            title = self.tree.item(self.picked)['values'][1]
+            year = self.tree.item(self.picked)['values'][2]
             dvd = str(self.tree.item(self.picked)['values'][11])
             new_dvd = self.entry_dvd.get()
             print(f"setting DVD = {new_dvd}")
@@ -622,6 +627,7 @@ class IMDBdataBase:
             self.c.execute(f"""UPDATE My_Films SET DVD = (?) WHERE IMDB_ID = (?)""",
                            (new_dvd, IMDB_ID)),
             self.fill_tree_view()
+            self.highlight_new_film((str(title).lower(), int(year)))
 
     def enter_watched_date(self):
         if self.picked is None or self.entry_date.get() == "" or self.entry.get().isspace():
@@ -630,6 +636,8 @@ class IMDBdataBase:
             tk.messagebox.showerror(title="Error", message='You should select some features first')
         else:
             IMDB_ID = self.tree.item(self.picked)['values'][0]
+            title = self.tree.item(self.picked)['values'][1]
+            year = self.tree.item(self.picked)['values'][2]
             WATCHED = str(self.tree.item(self.picked)['values'][10])
             new_WATCHED = self.entry_date.get()
             print(f"setting date = {new_WATCHED}")
@@ -637,6 +645,7 @@ class IMDBdataBase:
             self.c.execute(f"""UPDATE My_Films SET WATCHED = (?) WHERE IMDB_ID = (?)""",
                            (new_WATCHED, IMDB_ID)),
             self.fill_tree_view()
+            self.highlight_new_film((str(title).lower(), int(year)))
 
     def enter_my_rating(self):
         if self.picked is None or self.entry_rating.get() == "" or self.entry_rating.get().isspace():
@@ -645,6 +654,8 @@ class IMDBdataBase:
             tk.messagebox.showerror(title="Error", message='You should select some features first')
         else:
             IMDB_ID = self.tree.item(self.picked)['values'][0]
+            title = self.tree.item(self.picked)['values'][1]
+            year = self.tree.item(self.picked)['values'][2]
             my_rating = str(self.tree.item(self.picked)['values'][4])
             new_my_rating = self.entry_rating.get()
             print(f"setting rating = {new_my_rating}")
@@ -652,6 +663,7 @@ class IMDBdataBase:
             self.c.execute(f"""UPDATE My_Films SET my_rating = (?) WHERE IMDB_ID = (?)""",
                            (new_my_rating, IMDB_ID)),
             self.fill_tree_view()
+            self.highlight_new_film((str(title).lower(), int(year)))
 
     # noinspection
     def highlight_new_film(self, film):
