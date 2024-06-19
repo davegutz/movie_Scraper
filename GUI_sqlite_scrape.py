@@ -212,6 +212,7 @@ class IMDBdataBase:
         self.root.config(pady=20, padx=20, bg=bg_color)
         self.root.resizable(False, False)
         self.root.iconphoto(False, tk.PhotoImage(file='./popcorn.png'))
+        print("ran iconphoto for popcorn.png")
         self.top_frame = tk.Frame(self.root)
         self.top_frame.pack(side='top', expand=True, fill='both')
         self.mid_frame = tk.Frame(self.root)
