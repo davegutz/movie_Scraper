@@ -58,6 +58,7 @@ if sys.platform == 'darwin':
 else:
     import tkinter as tk
     from tkinter import Button as myButton
+from Colors import Colors
 
 # Define frames
 min_width = 820
@@ -294,7 +295,11 @@ class IMDBdataBase:
 
         # Database
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
-        self.conn = sqlite3.connect(self.db_path)
+        try:
+            self.conn = sqlite3.connect(self.db_path)
+        except sqlite3.OperationalError:
+            print(Colors.fg.red, f"\n\nCouldn't open database file.  Sign into google-drive\n\n",
+                  Colors.reset)
         self.c = None
         self.style = ttk.Style()
         self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
