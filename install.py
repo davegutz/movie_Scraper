@@ -92,24 +92,30 @@ Categories=Utility
         result = shutil.move('/home/daveg/Desktop/GUI_sqlite_scrape.desktop',
                              '/usr/share/applications/GUI_sqlite_scrape.desktop')
     except PermissionError:
-        print(Colors.fg.red, f"Stop and establish sudo permissions", Colors.reset)
-        print(Colors.fg.red, f"  or", Colors.reset)
-        print(Colors.fg.red, f"sudo mv /home/daveg/Desktop/GUI_sqlite_scrape.desktop /usr/share/applications/.",
+        print(Colors.fg.red, f"Stop and establish sudo permissions"
+              f"  or"
+              f"sudo mv /home/daveg/Desktop/GUI_sqlite_scrape.desktop /usr/share/applications/.",
               Colors.reset)
         exit(1)
     if result != '/usr/share/applications/GUI_sqlite_scrape.desktop':
         print(Colors.fg.red, f"'mv ...' failed code {result}", Colors.reset)
     else:
-        print(Colors.fg.green, 'mv success.  Browse apps :: and make it favorites.  Open and set path to dataReduction',
+        print(Colors.fg.green,
+              'mv success.  Browse apps :: and make it favorites.  Open and set path to dataReduction',
               Colors.reset)
-        print(Colors.fg.green, "you shouldn't have to remake shortcuts", Colors.reset)
+        print(Colors.fg.green,
+              "you shouldn't have to remake shortcuts",
+              Colors.reset)
 elif sys.platform == 'darwin':
     print(Colors.fg.green,
           f"Make sure 'Python Launcher' (Python Script Preferences) option for 'Allow override with #! in script' is checked.\n"
           f"in Finder double-click on 'popcorn.png'.  Edit-copy the image"
           f"in Finder ctrl-click on 'GUI_sqlite_scrape.py'\n"
-          f"   - 'Get Info', click on 2nd icon, paste.   Drag item to taskbar.", Colors.reset)
-else:
-    print(Colors.fg.green, f"double-click on  'GUI_sqlite_scrape.exe - Shortcut', browse to DB folder, pin to taskbar",
+          f"   - 'Get Info', click on 2nd icon, paste.   Drag item to taskbar.",
           Colors.reset)
-    print(Colors.fg.green, "you shouldn't have to remake shortcuts", Colors.reset)
+else:
+    print(Colors.fg.green,
+          f"double-click on  'GUI_sqlite_scrape.exe - Shortcut', browse to DB folder, pin to taskbar"
+          f"in shortcut properties, make sure 'Start in:' is this folder where this script resides"
+          f"you shouldn't have to remake shortcuts",
+          Colors.reset)
