@@ -106,9 +106,9 @@ Categories=Utility
 elif sys.platform == 'darwin':
     print(Colors.fg.green,
           f"Make sure 'Python Launcher' (Python Script Preferences) option for 'Allow override with #! in script' is checked.\n"
+          f"in Finder double-click on 'popcorn.png'.  Edit-copy the image"
           f"in Finder ctrl-click on 'GUI_sqlite_scrape.py'\n"
-          f"   - Open and copy icon into paste buffer.\n"
-          f"   - Then 'Get Info' on the duplicate, click on 2nd icon, paste.   Drag item to taskbar.", Colors.reset)
+          f"   - 'Get Info', click on 2nd icon, paste.   Drag item to taskbar.", Colors.reset)
 else:
     print(Colors.fg.green, f"double-click on  'GUI_sqlite_scrape.exe - Shortcut', browse to DB folder, pin to taskbar",
           Colors.reset)
