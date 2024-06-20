@@ -44,7 +44,6 @@ import tkinter.messagebox
 import sqlite3
 import csv
 import imdb
-from PIL.ImageTk import PhotoImage
 from imdb import Cinemagoer  # install cinemagoer
 from datetime import datetime
 from PIL import ImageTk, Image  # install pillow
