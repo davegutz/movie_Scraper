@@ -92,8 +92,8 @@ Categories=Utility
         result = shutil.move('/home/daveg/Desktop/GUI_sqlite_scrape.desktop',
                              '/usr/share/applications/GUI_sqlite_scrape.desktop')
     except PermissionError:
-        print(Colors.fg.red, f"Stop and establish sudo permissions"
-              f"  or"
+        print(Colors.fg.red, f"Stop and establish sudo permissions\n"
+              f"  or\n"
               f"sudo mv /home/daveg/Desktop/GUI_sqlite_scrape.desktop /usr/share/applications/.",
               Colors.reset)
         exit(1)
@@ -109,13 +109,14 @@ Categories=Utility
 elif sys.platform == 'darwin':
     print(Colors.fg.green,
           f"Make sure 'Python Launcher' (Python Script Preferences) option for 'Allow override with #! in script' is checked.\n"
-          f"in Finder double-click on 'popcorn.png'.  Edit-copy the image"
+          f"in Finder double-click on 'popcorn.png'.  Edit-copy the image\n"
           f"in Finder ctrl-click on 'GUI_sqlite_scrape.py'\n"
           f"   - 'Get Info', click on 2nd icon, paste.   Drag item to taskbar.",
           Colors.reset)
 else:
     print(Colors.fg.green,
-          f"double-click on  'GUI_sqlite_scrape.exe - Shortcut', browse to DB folder, pin to taskbar"
-          f"in shortcut properties, make sure 'Start in:' is this folder where this script resides"
+          f"browse to executable in 'dist/GUI_sqlite_scrape' and double-click.  Create shortcut first time and move Desktop\n"
+          f"double-click on  'GUI_sqlite_scrape.exe - Shortcut', browse to DB folder, pin to taskbar\n"
+          f"in shortcut properties, make sure 'Start in:' is this folder where this script resides\n"
           f"you shouldn't have to remake shortcuts",
           Colors.reset)
