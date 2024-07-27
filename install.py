@@ -45,8 +45,11 @@ if sys.platform == 'win32':
 
 # Install as deeply as possible
 test_cmd_install = None
-login = os.getlogin()
 if sys.platform == 'linux':
+    try:
+        login = os.getlogin()
+    except OSError:
+        login = os.environ['LOGNAME']
     desktop_entry = f"""[Desktop Entry]
 Name=GUI_sqlite_scrape
 Exec=/home/{login}/Documents/GitHub/movie_Scraper/venv/bin/python3 /home/{login}/Documents/GitHub/movie_Scraper/GUI_sqlite_scrape.py
