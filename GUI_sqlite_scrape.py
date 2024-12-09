@@ -303,6 +303,7 @@ class IMDBdataBase:
         except sqlite3.OperationalError:
             print(Colors.fg.red, f"\n\nCouldn't open database file.  Sign into google-drive\n\n",
                   Colors.reset)
+            tk.messagebox.showerror(title="Error", message='Sign into google-drive')
         self.c = None
         self.style = ttk.Style()
         self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
