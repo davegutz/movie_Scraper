@@ -52,7 +52,7 @@ if sys.platform == 'linux':
         login = os.environ['LOGNAME']
     desktop_entry = f"""[Desktop Entry]
 Name=GUI_sqlite_scrape
-Exec=/home/{login}/Documents/GitHub/movie_Scraper/venv/bin/python3 /home/{login}/Documents/GitHub/movie_Scraper/GUI_sqlite_scrape.py
+Exec=/home/{login}/Documents/GitHub/movie_Scraper/.venv/bin/python3 /home/{login}/Documents/GitHub/movie_Scraper/GUI_sqlite_scrape.py
 Path=/home/{login}/Documents/GitHub/movie_Scraper
 Icon=/home/{login}/Documents/GitHub/movie_Scraper/popcorn.ico
 comment=app
@@ -89,7 +89,7 @@ Categories=Utility
         print(Colors.fg.red, f"'chmod ...' failed code {result}", Colors.reset)
     else:
         print(Colors.fg.green, 'chmod success', Colors.reset)
-
+    # exit(1)
     # Move file
     try:
         result = shutil.move('/home/daveg/Desktop/GUI_sqlite_scrape.desktop',
