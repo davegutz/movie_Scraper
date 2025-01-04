@@ -3,7 +3,7 @@
 
 ## Install for your platform
 Open pycharm in top level.
-Install a python interpreter as venv.
+Install a python interpreter as .venv.
 Test that GUI_sqlite_scape.py runs using pycharm.
 run install.py
 
