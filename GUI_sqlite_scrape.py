@@ -1123,7 +1123,7 @@ if __name__ == "__main__":
 
     # Configuration for entire folder selection read with filepaths
     if sys.platform == 'linux':
-        default_dict = {'path': {"db_folder": '/home/daveg/google-drive/Movies Stuff', "db_name": 'myMovies.db'}}
+        default_dict = {'path': {"db_folder": '/home/daveg/Documents/GitHub/myComputer', "db_name": 'myMovies.db'}}
     elif sys.platform == 'darwin':
         default_dict = {'path': {"db_folder": '/Users/daveg/Library/CloudStorage/GoogleDrive-davegutz2006@gmail.com/My Drive/Movies Stuff', "db_name": 'myMovies.db'}}
     else:
