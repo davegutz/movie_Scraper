@@ -49,7 +49,7 @@ from datetime import datetime
 from PIL import ImageTk, Image  # install pillow
 import urllib.request
 import numpy as np
-import PySimpleGUI as pSG
+import PySimpleGUI as pSG  # install PySimpleGUI-4-foss
 from time import sleep
 if sys.platform == 'darwin':
     # noinspection PyUnresolvedReferences
