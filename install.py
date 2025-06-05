@@ -19,6 +19,8 @@ from Colors import Colors
 import os
 import shutil
 
+debug = False
+
 test_cmd_create = None
 test_cmd_copy = None
 popcorn_path = os.path.join(os.getcwd(), 'popcorn.png')
@@ -92,8 +94,9 @@ Categories=Utility
     # exit(1)
     # Move file
     try:
-        result = shutil.move('/home/daveg/Desktop/GUI_sqlite_scrape.desktop',
-                             '/usr/share/applications/GUI_sqlite_scrape.desktop')
+        if debug is False:
+            result = shutil.move('/home/daveg/Desktop/GUI_sqlite_scrape.desktop',
+                                 '/usr/share/applications/GUI_sqlite_scrape.desktop')
     except PermissionError:
         print(Colors.fg.red, f"Stop and establish sudo permissions\n"
               f"  or\n"
