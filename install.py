@@ -30,6 +30,14 @@ blank_dest_path = os.path.join(os.getcwd(), 'dist', 'GUI_sqlite_scrape', 'blank.
 
 # Create executable
 if sys.platform == 'win32':
+
+    # Check executable is local
+    if sys.executable.__contains__("venv" + os.path.sep + "bin" + os.path.sep + "python"):
+        pass
+    else:
+        print(Colors.fg.red, 'failed:  need to use local venv interpreter', Colors.reset)
+        exit(1)
+
     test_cmd_create = 'pyinstaller .\\GUI_sqlite_scrape.py --i popcorn.ico -y'
     result = run_shell_cmd(test_cmd_create, silent=False)
     if result == -1:
@@ -69,6 +77,13 @@ Categories=Utility
         print(Colors.fg.red, 'failed', Colors.reset)
     else:
         print(Colors.fg.green, 'success', Colors.reset)
+
+    # Check executable is local
+    if sys.executable.__contains__("venv" + os.path.sep + "bin" + os.path.sep + "python"):
+        pass
+    else:
+        print(Colors.fg.red, 'failed:  need to use local venv interpreter', Colors.reset)
+        exit(1)
 
     #  Launch permission
     test_cmd_launch = 'gio set /home/daveg/Desktop/GUI_sqlite_scrape.desktop metadata::trusted true'
