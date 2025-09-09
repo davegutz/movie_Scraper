@@ -32,8 +32,9 @@ blank_dest_path = os.path.join(os.getcwd(), 'dist', 'GUI_sqlite_scrape', 'blank.
 if sys.platform == 'win32':
 
     # Check executable is local
-    if sys.executable.__contains__("venv" + os.path.sep + "bin" + os.path.sep + "python"):
-        pass
+    # if sys.executable.__contains__("venv" + os.path.sep + "bin" + os.path.sep + "python"):
+    if sys.executable.__contains__("venv" + os.path.sep + "Scripts" + os.path.sep + "python"):
+            pass
     else:
         print(Colors.fg.red, 'failed:  need to use local venv interpreter', Colors.reset)
         exit(1)
@@ -79,7 +80,8 @@ Categories=Utility
         print(Colors.fg.green, 'success', Colors.reset)
 
     # Check executable is local
-    if sys.executable.__contains__("venv" + os.path.sep + "bin" + os.path.sep + "python"):
+    # if sys.executable.__contains__("venv" + os.path.sep + "bin" + os.path.sep + "python"):
+    if sys.executable.__contains__("venv" + os.path.sep + "Scripts" + os.path.sep + "python"):
         pass
     else:
         print(Colors.fg.red, 'failed:  need to use local venv interpreter', Colors.reset)
