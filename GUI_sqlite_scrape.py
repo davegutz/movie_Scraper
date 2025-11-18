@@ -51,6 +51,9 @@ import urllib.request
 import numpy as np
 import PySimpleGUI as pSG  # install PySimpleGUI-4-foss
 from time import sleep
+
+from tryOMDB import get_movie_details
+
 if sys.platform == 'darwin':
     # noinspection PyUnresolvedReferences
     from ttwidgets import TTButton as myButton
@@ -59,6 +62,8 @@ else:
     import tkinter as tk
     from tkinter import Button as myButton
 from Colors import Colors
+import requests
+API_KEY = 'fd597cf0'
 
 # Define frames
 min_width = 820
@@ -908,6 +913,83 @@ class IMDBdataBase:
         self.select_display.config(text='')
         self.sort_title(title_col)
 
+    @staticmethod
+    def get_movie_details(search_title, year, api_key):
+        """
+        Fetches movie details from OMDb API by title and year.
+        """
+        # The 't' parameter is for title, 'y' for year, and 'plot' for plot length
+        params = {
+            't': search_title,
+            'y': year,
+            'plot': 'full',
+            'apikey': api_key
+        }
+        # OMDb API endpoint
+        url = "http://www.omdbapi.com/"
+
+        try:
+            response = requests.get(url, params=params)
+            # Raise an exception for bad status codes
+            response.raise_for_status()
+            movie_data = response.json()
+
+            # Check if the request was successful
+            if movie_data and movie_data.get('Title') is not None:
+                print(f"--- Details for '{movie_data['Title']}' ({movie_data['Year']}) ---")
+                print(f"Runtime: {movie_data['Runtime']}")
+                print(f"Directors: {movie_data['Director']}")
+                print(f"Actors: {movie_data['Actors']}")
+                print(f"Plot Synopsis: {movie_data['Plot']}")
+                if movie_data['Ratings']:
+                    print("Ratings: ", movie_data['Ratings'])
+                    for rating in movie_data['Ratings']:
+                        print(f"  - {rating['Source']}: {rating['Value']}")
+                return movie_data
+            else:
+                print(f"Error: {movie_data.get('Error')}")
+                return None
+        except requests.exceptions.RequestException as e:
+            print(f"A request error occurred: {e}")
+            return None
+
+    @staticmethod
+    def get_candidates(search_title, year, api_key):
+        """
+        Fetches movie details from OMDb API by title and year.
+        """
+        # The 't' parameter is for title, 'y' for year, and 'plot' for plot length
+        params = {
+            's': search_title,
+            'y': year,
+            'plot': 'full',
+            'apikey': api_key
+        }
+        # OMDb API endpoint
+        url = "http://www.omdbapi.com/"
+
+        try:
+            response = requests.get(url, params=params)
+            # Raise an exception for bad status codes
+            response.raise_for_status()
+            movie_data = response.json()
+
+            # Check if the request was successful
+            if (movie_data and not hasattr(movie_data, 'Error') and
+                    movie_data.get('Search') and movie_data.get('Search')[0].get('Title') is not None):
+                result_dict = movie_data.get('Search')
+                num = len(result_dict)
+                for i in range(num):
+                    movie_title = movie_data.get('Search')[i].get('Title')
+                    movie_details = get_movie_details(movie_title, year, api_key)
+                    print("")
+                return result_dict
+            else:
+                return None
+        except requests.exceptions.RequestException as e:
+            print(f"A request error occurred: {e}")
+            return None
+
     def look_smart(self, title, year=None):
         """Find IMDB match as good as possible, returning the ID"""
         film = (title, year)
@@ -919,6 +1001,23 @@ class IMDBdataBase:
                 print("timeout...retry")
                 continue
         list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
+
+        adder = -1
+        match = None
+        candidates_dict = None
+        print("here")
+        while adder < 3:
+            search_year = str(int(year) + adder)
+            movie_dict_omdb = self.get_candidates(search_title=title, year=search_year, api_key=API_KEY)
+            if movie_dict_omdb is not None:
+                if candidates_dict is None:
+                    candidates_dict = movie_dict_omdb
+                else:
+                    candidates_dict.append(movie_dict_omdb)
+            adder += 1
+        for i in range(len(candidates_dict)):
+            print(f"{candidates_dict[i]['Title']} {candidates_dict[i]['Year']}")
+
         if not len(array_of_cans):
             return None
 
@@ -974,6 +1073,26 @@ class IMDBdataBase:
 
     @staticmethod
     def make_list_of_cans(cans):
+        """String together data; difficult to do for some reason.  Resort to this manual way"""
+        result = []
+        searchable_result = []
+        titles = []
+        years = []
+        for item in cans:
+            title = item['title'].strip().lower()
+            ID = item.getID()
+            try:
+                year = item['year']
+            except KeyError:
+                year = 0
+            result.append((ID, title, year))
+            titles.append(title)
+            years.append(year)
+            searchable_result.append(np.array([title, year]))
+        return result, np.array(searchable_result), np.array(titles, dtype='<U78'), np.array(years, dtype='<U78')
+
+    @staticmethod
+    def make_list_of_cans_omdb(cans):
         """String together data; difficult to do for some reason.  Resort to this manual way"""
         result = []
         searchable_result = []

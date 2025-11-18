@@ -29,9 +29,10 @@ def get_movie_details(title, year, api_key):
             print(f"Directors: {movie_data['Director']}")
             print(f"Actors: {movie_data['Actors']}")
             print(f"Plot Synopsis: {movie_data['Plot']}")
-            print("Ratings:")
-            for rating in movie_data['Ratings']:
-                print(f"  - {rating['Source']}: {rating['Value']}")
+            if movie_data['Ratings']:
+                print("Ratings:")
+                for rating in movie_data['Ratings']:
+                    print(f"  - {rating['Source']}: {rating['Value']}")
             return movie_data
         else:
             print(f"Error: {movie_data.get('Error')}")
