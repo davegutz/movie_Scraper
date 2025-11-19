@@ -52,8 +52,6 @@ import numpy as np
 import PySimpleGUI as pSG  # install PySimpleGUI-4-foss
 from time import sleep
 
-from tryOMDB import get_movie_details
-
 if sys.platform == 'darwin':
     # noinspection PyUnresolvedReferences
     from ttwidgets import TTButton as myButton
@@ -937,6 +935,7 @@ class IMDBdataBase:
             # Check if the request was successful
             if movie_data and movie_data.get('Title') is not None:
                 print(f"--- Details for '{movie_data['Title']}' ({movie_data['Year']}) ---")
+                print(f"ID: {movie_data['imdbID']}")
                 print(f"Runtime: {movie_data['Runtime']}")
                 print(f"Directors: {movie_data['Director']}")
                 print(f"Actors: {movie_data['Actors']}")
@@ -953,8 +952,7 @@ class IMDBdataBase:
             print(f"A request error occurred: {e}")
             return None
 
-    @staticmethod
-    def get_candidates(search_title, year, api_key):
+    def get_candidates(self, search_title, year, api_key):
         """
         Fetches movie details from OMDb API by title and year.
         """
@@ -981,7 +979,7 @@ class IMDBdataBase:
                 num = len(result_dict)
                 for i in range(num):
                     movie_title = movie_data.get('Search')[i].get('Title')
-                    movie_details = get_movie_details(movie_title, year, api_key)
+                    movie_details = self.get_movie_details(movie_title, year, api_key)
                     print("")
                 return result_dict
             else:
@@ -1005,7 +1003,6 @@ class IMDBdataBase:
         adder = -1
         match = None
         candidates_dict = None
-        print("here")
         while adder < 3:
             search_year = str(int(year) + adder)
             movie_dict_omdb = self.get_candidates(search_title=title, year=search_year, api_key=API_KEY)
@@ -1017,6 +1014,9 @@ class IMDBdataBase:
             adder += 1
         for i in range(len(candidates_dict)):
             print(f"{candidates_dict[i]['Title']} {candidates_dict[i]['Year']}")
+        list_of_cans_omdb, array_of_cans_omdb, array_of_titles_omdb, array_of_years_omdb = \
+            self.make_list_of_cans_omdb(candidates_dict)
+        print(f"{list_of_cans_omdb=} {array_of_cans_omdb=} {array_of_titles_omdb=} {array_of_years_omdb=}")
 
         if not len(array_of_cans):
             return None
@@ -1099,10 +1099,10 @@ class IMDBdataBase:
         titles = []
         years = []
         for item in cans:
-            title = item['title'].strip().lower()
-            ID = item.getID()
+            title = item['Title'].strip().lower()
+            ID = item['imdbID']
             try:
-                year = item['year']
+                year = item['Year']
             except KeyError:
                 year = 0
             result.append((ID, title, year))
