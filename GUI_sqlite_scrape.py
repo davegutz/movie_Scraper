@@ -130,14 +130,14 @@ class Feature:
         while movie is None:
             try:
                 sleep(0.5)
-                movie = Cinemagoer().get_movie(self.ID)
+                movie = get_movie_details_id(self.ID, API_KEY)
             except imdb.IMDbDataAccessError:
                 print('timeout.......retry after 0.5 second')
                 sleep(0.5)
                 continue
-        self.title = movie['title'].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')
+        self.title = movie['Title'].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')
         try:
-            self.year = movie['year']
+            self.year = movie['Year']
         except KeyError:
             self.year = 1900
         if watched is None:
@@ -149,7 +149,7 @@ class Feature:
         else:
             self.added = added
         try:
-            self.rating = movie['rating']
+            self.rating = movie['imdbRating']
         except KeyError:
             self.rating = 0.
         if myRating is None or myRating == '':
@@ -157,38 +157,34 @@ class Feature:
         else:
             self.my_rating = myRating
         try:
-            self.directors = movie['directors']
+            self.directors = movie['Director']
         except KeyError:
             self.directors = ['']
         try:
-            casting = movie['cast']
+            casting = movie['Actors']
             self.casting = str(casting[0])
             for cas in casting[1:5]:
                 self.casting += str(f', {cas}')
         except KeyError:
             self.casting = ''
         try:
-            generes = movie['genres']
-            self.genres = str(generes[0])
-            for gen in generes[1:]:
-                self.genres += str(f', {gen}')
+            self.genres = movie['Genre']
         except KeyError:
             self.genres = ''
         try:
-            self.summary = movie['plot']
+            self.summary = movie['Plot']
         except KeyError:
             self.summary = ['']
         try:
-            self.cover = movie['cover url']
+            self.cover = movie['Poster']
         except KeyError:
             self.cover = ''
         try:
-            self.runtime = movie['runtimes'][0]
+            self.runtime = movie['Runtime'][0]
         except KeyError:
             self.runtime = ''
         try:
-            us_cert = [s for s in movie['certifications'] if "United States" in s][0]  # assume first is of interest
-            self.certification = us_cert[str.index(us_cert, ":")+1:]
+            self.certification = movie['Rated']
         except (KeyError, IndexError):
             self.certification = 'NR'
 
@@ -455,17 +451,17 @@ class IMDBdataBase:
                 tk.messagebox.showerror(title="Error", message="The film is already in the list")
             else:
                 try:
-                    id_film = self.look_smart(film, year=year)
-                    if id_film is None:
+                    id_film_omdb = self.look_smart(film, year=year)
+                    if id_film_omdb is None:
                         print(f"add_film:  not found at IMDB {film} ({year})")
                         tk.messagebox.showerror(title="Error", message="The film is not found")
                         return
-                    have_id = self.already_have_id(id_film)
+                    have_id = self.already_have_id(id_film_omdb)
                     if have_id:
                         tk.messagebox.showerror(title="Error", message="The selected film is already in the list")
                         return
                     added_in = str(datetime.today().strftime('%Y-%m-%d'))
-                    new_movie = Feature(id_film, have_dvd=4, added=added_in)  # 4=screencast copy
+                    new_movie = Feature(id_film_omdb, have_dvd=4, added=added_in)  # 4=screencast copy
                     print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
                 except KeyError:
                     print(f"{film=} {year=}")
@@ -485,7 +481,7 @@ class IMDBdataBase:
                     self.fill_tree_view()
                     self.highlight_film((str(new_movie.title).lower(), int(new_movie.year)))
                 except UnboundLocalError:
-                    print(f"add_film:  couldn't enter film '{film} ({year}) id:{id_film}'")
+                    print(f"add_film:  couldn't enter film '{film} ({year}) id:{id_film_omdb}'")
                     pass
             self.root.title(f"Features ({len(self.tree.get_children())})")
             self.conn.commit()
@@ -911,52 +907,11 @@ class IMDBdataBase:
         self.select_display.config(text='')
         self.sort_title(title_col)
 
-    @staticmethod
-    def get_movie_details(search_title, year, api_key):
+    def get_candidates_search_title(self, search_title, year, api_key):
         """
         Fetches movie details from OMDb API by title and year.
         """
-        # The 't' parameter is for title, 'y' for year, and 'plot' for plot length
-        params = {
-            't': search_title,
-            'y': year,
-            'plot': 'full',
-            'apikey': api_key
-        }
-        # OMDb API endpoint
-        url = "http://www.omdbapi.com/"
-
-        try:
-            response = requests.get(url, params=params)
-            # Raise an exception for bad status codes
-            response.raise_for_status()
-            movie_data = response.json()
-
-            # Check if the request was successful
-            if movie_data and movie_data.get('Title') is not None:
-                print(f"--- Details for '{movie_data['Title']}' ({movie_data['Year']}) ---")
-                print(f"ID: {movie_data['imdbID']}")
-                print(f"Runtime: {movie_data['Runtime']}")
-                print(f"Directors: {movie_data['Director']}")
-                print(f"Actors: {movie_data['Actors']}")
-                print(f"Plot Synopsis: {movie_data['Plot']}")
-                if movie_data['Ratings']:
-                    print("Ratings: ", movie_data['Ratings'])
-                    for rating in movie_data['Ratings']:
-                        print(f"  - {rating['Source']}: {rating['Value']}")
-                return movie_data
-            else:
-                print(f"Error: {movie_data.get('Error')}")
-                return None
-        except requests.exceptions.RequestException as e:
-            print(f"A request error occurred: {e}")
-            return None
-
-    def get_candidates(self, search_title, year, api_key):
-        """
-        Fetches movie details from OMDb API by title and year.
-        """
-        # The 't' parameter is for title, 'y' for year, and 'plot' for plot length
+        # The 'i' parameter is for title, 'y' for year, and 'plot' for plot length
         params = {
             's': search_title,
             'y': year,
@@ -979,7 +934,7 @@ class IMDBdataBase:
                 num = len(result_dict)
                 for i in range(num):
                     movie_title = movie_data.get('Search')[i].get('Title')
-                    movie_details = self.get_movie_details(movie_title, year, api_key)
+                    movie_details = get_movie_details(movie_title, year, API_KEY)
                     print("")
                 return result_dict
             else:
@@ -1005,7 +960,7 @@ class IMDBdataBase:
         candidates_dict = None
         while adder < 3:
             search_year = str(int(year) + adder)
-            movie_dict_omdb = self.get_candidates(search_title=title, year=search_year, api_key=API_KEY)
+            movie_dict_omdb = self.get_candidates_search_title(search_title=title, year=search_year, api_key=API_KEY)
             if movie_dict_omdb is not None:
                 if candidates_dict is None:
                     candidates_dict = movie_dict_omdb
@@ -1018,40 +973,41 @@ class IMDBdataBase:
             self.make_list_of_cans_omdb(candidates_dict)
         print(f"{list_of_cans_omdb=} {array_of_cans_omdb=} {array_of_titles_omdb=} {array_of_years_omdb=}")
 
-        if not len(array_of_cans):
+        if not len(array_of_cans_omdb):
             return None
 
         # If exact matches take the first one
-        exact_matches = (array_of_cans == film).all(axis=1)
-        if exact_matches.any():
-            exact_match = np.where(exact_matches)[0][0]  # take first one
-            ID = list_of_cans[exact_match][0]
-            return ID
+        IDomdb = None
+        exact_matches_omdb = (array_of_cans_omdb == film).all(axis=1)
+        if exact_matches_omdb.any():
+            exact_matches_omdb = np.where(exact_matches_omdb)[0][0]  # take first one
+            IDomdb = list_of_cans[exact_matches_omdb][0]
+            return IDomdb
 
         # Next find 'exact' matches within one year and take the first one
         film_p1 = (title, str(int(year)+1))
         film_m1 = (title, str(int(year)-1))
-        exact_matches_m1 = (array_of_cans == film_m1).all(axis=1)
-        exact_matches_p1 = (array_of_cans == film_p1).all(axis=1)
+        exact_matches_m1 = (array_of_cans_omdb == film_m1).all(axis=1)
+        exact_matches_p1 = (array_of_cans_omdb == film_p1).all(axis=1)
         if exact_matches_m1.any():
             exact_match = np.where(exact_matches_m1)[0][0]  # take first one
-            ID = list_of_cans[exact_match][0]
-            return ID
+            ID = list_of_cans_omdb[exact_match][0]
+            return ID, IDomdb
         elif exact_matches_p1.any():
             exact_match = np.where(exact_matches_p1)[0][0]  # take first one
-            ID = list_of_cans[exact_match][0]
-            return ID
+            ID = list_of_cans_omdb[exact_match][0]
+            return IDomdb
 
         # Next offer choices of all that IMDB came up with
         print(f"{film}: {candidates=}")
-        ID = None
+        IDomdb = None
         select_list = []
-        for i in range(len(array_of_titles)):
+        for i in range(len(array_of_titles_omdb)):
             try:
-                ID = candidates[i].getID()
+                ID = candidates_dict[i]['imdbID']
                 movie = Feature(ID)
                 select_list.append(f"{movie.ID}:   {movie.title} ({movie.year})   cast = {movie.casting}   dir = {movie.directors}")
-            except IOError:
+            except (IOError, NameError):
                 print(f"skipped: ", end='')
             print(f"{i}, ", end='')
         print(f"{select_list=}")
@@ -1063,13 +1019,13 @@ class IMDBdataBase:
         window.close()
         print(selection)
         if event in (pSG.WIN_CLOSED, 'Cancel'):
-            ID = None
+            IDomdb = None
         if event == '-SELECTION-':
-            ID = selection['-SELECTION-'][0].split(':')[0]
-            print(f"Selected from GUI {ID=}")
+            IDomdb = selection['-SELECTION-'][0].split(':')[0]
+            print(f"Selected from GUI {IDomdb=}")
         window.close()
 
-        return ID
+        return IDomdb
 
     @staticmethod
     def make_list_of_cans(cans):
@@ -1214,6 +1170,85 @@ def get_bigrams(string):
     """Take a string and return a list of bigrams"""
     s = string.lower()
     return [s[i:i + 2] for i in list(range(len(s) - 1))]
+
+
+def get_movie_details(search_title, year, api_key):
+    """
+    Fetches movie details from OMDb API by title and year.
+    """
+    # The 't' parameter is for title, 'y' for year, and 'plot' for plot length
+    params = {
+        't': search_title,
+        'y': year,
+        'plot': 'full',
+        'apikey': api_key
+    }
+    # OMDb API endpoint
+    url = "http://www.omdbapi.com/"
+
+    try:
+        response = requests.get(url, params=params)
+        # Raise an exception for bad status codes
+        response.raise_for_status()
+        movie_data = response.json()
+
+        # Check if the request was successful
+        if movie_data and movie_data.get('Title') is not None:
+            print(f"--- Details for '{movie_data['Title']}' ({movie_data['Year']}) ---")
+            print(f"ID: {movie_data['imdbID']}")
+            print(f"Runtime: {movie_data['Runtime']}")
+            print(f"Directors: {movie_data['Director']}")
+            print(f"Actors: {movie_data['Actors']}")
+            print(f"Plot Synopsis: {movie_data['Plot']}")
+            if movie_data['Ratings']:
+                print("Ratings: ", movie_data['Ratings'])
+                for rating in movie_data['Ratings']:
+                    print(f"  - {rating['Source']}: {rating['Value']}")
+            return movie_data
+        else:
+            print(f"Error: {movie_data.get('Error')}")
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"A request error occurred: {e}")
+        return None
+
+
+def get_movie_details_id(ID, api_key):
+    """
+    Fetches movie details from OMDb API by title and year.
+    """
+    params = {
+        'i': ID,
+        'apikey': api_key
+    }
+    # OMDb API endpoint
+    url = "http://www.omdbapi.com/"
+
+    try:
+        response = requests.get(url, params=params)
+        # Raise an exception for bad status codes
+        response.raise_for_status()
+        movie_data = response.json()
+
+        # Check if the request was successful
+        if movie_data and movie_data.get('Title') is not None:
+            print(f"--- Details for '{movie_data['Title']}' ({movie_data['Year']}) ---")
+            print(f"ID: {movie_data['imdbID']}")
+            print(f"Runtime: {movie_data['Runtime']}")
+            print(f"Directors: {movie_data['Director']}")
+            print(f"Actors: {movie_data['Actors']}")
+            print(f"Plot Synopsis: {movie_data['Plot']}")
+            if movie_data['Ratings']:
+                print("Ratings: ", movie_data['Ratings'])
+                for rating in movie_data['Ratings']:
+                    print(f"  - {rating['Source']}: {rating['Value']}")
+            return movie_data
+        else:
+            print(f"Error: {movie_data.get('Error')}")
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"A request error occurred: {e}")
+        return None
 
 
 def ignore_articles(text):
