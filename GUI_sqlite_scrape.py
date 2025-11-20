@@ -947,17 +947,9 @@ class IMDBdataBase:
     def look_smart(self, title, year=None):
         """Find IMDB match as good as possible, returning the ID"""
         film = (title, year)
-        candidates = None
-        while candidates is None:
-            try:
-                candidates = self.moviesDB.search_movie(title, results=12)
-            except imdb.IMDbDataAccessError:
-                print("timeout...retry")
-                continue
-        list_of_cans, array_of_cans, array_of_titles, array_of_years = self.make_list_of_cans(candidates)
 
+        # Find possible matches (candidates)
         adder = -1
-        match = None
         candidates_dict = None
         while adder < 3:
             search_year = str(int(year) + adder)
@@ -992,15 +984,15 @@ class IMDBdataBase:
         exact_matches_p1 = (array_of_cans_omdb == film_p1).all(axis=1)
         if exact_matches_m1.any():
             exact_match = np.where(exact_matches_m1)[0][0]  # take first one
-            ID = list_of_cans_omdb[exact_match][0]
-            return ID, IDomdb
+            IDomdb = list_of_cans_omdb[exact_match][0]
+            return IDomdb
         elif exact_matches_p1.any():
             exact_match = np.where(exact_matches_p1)[0][0]  # take first one
-            ID = list_of_cans_omdb[exact_match][0]
+            IDomdb = list_of_cans_omdb[exact_match][0]
             return IDomdb
 
         # Next offer choices of all that IMDB came up with
-        print(f"{film}: {candidates=}")
+        print(f"{film}: {array_of_titles_omdb=}")
         IDomdb = None
         select_list = []
         for i in range(len(array_of_titles_omdb)):
@@ -1015,10 +1007,11 @@ class IMDBdataBase:
         lst = pSG.Listbox(select_list, size=(400, 100), font=('Arial Bold', 12), expand_y=True, enable_events=True,
                           key='-SELECTION-', horizontal_scroll=True)
         layout = [[pSG.Input(size=(20, 1), font=('Arial Bold', 14), expand_x=True, key='-INPUT-'), pSG.Button('Process'), pSG.Button('Cancel')], [lst], [pSG.Text("", key='-MSG-', font=('Arial Bold', 14), justification='center')]]
-        window = pSG.Window(f"Match to '{title} ({year})'", layout, size=(900, 400))
+        window = pSG.Window(f"Match to '{title} ({year})'", layout, size=(900, 400), finalize=True)
+        window.bring_to_front()
         event, selection = window.read()
         window.close()
-        print(selection)
+        print(f"{selection=}")
         if event in (pSG.WIN_CLOSED, 'Cancel'):
             IDomdb = None
         if event == '-SELECTION-':
@@ -1195,16 +1188,7 @@ def get_movie_details(search_title, year, api_key):
 
         # Check if the request was successful
         if movie_data and movie_data.get('Title') is not None:
-            print(f"--- Details for '{movie_data['Title']}' ({movie_data['Year']}) ---")
-            print(f"ID: {movie_data['imdbID']}")
-            print(f"Runtime: {movie_data['Runtime']}")
-            print(f"Directors: {movie_data['Director']}")
-            print(f"Actors: {movie_data['Actors']}")
-            print(f"Plot Synopsis: {movie_data['Plot']}")
-            if movie_data['Ratings']:
-                print("Ratings: ", movie_data['Ratings'])
-                for rating in movie_data['Ratings']:
-                    print(f"  - {rating['Source']}: {rating['Value']}")
+            print_movie_detail(movie_data)
             return movie_data
         else:
             print(f"Error: {movie_data.get('Error')}")
@@ -1233,16 +1217,7 @@ def get_movie_details_id(ID, api_key):
 
         # Check if the request was successful
         if movie_data and movie_data.get('Title') is not None:
-            print(f"--- Details for '{movie_data['Title']}' ({movie_data['Year']}) ---")
-            print(f"ID: {movie_data['imdbID']}")
-            print(f"Runtime: {movie_data['Runtime']}")
-            print(f"Directors: {movie_data['Director']}")
-            print(f"Actors: {movie_data['Actors']}")
-            print(f"Plot Synopsis: {movie_data['Plot']}")
-            if movie_data['Ratings']:
-                print("Ratings: ", movie_data['Ratings'])
-                for rating in movie_data['Ratings']:
-                    print(f"  - {rating['Source']}: {rating['Value']}")
+            print_movie_detail(movie_data)
             return movie_data
         else:
             print(f"Error: {movie_data.get('Error')}")
@@ -1258,6 +1233,19 @@ def ignore_articles(text):
         if text.lower().startswith(article + ' '):
             return text[len(article)+1:].strip()
     return text
+
+
+def print_movie_detail(movie_data):
+    print(f"--- Details for '{movie_data['Title']}' ({movie_data['Year']}) ---")
+    print(f"\tID: {movie_data['imdbID']}")
+    print(f"\tRuntime: {movie_data['Runtime']}")
+    print(f"\tDirectors: {movie_data['Director']}")
+    print(f"\tActors: {movie_data['Actors']}")
+    print(f"\tPlot Synopsis: {movie_data['Plot']}")
+    if movie_data['Ratings']:
+        print("\tRatings: ", movie_data['Ratings'])
+        for rating in movie_data['Ratings']:
+            print(f"\t\t  - {rating['Source']}: {rating['Value']}")
 
 
 def string_similarity(str1, str2):
