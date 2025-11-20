@@ -44,7 +44,6 @@ import tkinter.messagebox
 import sqlite3
 import csv
 import imdb
-from imdb import Cinemagoer  # install cinemagoer
 from datetime import datetime
 from PIL import ImageTk, Image  # install pillow
 import urllib.request
@@ -289,9 +288,6 @@ class IMDBdataBase:
         self.destination_folder_butt.pack(side="left", fill='x')
         slash.pack(side="left", fill='x')
         self.title_butt.pack(side="left", fill='x')
-
-        # IMDB API
-        self.moviesDB = Cinemagoer()
 
         # Database
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
