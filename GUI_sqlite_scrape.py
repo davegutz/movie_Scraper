@@ -447,7 +447,7 @@ class IMDBdataBase:
                 try:
                     id_film = self.look_smart(film, year=year)
                     if id_film is None:
-                        print(f"add_film:  not found at IMDB {film} ({year})")
+                        print(f"add_film:  not found at OMDB {film} ({year})")
                         tk.messagebox.showerror(title="Error", message="The film is not found")
                         return
                     have_id = self.already_have_id(id_film)
@@ -969,9 +969,9 @@ class IMDBdataBase:
                 print(f"{candidates_dict[i]['Title']} {candidates_dict[i]['Year']}")
             list_of_cans, array_of_cans, array_of_titles, array_of_years = \
                 self.make_list_of_cans(candidates_dict)
-            print(f"{list_of_cans=} {array_of_cans=} {array_of_titles=} {array_of_years=}")
+            print(f"{list_of_cans=}\n {array_of_cans=}\n {array_of_titles=}\n {array_of_years=}")
 
-        if not array_of_cans or not len(array_of_cans):
+        if array_of_cans is None or not len(array_of_cans):
             return None
 
         # If exact matches take the first one
