@@ -963,13 +963,15 @@ class IMDBdataBase:
                 else:
                     candidates_dict.append(movie_dict)
             adder += 1
-        for i in range(len(candidates_dict)):
-            print(f"{candidates_dict[i]['Title']} {candidates_dict[i]['Year']}")
-        list_of_cans, array_of_cans, array_of_titles, array_of_years = \
-            self.make_list_of_cans(candidates_dict)
-        print(f"{list_of_cans=} {array_of_cans=} {array_of_titles=} {array_of_years=}")
+        array_of_cans = None
+        if candidates_dict:
+            for i in range(len(candidates_dict)):
+                print(f"{candidates_dict[i]['Title']} {candidates_dict[i]['Year']}")
+            list_of_cans, array_of_cans, array_of_titles, array_of_years = \
+                self.make_list_of_cans(candidates_dict)
+            print(f"{list_of_cans=} {array_of_cans=} {array_of_titles=} {array_of_years=}")
 
-        if not len(array_of_cans):
+        if not array_of_cans or not len(array_of_cans):
             return None
 
         # If exact matches take the first one
