@@ -162,9 +162,7 @@ class Feature:
             self.directors = ['']
         try:
             casting = movie['Actors']
-            self.casting = str(casting[0])
-            for cas in casting[1:5]:
-                self.casting += str(f', {cas}')
+            self.casting = str(casting)
         except KeyError:
             self.casting = ''
         try:
@@ -180,7 +178,7 @@ class Feature:
         except KeyError:
             self.cover = ''
         try:
-            self.runtime = movie['Runtime'][0]
+            self.runtime = movie['Runtime'].split()[0]
         except KeyError:
             self.runtime = ''
         try:
@@ -469,13 +467,22 @@ class IMDBdataBase:
                     return
                 # Enter into BBDD
                 try:
+                    new_movie.ID = new_movie.ID.replace('tt', '')
+                    try:
+                        new_movie.rating = float(new_movie.rating)
+                    except ValueError:
+                        new_movie.rating = 0.
+                    try:
+                        new_movie.my_rating = float(new_movie.my_rating)
+                    except ValueError:
+                        new_movie.my_rating = 0.
                     self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
                                     director, actors, generes, summary, cover, WATCHED, ADDED, 
                                     DVD, runtime, certification)
                                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);""",
                                    (new_movie.ID, str(new_movie.title), int(new_movie.year),
-                                    float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors[0]),
-                                    str(new_movie.casting), str(new_movie.genres), str(new_movie.summary[0]),
+                                    float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors),
+                                    str(new_movie.casting), str(new_movie.genres), str(new_movie.summary),
                                     str(new_movie.cover), str(''), str(new_movie.added),
                                     int(new_movie.DVD), str(new_movie.runtime), str(new_movie.certification)),)
                     self.fill_tree_view()
@@ -508,7 +515,7 @@ class IMDBdataBase:
         rows = self.c.fetchall()
         row = [item[0] for item in rows]
         # if int(id_) in row:
-        if id_ in row:
+        if int(id_.replace('tt', '')) in row:
             have = True
         return have
 
