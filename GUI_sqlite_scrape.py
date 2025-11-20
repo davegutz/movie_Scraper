@@ -480,7 +480,7 @@ class IMDBdataBase:
                                     int(new_movie.DVD), str(new_movie.runtime), str(new_movie.certification)),)
                     self.fill_tree_view()
                     self.highlight_film((str(new_movie.title).lower(), int(new_movie.year)))
-                except UnboundLocalError:
+                except (UnboundLocalError, ValueError):
                     print(f"add_film:  couldn't enter film '{film} ({year}) id:{id_film_omdb}'")
                     pass
             self.root.title(f"Features ({len(self.tree.get_children())})")
@@ -507,7 +507,8 @@ class IMDBdataBase:
         self.c.execute(f"SELECT IMDB_ID FROM My_Films ORDER BY IMDB_ID")
         rows = self.c.fetchall()
         row = [item[0] for item in rows]
-        if int(id_) in row:
+        # if int(id_) in row:
+        if id_ in row:
             have = True
         return have
 
@@ -981,7 +982,7 @@ class IMDBdataBase:
         exact_matches_omdb = (array_of_cans_omdb == film).all(axis=1)
         if exact_matches_omdb.any():
             exact_matches_omdb = np.where(exact_matches_omdb)[0][0]  # take first one
-            IDomdb = list_of_cans[exact_matches_omdb][0]
+            IDomdb = list_of_cans_omdb[exact_matches_omdb][0]
             return IDomdb
 
         # Next find 'exact' matches within one year and take the first one
