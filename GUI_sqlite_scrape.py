@@ -966,7 +966,10 @@ class IMDBdataBase:
         array_of_cans = None
         if candidates_dict:
             for i in range(len(candidates_dict)):
-                print(f"{candidates_dict[i]['Title']} {candidates_dict[i]['Year']}")
+                try:
+                    print(f"{candidates_dict[i]['Title']} {candidates_dict[i]['Year']}")
+                except TypeError:
+                    pass
             list_of_cans, array_of_cans, array_of_titles, array_of_years = \
                 self.make_list_of_cans(candidates_dict)
             print(f"{list_of_cans=}\n {array_of_cans=}\n {array_of_titles=}\n {array_of_years=}")
@@ -1054,16 +1057,19 @@ class IMDBdataBase:
         titles = []
         years = []
         for item in cans:
-            title = item['Title'].strip().lower()
-            ID = item['imdbID']
             try:
-                year = item['Year']
-            except KeyError:
-                year = 0
-            result.append((ID, title, year))
-            titles.append(title)
-            years.append(year)
-            searchable_result.append(np.array([title, year]))
+                title = item['Title'].strip().lower()
+                ID = item['imdbID']
+                try:
+                    year = item['Year']
+                except KeyError:
+                    year = 0
+                result.append((ID, title, year))
+                titles.append(title)
+                years.append(year)
+                searchable_result.append(np.array([title, year]))
+            except TypeError:
+                pass
         return result, np.array(searchable_result), np.array(titles, dtype='<U78'), np.array(years, dtype='<U78')
 
     def OnDoubleClick(self, _event):
