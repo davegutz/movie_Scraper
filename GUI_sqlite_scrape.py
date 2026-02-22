@@ -358,6 +358,9 @@ class IMDBdataBase:
         self.add_file_btn = tk.Button(self.bot_frame_right, text="Add file(s)", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                       width=25, command=self.add_file)
         self.add_file_btn.pack(side='top')
+        self.add_manual_btn = tk.Button(self.bot_frame_right, text="Add entry manually", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+                                        width=25, command=self.open_add_manual_entry_window)
+        self.add_manual_btn.pack(side='top')
         self.check_files_btn = tk.Button(self.bot_frame_right, text="Check file listing", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                          width=25, command=self.check_files)
         self.check_files_btn.pack(side='top')
@@ -488,6 +491,91 @@ class IMDBdataBase:
                     pass
             self.root.title(f"Features ({len(self.tree.get_children())})")
             self.conn.commit()
+
+    def open_add_manual_entry_window(self):
+        """Open a Toplevel window to manually add a new entry to the database"""
+        win = tk.Toplevel(self.root)
+        win.title("Add New Entry Manually")
+        win.config(bg=bg_color, padx=20, pady=20)
+        win.grab_set()
+
+        fields = [
+            ('IMDB_ID',      'IMDB ID',              'integer'),
+            ('title',        'Title',                 'text'),
+            ('year',         'Year',                  'integer'),
+            ('rating',       'Rating (IMDB)',         'real'),
+            ('my_rating',    'My Rating',             'real'),
+            ('director',     'Director',              'text'),
+            ('actors',       'Actors',                'text'),
+            ('generes',      'Genres',                'text'),
+            ('summary',      'Summary',               'text'),
+            ('cover',        'Cover URL',             'text'),
+            ('WATCHED',      'Watched (YYYY-MM-DD)',  'text'),
+            ('ADDED',        'Added (YYYY-MM-DD)',    'text'),
+            ('DVD',          'DVD',                   'text'),
+            ('runtime',      'Runtime',               'text'),
+            ('certification','Certification',         'text'),
+        ]
+
+        entries = {}
+        today = str(datetime.today().strftime('%Y-%m-%d'))
+
+        header = tk.Label(win, text="Add New Film Entry", font=('David', 15, 'bold'),
+                          bg='white', fg='black')
+        header.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 10))
+
+        for i, (col, label, _typ) in enumerate(fields):
+            tk.Label(win, text=label + ':', font=label_font, bg=bg_color, anchor='w').grid(
+                row=i + 1, column=0, sticky='w', pady=3, padx=(0, 10))
+            ent = tk.Entry(win, width=50, font=('LilyUPC', 11, 'bold'), fg='black', bg='white')
+            ent.grid(row=i + 1, column=1, sticky='ew', pady=3)
+            if col == 'ADDED':
+                ent.insert(0, today)
+            entries[col] = ent
+
+        def save_entry():
+            values = {}
+            for col, label, typ in fields:
+                raw = entries[col].get().strip()
+                if typ == 'integer':
+                    try:
+                        values[col] = int(raw) if raw else 0
+                    except ValueError:
+                        tk.messagebox.showerror(title="Error", message=f"'{label}' must be an integer", parent=win)
+                        return
+                elif typ == 'real':
+                    try:
+                        values[col] = float(raw) if raw else 0.0
+                    except ValueError:
+                        tk.messagebox.showerror(title="Error", message=f"'{label}' must be a number", parent=win)
+                        return
+                else:
+                    values[col] = raw
+            if not entries['IMDB_ID'].get().strip():
+                tk.messagebox.showerror(title="Error", message="IMDB ID is required", parent=win)
+                return
+            try:
+                self.c.execute("""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
+                                director, actors, generes, summary, cover, WATCHED, ADDED, DVD,
+                                runtime, certification) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);""",
+                               (values['IMDB_ID'], values['title'], values['year'],
+                                values['rating'], values['my_rating'], values['director'],
+                                values['actors'], values['generes'], values['summary'],
+                                values['cover'], values['WATCHED'], values['ADDED'],
+                                values['DVD'], values['runtime'], values['certification']))
+                self.conn.commit()
+                self.fill_tree_view()
+                self.root.title(f"Features ({len(self.tree.get_children())})")
+                win.destroy()
+            except sqlite3.IntegrityError as e:
+                tk.messagebox.showerror(title="Error", message=f"Database error: {e}", parent=win)
+
+        btn_frame = tk.Frame(win, bg=bg_color)
+        btn_frame.grid(row=len(fields) + 1, column=0, columnspan=2, pady=(10, 0))
+        tk.Button(btn_frame, text="Save Entry", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                  width=20, command=save_entry).pack(side='left', padx=5)
+        tk.Button(btn_frame, text="Cancel", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                  width=20, command=win.destroy).pack(side='left', padx=5)
 
     def already_have_film_year(self, film):
         """Check for existence by year and title (film = (year, title))"""
