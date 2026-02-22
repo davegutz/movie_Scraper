@@ -577,6 +577,111 @@ class IMDBdataBase:
         tk.Button(btn_frame, text="Cancel", font=('LilyUPC', 9, 'bold'), bg=light_purple,
                   width=20, command=win.destroy).pack(side='left', padx=5)
 
+    def open_edit_entry_window(self, item):
+        """Open a Toplevel window to edit an existing database entry, prepopulated with current values"""
+        win = tk.Toplevel(self.root)
+        win.title("Edit Entry")
+        win.config(bg=bg_color, padx=20, pady=20)
+        win.grab_set()
+
+        fields = [
+            ('IMDB_ID',       'IMDB ID',              'integer'),
+            ('title',         'Title',                 'text'),
+            ('year',          'Year',                  'integer'),
+            ('rating',        'Rating (IMDB)',         'real'),
+            ('my_rating',     'My Rating',             'real'),
+            ('director',      'Director',              'text'),
+            ('actors',        'Actors',                'text'),
+            ('generes',       'Genres',                'text'),
+            ('summary',       'Summary',               'text'),
+            ('cover',         'Cover URL',             'text'),
+            ('WATCHED',       'Watched (YYYY-MM-DD)',  'text'),
+            ('ADDED',         'Added (YYYY-MM-DD)',    'text'),
+            ('DVD',           'DVD',                   'text'),
+            ('runtime',       'Runtime',               'text'),
+            ('certification', 'Certification',         'text'),
+        ]
+
+        # SELECT order: IMDB_ID[0] title[1] year[2] rating[3] my_rating[4] director[5]
+        #               actors[6] generes[7] summary[8] cover[9] WATCHED[10] ADDED[11]
+        #               DVD[12] runtime[13] certification[14]
+        existing = {
+            'IMDB_ID':       str(item['values'][0]),
+            'title':         str(item['values'][1]),
+            'year':          str(item['values'][2]),
+            'rating':        str(item['values'][3]),
+            'my_rating':     str(item['values'][4]),
+            'director':      str(item['values'][5]),
+            'actors':        str(item['values'][6]),
+            'generes':       str(item['values'][7]),
+            'summary':       str(item['values'][8]),
+            'cover':         str(item['values'][9]),
+            'WATCHED':       str(item['values'][10]),
+            'ADDED':         str(item['values'][11]),
+            'DVD':           str(item['values'][12]),
+            'runtime':       str(item['values'][13]),
+            'certification': str(item['values'][14]),
+        }
+
+        original_imdb_id = item['values'][0]
+
+        entries = {}
+
+        header = tk.Label(win, text="Edit Film Entry", font=('David', 15, 'bold'),
+                          bg='white', fg='black')
+        header.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 10))
+
+        for i, (col, label, _typ) in enumerate(fields):
+            tk.Label(win, text=label + ':', font=label_font, bg=bg_color, anchor='w').grid(
+                row=i + 1, column=0, sticky='w', pady=3, padx=(0, 10))
+            ent = tk.Entry(win, width=50, font=('LilyUPC', 11, 'bold'), fg='black', bg='white')
+            ent.grid(row=i + 1, column=1, sticky='ew', pady=3)
+            ent.insert(0, existing.get(col, ''))
+            entries[col] = ent
+
+        def save_entry():
+            values = {}
+            for col, label, typ in fields:
+                raw = entries[col].get().strip()
+                if typ == 'integer':
+                    try:
+                        values[col] = int(raw) if raw else 0
+                    except ValueError:
+                        tk.messagebox.showerror(title="Error", message=f"'{label}' must be an integer", parent=win)
+                        return
+                elif typ == 'real':
+                    try:
+                        values[col] = float(raw) if raw else 0.0
+                    except ValueError:
+                        tk.messagebox.showerror(title="Error", message=f"'{label}' must be a number", parent=win)
+                        return
+                else:
+                    values[col] = raw
+            try:
+                self.c.execute("""UPDATE My_Films SET IMDB_ID=?, title=?, year=?, rating=?, my_rating=?,
+                                director=?, actors=?, generes=?, summary=?, cover=?, WATCHED=?, ADDED=?,
+                                DVD=?, runtime=?, certification=? WHERE IMDB_ID=?""",
+                               (values['IMDB_ID'], values['title'], values['year'],
+                                values['rating'], values['my_rating'], values['director'],
+                                values['actors'], values['generes'], values['summary'],
+                                values['cover'], values['WATCHED'], values['ADDED'],
+                                values['DVD'], values['runtime'], values['certification'],
+                                original_imdb_id))
+                self.conn.commit()
+                self.fill_tree_view()
+                self.root.title(f"Features ({len(self.tree.get_children())})")
+                self.highlight_film((str(values['title']).lower(), int(values['year'])))
+                win.destroy()
+            except sqlite3.IntegrityError as e:
+                tk.messagebox.showerror(title="Error", message=f"Database error: {e}", parent=win)
+
+        btn_frame = tk.Frame(win, bg=bg_color)
+        btn_frame.grid(row=len(fields) + 1, column=0, columnspan=2, pady=(10, 0))
+        tk.Button(btn_frame, text="Save Changes", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                  width=20, command=save_entry).pack(side='left', padx=5)
+        tk.Button(btn_frame, text="Cancel", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                  width=20, command=win.destroy).pack(side='left', padx=5)
+
     def already_have_film_year(self, film):
         """Check for existence by year and title (film = (year, title))"""
         have = False
@@ -1169,24 +1274,53 @@ class IMDBdataBase:
             raw_data = u.read()
         image = Image.open(io.BytesIO(raw_data))
         my_img = ImageTk.PhotoImage(image)
+
         pic = tk.Label(self.root, image=my_img)
         pic.pack(side='left')
-        tk.messagebox.showinfo(title=f"{item['values'][1]}", message=f"""
-IMDB_ID: {item['values'][0]}\n
-Title: {item['values'][1]}\n
-Cert: {item['values'][13]}\n
-Time: {item['values'][12]}\n
-Year: {item['values'][2]}\n
-Rating: {item['values'][3]}\n
-MyRating: {item['values'][4]}\n
-Director: {item['values'][5]}\n
-Actors: {item['values'][6]}\n
-Generes: {item['values'][7]}\n
-Summary: {item['values'][8]}\n
-Watched: {item['values'][10]}\n
-Added: {item['values'][14]}
-""")
+
+        info_win = tk.Toplevel(self.root)
+        info_win.title(f"{item['values'][1]}")
+        info_win.config(bg=bg_color, padx=20, pady=20)
+        info_win.grab_set()
+
+        msg = (f"IMDB_ID: {item['values'][0]}\n\n"
+               f"Title: {item['values'][1]}\n\n"
+               f"Cert: {item['values'][14]}\n\n"
+               f"Time: {item['values'][13]}\n\n"
+               f"Year: {item['values'][2]}\n\n"
+               f"Rating: {item['values'][3]}\n\n"
+               f"MyRating: {item['values'][4]}\n\n"
+               f"Director: {item['values'][5]}\n\n"
+               f"Actors: {item['values'][6]}\n\n"
+               f"Generes: {item['values'][7]}\n\n"
+               f"Summary: {item['values'][8]}\n\n"
+               f"Watched: {item['values'][10]}\n\n"
+               f"Added: {item['values'][11]}")
+        tk.Label(info_win, text=msg, bg=bg_color, justify='left', anchor='w',
+                 font=('Arial', 10), wraplength=500).pack(pady=(0, 10))
+
+        edit_requested = [False]
+
+        btn_frame = tk.Frame(info_win, bg=bg_color)
+        btn_frame.pack()
+
+        def on_ok():
+            info_win.destroy()
+
+        def on_edit():
+            edit_requested[0] = True
+            info_win.destroy()
+
+        tk.Button(btn_frame, text="OK", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                  width=20, command=on_ok).pack(side='left', padx=5)
+        tk.Button(btn_frame, text="Edit", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                  width=20, command=on_edit).pack(side='left', padx=5)
+
+        info_win.wait_window()
         pic.pack_forget()
+
+        if edit_requested[0]:
+            self.open_edit_entry_window(item)
 
     def OnSingleClick(self, _event):
         """Called when user focuses element from TreeView"""
