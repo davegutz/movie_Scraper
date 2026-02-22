@@ -430,6 +430,7 @@ class IMDBdataBase:
                 print(f"{filepath=} done")
 
     def add_film_auto(self, _e):
+        self.add_film_btn.config(bg='white')
         self.add_film()
 
     def add_film(self):
@@ -1270,13 +1271,16 @@ class IMDBdataBase:
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
         self.renew()
-        with urllib.request.urlopen(item['values'][9]) as u:
-            raw_data = u.read()
-        image = Image.open(io.BytesIO(raw_data))
-        my_img = ImageTk.PhotoImage(image)
-
-        pic = tk.Label(self.root, image=my_img)
-        pic.pack(side='left')
+        pic = None
+        try:
+            with urllib.request.urlopen(item['values'][9]) as u:
+                raw_data = u.read()
+            image = Image.open(io.BytesIO(raw_data))
+            my_img = ImageTk.PhotoImage(image)
+            pic = tk.Label(self.root, image=my_img)
+            pic.pack(side='left')
+        except Exception as e:
+            print(f"OnDoubleClick: could not load image: {e}")
 
         info_win = tk.Toplevel(self.root)
         info_win.title(f"{item['values'][1]}")
@@ -1317,7 +1321,8 @@ class IMDBdataBase:
                   width=20, command=on_edit).pack(side='left', padx=5)
 
         info_win.wait_window()
-        pic.pack_forget()
+        if pic is not None:
+            pic.pack_forget()
 
         if edit_requested[0]:
             self.open_edit_entry_window(item)
