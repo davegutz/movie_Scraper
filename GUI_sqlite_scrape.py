@@ -432,6 +432,7 @@ class IMDBdataBase:
     def add_film_auto(self, _e):
         self.add_film_btn.config(bg='white')
         self.add_film()
+        self.add_film_btn.config(bg=light_purple)
 
     def add_film(self):
         """Insert film fields to Database"""
