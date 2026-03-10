@@ -66,7 +66,7 @@ if sys.platform == 'linux':
     launcher_script = \
 f"""#!/bin/bash
 cd /home/{login}/Documents/GitHub/movie_Scraper
-exec /home/{login}/Documents/GitHub/movie_Scraper/.venv/bin/python3 \\
+exec {sys.executable} \\
     /home/{login}/Documents/GitHub/movie_Scraper/GUI_sqlite_scrape.py "$@"
 """
     with open(launcher_path, "w") as f:
