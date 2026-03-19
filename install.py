@@ -61,14 +61,29 @@ if sys.platform == 'linux':
         login = os.getlogin()
     except OSError:
         login = os.environ['LOGNAME']
-    desktop_entry = f"""[Desktop Entry]
+    # Create shell launcher script (required for COSMIC desktop / systemd cgroup tracking)
+    launcher_path = f'/home/{login}/Documents/GitHub/movie_Scraper/launch.sh'
+    launcher_script = \
+f"""#!/bin/bash
+cd /home/{login}/Documents/GitHub/movie_Scraper
+exec {sys.executable} \\
+    /home/{login}/Documents/GitHub/movie_Scraper/GUI_sqlite_scrape.py "$@"
+"""
+    with open(launcher_path, "w") as f:
+        f.write(launcher_script)
+    os.chmod(launcher_path, 0o755)
+    print(Colors.fg.green, 'launcher script created', Colors.reset)
+
+    desktop_entry =\
+f"""[Desktop Entry]
 Name=GUI_sqlite_scrape
-Exec=/home/{login}/Documents/GitHub/movie_Scraper/.venv/bin/python3 /home/{login}/Documents/GitHub/movie_Scraper/GUI_sqlite_scrape.py
+Exec=/home/{login}/Documents/GitHub/movie_Scraper/launch.sh
 Path=/home/{login}/Documents/GitHub/movie_Scraper
-Icon=/home/{login}/Documents/GitHub/movie_Scraper/popcorn.ico
+Icon=/home/{login}/Documents/GitHub/movie_Scraper/popcorn.png
+StartupWMClass=GUI_sqlite_scrape
 comment=app
 Type=Application
-Terminal=true
+Terminal=false
 Encoding=UTF-8
 Categories=Utility
 """
@@ -81,7 +96,7 @@ Categories=Utility
 
     # Check executable is local
     # if sys.executable.__contains__("venv" + os.path.sep + "bin" + os.path.sep + "python"):
-    if sys.executable.__contains__("venv" + os.path.sep + "Scripts" + os.path.sep + "python"):
+    if sys.executable.__contains__("movie_Scraper" + os.path.sep + ".venv"):
         pass
     else:
         print(Colors.fg.red, 'failed:  need to use local venv interpreter', Colors.reset)
@@ -104,14 +119,16 @@ Categories=Utility
     # Execute permission
     test_cmd_perm = 'chmod a+x ~/Desktop/GUI_sqlite_scrape.desktop'
     result = run_shell_cmd(test_cmd_perm, silent=False)
-    if result != 0:
+    if result == -1:
         print(Colors.fg.red, f"'chmod ...' failed code {result}", Colors.reset)
     else:
         print(Colors.fg.green, 'chmod success', Colors.reset)
-    # exit(1)
+
     # Move file
     try:
-        if debug is False:
+        if debug:
+            pass
+        else:
             result = shutil.move('/home/daveg/Desktop/GUI_sqlite_scrape.desktop',
                                  '/usr/share/applications/GUI_sqlite_scrape.desktop')
     except PermissionError:
@@ -121,7 +138,10 @@ Categories=Utility
               Colors.reset)
         exit(1)
     if result != '/usr/share/applications/GUI_sqlite_scrape.desktop':
-        print(Colors.fg.red, f"'mv ...' failed code {result}", Colors.reset)
+        if debug:
+            print(Colors.fg.red, ".desktop file held on Desktop for debugging", Colors.reset)
+        else:
+            print(Colors.fg.red, f"'mv ...' failed code {result}", Colors.reset)
     else:
         print(Colors.fg.green,
               'mv success.  Browse apps :: and make it favorites.  Open and set path to dataReduction',
@@ -129,6 +149,7 @@ Categories=Utility
         print(Colors.fg.green,
               "you shouldn't have to remake shortcuts",
               Colors.reset)
+
 elif sys.platform == 'darwin':
     print(Colors.fg.green,
           f"Make sure 'Python Launcher' (Python Script Preferences) option for 'Allow override with #! in script' is checked.\n"

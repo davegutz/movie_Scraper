@@ -43,7 +43,7 @@ import tkinter.simpledialog
 import tkinter.messagebox
 import sqlite3
 import csv
-import imdb
+# import imdb  # superseded
 from datetime import datetime
 from PIL import ImageTk, Image  # install pillow
 import urllib.request
@@ -208,7 +208,7 @@ class IMDBdataBase:
 
         # Set up main window
         self.path_disp_len = 25  # length of a path to reveal
-        self.root = tk.Tk()
+        self.root = tk.Tk(className='GUI_sqlite_scrape')
         self.root.config(pady=20, padx=20, bg=bg_color)
         self.root.resizable(False, False)
         self.root.iconphoto(False, tk.PhotoImage(file='./popcorn.png'))
