@@ -15,17 +15,23 @@ Key Features:
     re-encoding (-c:a copy), avoiding audio quality degradation.
   - Streaming Optimization: Adds -movflags +faststart to place the MOOV atom at the
     head of the file for instantaneous playback start over networks.
-  - Direct In-Place Replacement: As requested, no backups are kept. Encodes to an
-    isolated temporary file and atomically replaces the original file only upon
-    successful encoding verification.
+  - Direct In-Place Replacement with Automatic Backup: Encodes to an isolated temporary file
+    and atomically replaces the original file only upon successful encoding verification.
+    A backup of the original video file (<filename>.bak) is saved by default.
+    Pass --no-backup to disable backups.
+  - Subtitle Download for Bitmapped / Missing Subtitles: By default, queries and downloads
+    external English .srt subtitles (.en.srt) for videos that have bitmapped DVD subtitles
+    or are missing English subtitles using fetch_subtitles.py, ensuring Jellyfin/Roku/web
+    clients have text subtitles and won't lose subtitles upon H.264 re-encoding.
+    Pass --no-download-srt or --skip-srt to disable.
   - Cache Synchronization: Automatically updates the ffprobe cache in
     ~/.cache/movie_scraper/video_res_cache.json so find_missing_videos.py stays current.
 
 Usage Examples:
-    # Dry-run: preview oversized files and estimated space savings
+    # Dry-run: preview oversized files, subtitle status, and estimated space savings
     python3 resample_library.py --dry-run
 
-    # Process only the first oversized movie as a test
+    # Process only the first oversized movie as a test (backup enabled by default)
     python3 resample_library.py --max-files 1
 
     # Process only 5 movies, starting with the largest files
@@ -33,6 +39,12 @@ Usage Examples:
 
     # Process a single specific movie file
     python3 resample_library.py --file "/media/daveg/Lib/Movies/West Side Story (1961).m4v"
+
+    # Disable automatic backup
+    python3 resample_library.py --no-backup
+
+    # Disable automatic subtitle download
+    python3 resample_library.py --no-download-srt
 
     # Use higher compression (CRF 22) or faster encoding preset
     python3 resample_library.py --crf 22 --preset fast
@@ -49,6 +61,7 @@ import sys
 import time
 
 DEFAULT_MOVIES_DIR = "/media/daveg/Lib/Movies"
+DEFAULT_DB_PATH = "/home/daveg/Documents/GitHub/myComputer/IMDB_Films.db"
 DEFAULT_VIDEO_EXTS = {
     ".m4v", ".mp4", ".mkv", ".avi", ".mov", ".wmv",
     ".flv", ".webm", ".ts", ".mpg", ".mpeg"
@@ -56,6 +69,16 @@ DEFAULT_VIDEO_EXTS = {
 
 CACHE_DIR = os.path.expanduser("~/.cache/movie_scraper")
 CACHE_FILE = os.path.join(CACHE_DIR, "video_res_cache.json")
+
+# Import fetch_subtitles module for automatic subtitle downloads
+try:
+    import fetch_subtitles
+except ImportError:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import fetch_subtitles
+    except ImportError:
+        fetch_subtitles = None
 
 
 def load_cache():
@@ -75,6 +98,94 @@ def save_cache(cache):
             json.dump(cache, f, indent=2)
     except Exception:
         pass
+
+
+def check_srt_file(file_path):
+    """
+    Quickly check whether an external subtitle .srt file exists on disk for a video file.
+    Returns: 'YES' if an external .srt file exists, 'NO' if not, '-' if no video file.
+    """
+    if not file_path or not os.path.isfile(file_path):
+        return '-'
+    base, _ = os.path.splitext(file_path)
+    srt_exts = (
+        '.srt', '.en.srt', '.eng.srt', '.English.srt', '.english.srt',
+        '.forced.srt', '.en.forced.srt', '.default.srt', '.en.default.srt',
+        '.SRT', '.EN.SRT', '.ENG.SRT'
+    )
+    if any(os.path.isfile(base + ext) for ext in srt_exts):
+        return 'YES'
+    try:
+        parent_dir = os.path.dirname(file_path)
+        base_name = os.path.basename(base).lower()
+        for entry in os.listdir(parent_dir):
+            entry_lower = entry.lower()
+            if entry_lower.endswith('.srt'):
+                stem = entry_lower[:-4]
+                if stem == base_name or stem.startswith(base_name + '.'):
+                    return 'YES'
+    except Exception:
+        pass
+    return 'NO'
+
+
+def check_subtitles_info(file_path):
+    """
+    Check subtitle status for a video:
+    1. Check for external subtitle files (.srt, .en.srt, .eng.srt, .vtt, etc.)
+    2. Check embedded subtitle streams using ffprobe.
+    Returns:
+        (sub_str, bmp_str, srt_str):
+          sub_str: 'YES' if English subtitles available, 'NO' otherwise, '-' if no file.
+          bmp_str: 'YES' if video has ONLY bitmap subtitles (and no text/SRT), 'NO' otherwise, '-' if no file.
+          srt_str: 'YES' if external subtitle .srt file exists, 'NO' otherwise, '-' if no file.
+    """
+    if not file_path or not os.path.isfile(file_path):
+        return ('-', '-', '-')
+
+    base, _ = os.path.splitext(file_path)
+    srt_str = check_srt_file(file_path)
+    has_text = (srt_str == 'YES') or any(os.path.isfile(base + ext) for ext in ('.vtt', '.en.vtt', '.sub'))
+    has_bmp = False
+    has_eng = (srt_str == 'YES')
+
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "s",
+            "-show_entries", "stream=codec_name,stream_tags=language,title",
+            "-of", "csv=p=0",
+            "-analyzeduration", "500000",
+            "-probesize", "500000",
+            file_path
+        ]
+        out = subprocess.check_output(cmd, timeout=5, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore").strip()
+        if out:
+            lines = [line.strip() for line in out.splitlines() if line.strip()]
+            for line in lines:
+                parts = [p.strip().lower() for p in line.split(',') if p.strip()]
+                if not parts:
+                    continue
+                codec = parts[0]
+                if codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt'):
+                    has_text = True
+                elif codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub'):
+                    has_bmp = True
+
+                for p in parts[1:]:
+                    if p in ('eng', 'en', 'english', 'en-us', 'en-gb', 'en-ca') or 'english' in p or 'eng' in p:
+                        has_eng = True
+                        break
+                if len(parts) >= 2 and parts[1] in ('und', ''):
+                    has_eng = True
+            if not has_eng and len(lines) == 1:
+                has_eng = True
+    except Exception:
+        pass
+
+    sub_str = 'YES' if has_eng else 'NO'
+    bmp_str = 'YES' if (has_bmp and not has_text) else 'NO'
+    return (sub_str, bmp_str, srt_str)
 
 
 def update_cache_entry(cache, file_path):
@@ -120,7 +231,8 @@ def update_cache_entry(cache, file_path):
                 except Exception:
                     pass
 
-        cache[cache_key] = {'format': codec_str, 'res': res_str, 'fps': fps_str, 'time': time_str}
+        sub_str, bmp_str, srt_str = check_subtitles_info(file_path)
+        cache[cache_key] = {'format': codec_str, 'res': res_str, 'fps': fps_str, 'time': time_str, 'sub': sub_str, 'bmp': bmp_str, 'srt': srt_str}
         save_cache(cache)
     except Exception:
         pass
@@ -235,7 +347,11 @@ def get_file_duration_hr_min(file_path, cache=None):
 
 
 def probe_file_meta(file_path, cache):
-    """Retrieve metadata (codec, resolution, fps, duration) from cache or ffprobe."""
+    """
+    Retrieve metadata (codec, resolution, fps, duration, sub, bmp, srt) from cache or ffprobe.
+    Returns:
+        (codec_str, res_str, fps_str, time_str, sub_str, bmp_str, srt_str)
+    """
     try:
         st = os.stat(file_path)
         cache_key = f"{file_path}|{st.st_mtime}|{st.st_size}"
@@ -253,7 +369,24 @@ def probe_file_meta(file_path, cache):
                         if m:
                             h, rem = divmod(int(m.group(0)), 60)
                             cached_time = f"{h:02d}:{rem:02d}"
-                return cached.get('format', '-'), cached.get('res', '-'), cached.get('fps', '-'), cached_time
+                sub_val = cached.get('sub')
+                bmp_val = cached.get('bmp')
+                srt_val = cached.get('srt')
+                if bmp_val is None or sub_val is None:
+                    sub_val, bmp_val, srt_val = check_subtitles_info(file_path)
+                    cached['sub'] = sub_val
+                    cached['bmp'] = bmp_val
+                    cached['srt'] = srt_val
+                elif srt_val is None:
+                    srt_val = check_srt_file(file_path)
+                    cached['srt'] = srt_val
+                elif srt_val != 'YES':
+                    if check_srt_file(file_path) == 'YES':
+                        srt_val = 'YES'
+                        cached['srt'] = 'YES'
+                        cached['sub'] = 'YES'
+                        cached['bmp'] = 'NO'
+                return cached.get('format', '-'), cached.get('res', '-'), cached.get('fps', '-'), cached_time, cached.get('sub', '-'), bmp_val, srt_val
 
         cmd = [
             "ffprobe", "-v", "error",
@@ -276,11 +409,76 @@ def probe_file_meta(file_path, cache):
                 fps_str = parts[2] if len(parts) >= 3 else "-"
             elif len(parts) == 1:
                 time_str = format_duration_hr_min(parts[0])
-        cache[cache_key] = {'format': codec_str, 'res': res_str, 'fps': fps_str, 'time': time_str}
+        sub_str, bmp_str, srt_str = check_subtitles_info(file_path)
+        cache[cache_key] = {
+            'format': codec_str,
+            'res': res_str,
+            'fps': fps_str,
+            'time': time_str,
+            'sub': sub_str,
+            'bmp': bmp_str,
+            'srt': srt_str
+        }
         save_cache(cache)
-        return codec_str, res_str, fps_str, time_str
+        return codec_str, res_str, fps_str, time_str, sub_str, bmp_str, srt_str
     except Exception:
-        return "-", "-", "-", "-"
+        return "-", "-", "-", "-", "-", "-", "-"
+
+
+def download_srt_if_needed(file_info, imdb_mapping=None, db_path=DEFAULT_DB_PATH, dry_run=False, force=False):
+    """
+    If video has bitmapped subtitles or is missing subtitles entirely,
+    query and fetch external English .srt subtitle file.
+    Returns: (status, message)
+      status: 'downloaded', 'already_exists', 'dry_run', 'failed', or 'not_needed'
+    """
+    file_path = file_info['path']
+    bmp_val = file_info.get('bmp', '-')
+    sub_val = file_info.get('sub', '-')
+    srt_val = file_info.get('srt', '-')
+
+    # Double-check if subtitle status was not determined
+    if bmp_val == '-' or sub_val == '-' or srt_val == '-':
+        s, b, sr = check_subtitles_info(file_path)
+        if sub_val == '-':
+            sub_val = file_info['sub'] = s
+        if bmp_val == '-':
+            bmp_val = file_info['bmp'] = b
+        if srt_val == '-':
+            srt_val = file_info['srt'] = sr
+
+    # Check if external .srt already exists on disk
+    if check_srt_file(file_path) == 'YES' and not force:
+        file_info['srt'] = 'YES'
+        file_info['sub'] = 'YES'
+        return 'already_exists', "External .srt subtitle already exists on disk."
+
+    # Subtitle is needed if video has bitmap-only subtitles (BMP=YES)
+    # OR if video has NO English subtitles at all (Sub=NO)
+    needs_sub = (bmp_val == 'YES' or sub_val == 'NO')
+    if not needs_sub:
+        return 'not_needed', None
+
+    if fetch_subtitles is None:
+        return 'failed', "fetch_subtitles module not available."
+
+    if imdb_mapping is None:
+        imdb_mapping = fetch_subtitles.get_imdb_mapping(db_path)
+
+    reason = "bitmapped subtitles (BMP=YES)" if bmp_val == 'YES' else "no subtitles (Sub=NO)"
+    print(f"    Subtitle: Video has {reason}. Fetching English .srt...")
+    success = fetch_subtitles.process_single_movie(file_path, imdb_mapping, dry_run=dry_run, force=force)
+    if success:
+        file_info['srt'] = 'YES'
+        file_info['bmp'] = 'NO'
+        file_info['sub'] = 'YES'
+        return ('dry_run' if dry_run else 'downloaded'), "Saved external .en.srt subtitle."
+    else:
+        return 'failed', "Could not find matching English subtitles online."
+
+
+# Backward compatibility alias
+download_srt_for_bitmap = download_srt_if_needed
 
 
 def get_subtitle_args(file_path, ext):
@@ -357,7 +555,7 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium'):
     return cmd
 
 
-def resample_single_file(file_info, crf=20, preset='medium', cache=None):
+def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=True):
     """
     Encode a single file to a temporary file, verify integrity,
     and atomically replace the original file.
@@ -398,8 +596,26 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None):
                 os.remove(temp_path)
             return {'success': False, 'error': f"Output file too small ({new_bytes} bytes), aborting"}
 
-        # Atomic replacement of original file (no backup kept as requested)
-        os.replace(temp_path, src_path)
+        # Replacement of original file (with optional backup)
+        backup_path = None
+        if backup:
+            backup_path = f"{src_path}.bak"
+            try:
+                os.replace(src_path, backup_path)
+            except Exception as e:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                return {'success': False, 'error': f"Failed to create backup file: {e}"}
+
+            try:
+                os.replace(temp_path, src_path)
+            except Exception as e:
+                if os.path.exists(backup_path) and not os.path.exists(src_path):
+                    os.replace(backup_path, src_path)
+                return {'success': False, 'error': f"Failed to replace original with resampled file: {e}"}
+        else:
+            os.replace(temp_path, src_path)
+
         elapsed = time.time() - t_start
 
         # Update cache
@@ -411,7 +627,8 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None):
             'old_bytes': old_bytes,
             'new_bytes': new_bytes,
             'saved_bytes': old_bytes - new_bytes,
-            'elapsed': elapsed
+            'elapsed': elapsed,
+            'backup_path': backup_path
         }
 
     except KeyboardInterrupt:
@@ -455,7 +672,7 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
         if sz_gb < min_size_gb:
             continue
 
-        fmt, res, fps, time_str = probe_file_meta(path, cache)
+        fmt, res, fps, time_str, sub_str, bmp_str, srt_str = probe_file_meta(path, cache)
         oversized = is_oversized(res, sz_gb, time_str)
 
         if oversized_only and not oversized:
@@ -471,6 +688,9 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
             'resolution': res,
             'fps': fps,
             'time': time_str,
+            'sub': sub_str,
+            'bmp': bmp_str,
+            'srt': srt_str,
             'oversized': oversized
         })
 
@@ -527,6 +747,47 @@ def main():
         help="Order to process files: size_desc (largest first, default), size_asc, or name."
     )
     parser.add_argument(
+        "--backup",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Keep a backup of the original video file (<filename>.bak) before replacing (default: True)."
+    )
+    parser.add_argument(
+        "--backup-original",
+        dest="backup",
+        action="store_true",
+        help="Alias for --backup: keep a backup of the original video file."
+    )
+    parser.add_argument(
+        "--no-backup-original",
+        dest="backup",
+        action="store_false",
+        help="Alias for --no-backup: do not keep a backup of the original video file."
+    )
+    parser.add_argument(
+        "--download-srt",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Download external English .srt subtitles for videos with bitmapped subtitles or missing subtitles (default: True)."
+    )
+    parser.add_argument(
+        "--skip-srt", "--no-srt",
+        dest="download_srt",
+        action="store_false",
+        help="Alias for --no-download-srt: skip downloading .srt subtitles."
+    )
+    parser.add_argument(
+        "--force-srt",
+        action="store_true",
+        default=False,
+        help="Overwrite existing .srt subtitle files when downloading (default: False)."
+    )
+    parser.add_argument(
+        "--db",
+        default=DEFAULT_DB_PATH,
+        help=f"Path to IMDB_Films.db database for subtitle lookup (default: {DEFAULT_DB_PATH})"
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Preview candidate files and estimated savings without modifying any files."
@@ -542,18 +803,13 @@ def main():
             print(f"Error: File not found: {args.file}", file=sys.stderr)
             sys.exit(1)
         sz = os.path.getsize(args.file)
-        fmt, res, fps, time_str = probe_file_meta(args.file, cache)
+        fmt, res, fps, time_str, sub_str, bmp_str, srt_str = probe_file_meta(args.file, cache)
         if not time_str or time_str == '-':
             time_str = get_file_duration_hr_min(args.file, cache)
         sz_gb = round(sz / (1024 ** 3), 2)
         oversized = is_oversized(res, sz_gb, time_str)
 
-        if not args.all and not oversized:
-            print(f"File '{os.path.basename(args.file)}' is already within optimal bounds ({sz_gb} GB, {res}, Oversized: NO).")
-            print("Skipping re-encoding. (Pass --all to re-encode anyway.)")
-            sys.exit(0)
-
-        candidates = [{
+        file_info = {
             'path': args.file,
             'filename': os.path.basename(args.file),
             'ext': os.path.splitext(args.file)[1].lower(),
@@ -563,8 +819,30 @@ def main():
             'resolution': res,
             'fps': fps,
             'time': time_str,
+            'sub': sub_str,
+            'bmp': bmp_str,
+            'srt': srt_str,
             'oversized': oversized
-        }]
+        }
+
+        if not args.all and not oversized:
+            print(f"File '{os.path.basename(args.file)}' is already within optimal bounds ({sz_gb} GB, {res}, Oversized: NO).")
+            print("Skipping re-encoding. (Pass --all to re-encode anyway.)")
+            # If subtitle download is enabled, check and download subtitles even if re-encoding was skipped
+            if args.download_srt and ((bmp_str == 'YES' or sub_str == 'NO') and srt_str != 'YES'):
+                sub_status, sub_msg = download_srt_if_needed(
+                    file_info,
+                    db_path=args.db,
+                    dry_run=args.dry_run,
+                    force=args.force_srt
+                )
+                if sub_status in ('downloaded', 'already_exists'):
+                    print(f"    Subtitle: {sub_msg}")
+                elif sub_status == 'failed':
+                    print(f"    Subtitle: [-] {sub_msg}")
+            sys.exit(0)
+
+        candidates = [file_info]
     else:
         if not os.path.isdir(args.movies_dir):
             print(f"Error: Movies directory not found: {args.movies_dir}", file=sys.stderr)
@@ -605,18 +883,36 @@ def main():
     print(f"  Encoding Configuration:   libx264, CRF {args.crf}, preset '{args.preset}', yuv420p")
     print(f"  Audio Configuration:      -c:a copy (lossless stream copy)")
     print(f"  Streaming Flag:           -movflags +faststart")
+    print(f"  Backup Original:          {'Enabled (.bak, default)' if args.backup else 'Disabled (--no-backup)'}")
+    print(f"  Download SRT Subtitles:   {'Enabled (default)' if args.download_srt else 'Disabled'}")
     print(f"  Estimated Space Savings:  ~75% to 85% (~{total_candidate_gb * 0.78:,.2f} GB)")
     print("=" * 90)
 
     # Dry-run output
     if args.dry_run:
         print("\n[DRY RUN] The following files would be resampled (no files modified):\n")
-        print(f"  {'Size (GB)':>9} {'Res':<6} {'Format':<6} {'Time':<7} {'Filename'}")
-        print(f"  {'-'*9:>9} {'-'*6:<6} {'-'*6:<6} {'-'*7:<7} {'-'*48}")
+        print(f"  {'Size (GB)':>9} {'Res':<6} {'Format':<6} {'Time':<7} {'Sub':<5} {'BMP':<5} {'SRT':<5} {'Filename'}")
+        print(f"  {'-'*9:>9} {'-'*6:<6} {'-'*6:<6} {'-'*7:<7} {'-'*5:<5} {'-'*5:<5} {'-'*5:<5} {'-'*44}")
         for c in candidates[:50]:
-            print(f"  {c['size_gb']:>9.2f} {c['resolution']:<6} {c['format']:<6} {c.get('time', '-'):<7} {c['filename']}")
+            print(f"  {c['size_gb']:>9.2f} {c['resolution']:<6} {c['format']:<6} {c.get('time', '-'):<7} {c.get('sub', '-'):<5} {c.get('bmp', '-'):<5} {c.get('srt', '-'):<5} {c['filename']}")
         if len(candidates) > 50:
             print(f"  ... and {len(candidates) - 50} more files.")
+
+        need_srt = [c for c in candidates if (c.get('bmp') == 'YES' or c.get('sub') == 'NO') and c.get('srt') != 'YES']
+        if args.download_srt:
+            if need_srt:
+                print(f"\n  Subtitle Download (Default): {len(need_srt)} candidate(s) need .srt subtitles (BMP=YES or Sub=NO).")
+                print(f"  External English .en.srt subtitles will be downloaded for them automatically prior to resampling.")
+            else:
+                print(f"\n  Subtitle Download: No candidates need .srt downloads.")
+        else:
+            print(f"\n  Subtitle Download: Disabled (--no-download-srt specified).")
+
+        if len(candidates) == 1 and need_srt and args.download_srt and fetch_subtitles is not None:
+            print(f"\n  [DRY RUN] Testing subtitle lookup for '{candidates[0]['filename']}':")
+            test_mapping = fetch_subtitles.get_imdb_mapping(args.db)
+            fetch_subtitles.process_single_movie(candidates[0]['path'], test_mapping, dry_run=True, force=args.force_srt)
+
         print(f"\nExample FFmpeg command for first file:")
         ex_cmd = build_ffmpeg_cmd(candidates[0]['path'], "/path/to/temp_output.mp4", args.crf, args.preset)
         print(f"  {' '.join(ex_cmd)}\n")
@@ -624,6 +920,11 @@ def main():
 
     # Actual processing loop
     print(f"\nBeginning resampling of {len(candidates):,} files...\n")
+
+    imdb_mapping = None
+    if args.download_srt and any((c.get('bmp') == 'YES' or c.get('sub') == 'NO') for c in candidates):
+        if fetch_subtitles is not None:
+            imdb_mapping = fetch_subtitles.get_imdb_mapping(args.db)
 
     total_saved_bytes = 0
     success_count = 0
@@ -645,8 +946,24 @@ def main():
         print(f"[{i}/{len(candidates)}] Processing: {fp}{time_tail}")
         print(f"    Current:  {sz_gb:.2f} GB | {res} | {fmt} | {file_info['fps']} fps")
 
+        # Automatically download external .en.srt for videos with bitmapped or missing subtitles by default
+        if args.download_srt and (file_info.get('bmp') == 'YES' or file_info.get('sub') == 'NO'):
+            sub_status, sub_msg = download_srt_if_needed(
+                file_info,
+                imdb_mapping=imdb_mapping,
+                db_path=args.db,
+                dry_run=False,
+                force=args.force_srt
+            )
+            if sub_status == 'already_exists':
+                print(f"    Subtitle: {sub_msg}")
+            elif sub_status == 'downloaded':
+                print(f"    Subtitle: {sub_msg}")
+            elif sub_status == 'failed':
+                print(f"    Subtitle: [-] {sub_msg} (continuing video resampling)")
+
         try:
-            result = resample_single_file(file_info, crf=args.crf, preset=args.preset, cache=cache)
+            result = resample_single_file(file_info, crf=args.crf, preset=args.preset, cache=cache, backup=args.backup)
             if result['success']:
                 new_gb = result['new_bytes'] / (1024 ** 3)
                 saved_gb = result['saved_bytes'] / (1024 ** 3)
@@ -654,6 +971,8 @@ def main():
                 total_saved_bytes += result['saved_bytes']
                 success_count += 1
                 print(f"    Result:   {new_gb:.2f} GB  (Saved: {saved_gb:.2f} GB, {pct:.1f}%) in {format_time(result['elapsed'])}")
+                if result.get('backup_path'):
+                    print(f"    Backup:   {result['backup_path']}")
             else:
                 fail_count += 1
                 print(f"    FAILED:   {result.get('error', 'Unknown error')}", file=sys.stderr)

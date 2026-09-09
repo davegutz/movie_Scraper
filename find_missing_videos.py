@@ -21,7 +21,10 @@ All output lists:
   - Include video resolution in 'p' form (e.g. 1080p, 720p, 480p)
   - Include video frame rate in frames per second (FPS, e.g. 23.98, 29.97, 24)
   - Include video file size in decimal GB (e.g. 3.61 GB)
-  - Include duration of the title / video in a new column called 'Time' in hr:min format (e.g. 2:00)
+  - Include duration of the title / video in a column called 'Time' in hr:min format (e.g. 02:00)
+  - Include English subtitles indicator in a column called 'Sub' (YES / NO / -)
+  - Include bitmap-only subtitles indicator in a column called 'BMP' (YES / NO / -)
+  - Include external subtitle srt file indicator in a column called 'SRT' (YES / NO / -)
   - Include oversized flag (YES / NO / -) based on resolution vs file size
 Columns are placed directly before the filename / title column.
 Total GB size and oversized totals are included in the summary header at the beginning.
@@ -285,16 +288,106 @@ def check_oversized(res_str, size_gb, duration=None):
     return "YES" if size_gb > thresh else "NO"
 
 
+def check_srt_file(file_path):
+    """
+    Quickly check whether an external subtitle .srt file exists on disk for a video file.
+    Returns: 'YES' if an external .srt file exists, 'NO' if not, '-' if no video file.
+    """
+    if not file_path or not os.path.isfile(file_path):
+        return '-'
+    base, _ = os.path.splitext(file_path)
+    srt_exts = (
+        '.srt', '.en.srt', '.eng.srt', '.English.srt', '.english.srt',
+        '.forced.srt', '.en.forced.srt', '.default.srt', '.en.default.srt',
+        '.SRT', '.EN.SRT', '.ENG.SRT'
+    )
+    if any(os.path.isfile(base + ext) for ext in srt_exts):
+        return 'YES'
+    try:
+        parent_dir = os.path.dirname(file_path)
+        base_name = os.path.basename(base).lower()
+        for entry in os.listdir(parent_dir):
+            entry_lower = entry.lower()
+            if entry_lower.endswith('.srt'):
+                stem = entry_lower[:-4]
+                if stem == base_name or stem.startswith(base_name + '.'):
+                    return 'YES'
+    except Exception:
+        pass
+    return 'NO'
+
+
+def check_subtitles_info(file_path):
+    """
+    Check subtitle status for a video:
+    1. Check for external subtitle files (.srt, .en.srt, .eng.srt, .vtt, etc.)
+    2. Check embedded subtitle streams using ffprobe.
+    Returns:
+        (sub_str, bmp_str, srt_str):
+          sub_str: 'YES' if English subtitles available, 'NO' otherwise, '-' if no file.
+          bmp_str: 'YES' if video has ONLY bitmap subtitles (and no text/SRT), 'NO' otherwise, '-' if no file.
+          srt_str: 'YES' if external subtitle .srt file exists, 'NO' otherwise, '-' if no file.
+    """
+    if not file_path or not os.path.isfile(file_path):
+        return ('-', '-', '-')
+
+    # 1. External subtitle files
+    base, _ = os.path.splitext(file_path)
+    srt_str = check_srt_file(file_path)
+    has_text = (srt_str == 'YES') or any(os.path.isfile(base + ext) for ext in ('.vtt', '.en.vtt', '.sub'))
+    has_bmp = False
+    has_eng = (srt_str == 'YES')
+
+    # 2. Embedded subtitle streams via ffprobe
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "s",
+            "-show_entries", "stream=codec_name,stream_tags=language,title",
+            "-of", "csv=p=0",
+            "-analyzeduration", "500000",
+            "-probesize", "500000",
+            file_path
+        ]
+        out = subprocess.check_output(cmd, timeout=5, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore").strip()
+        if out:
+            lines = [line.strip() for line in out.splitlines() if line.strip()]
+            for line in lines:
+                parts = [p.strip().lower() for p in line.split(',') if p.strip()]
+                if not parts:
+                    continue
+                codec = parts[0]
+                if codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt'):
+                    has_text = True
+                elif codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub'):
+                    has_bmp = True
+
+                for p in parts[1:]:
+                    if p in ('eng', 'en', 'english', 'en-us', 'en-gb', 'en-ca') or 'english' in p or 'eng' in p:
+                        has_eng = True
+                        break
+                if len(parts) >= 2 and parts[1] in ('und', ''):
+                    has_eng = True
+            if not has_eng and len(lines) == 1:
+                has_eng = True
+    except Exception:
+        pass
+
+    sub_str = 'YES' if has_eng else 'NO'
+    bmp_str = 'YES' if (has_bmp and not has_text) else 'NO'
+    return (sub_str, bmp_str, srt_str)
+
+
 def get_video_metadata(file_path, cache=None):
     """
     Extract codec/format ('H264', 'H265', etc.), vertical resolution ('{height}p'),
-    frame rate ('{fps}'), and duration ('{time}') using ffprobe.
+    frame rate ('{fps}'), duration ('{time}'), English subtitles ('{sub}'), bitmap-only ('{bmp}'), and external SRT ('{srt}') using ffprobe.
     Uses caching keyed by file path, mtime, and size.
     Returns:
-        (codec_str, res_str, fps_str, time_str)
+        (codec_str, res_str, fps_str, time_str, sub_str, bmp_str, srt_str)
     """
     if not file_path or not os.path.isfile(file_path):
-        return ("-", "-", "-", "-")
+        return ("-", "-", "-", "-", "-", "-", "-")
 
     try:
         st = os.stat(file_path)
@@ -304,7 +397,38 @@ def get_video_metadata(file_path, cache=None):
                 if cache_key in cache:
                     cached_val = cache[cache_key]
                     if isinstance(cached_val, dict) and 'res' in cached_val and 'fps' in cached_val and 'format' in cached_val:
-                        return (cached_val['format'], cached_val['res'], cached_val['fps'], format_time_minutes(cached_val.get('time', '-')))
+                        sub_val = cached_val.get('sub')
+                        bmp_val = cached_val.get('bmp')
+                        srt_val = cached_val.get('srt')
+                        if sub_val is None or bmp_val is None:
+                            s, b, sr = check_subtitles_info(file_path)
+                            sub_val = s
+                            bmp_val = b
+                            srt_val = sr
+                            cached_val['sub'] = sub_val
+                            cached_val['bmp'] = bmp_val
+                            cached_val['srt'] = srt_val
+                        elif srt_val is None:
+                            srt_val = check_srt_file(file_path)
+                            cached_val['srt'] = srt_val
+                        elif srt_val != 'YES':
+                            disk_srt = check_srt_file(file_path)
+                            if disk_srt == 'YES':
+                                srt_val = 'YES'
+                                sub_val = 'YES'
+                                bmp_val = 'NO'
+                                cached_val['srt'] = 'YES'
+                                cached_val['sub'] = 'YES'
+                                cached_val['bmp'] = 'NO'
+                        return (
+                            cached_val['format'],
+                            cached_val['res'],
+                            cached_val['fps'],
+                            format_time_minutes(cached_val.get('time', '-')),
+                            sub_val,
+                            bmp_val,
+                            srt_val
+                        )
 
         cmd = [
             "ffprobe", "-v", "error",
@@ -327,17 +451,18 @@ def get_video_metadata(file_path, cache=None):
             elif len(parts) == 1:
                 time_str = format_time_seconds(parts[0])
 
+        sub_str, bmp_str, srt_str = check_subtitles_info(file_path)
         if cache is not None:
             with _cache_lock:
-                cache[cache_key] = {'format': codec_str, 'res': res_str, 'fps': fps_str, 'time': time_str}
-        return (codec_str, res_str, fps_str, time_str)
+                cache[cache_key] = {'format': codec_str, 'res': res_str, 'fps': fps_str, 'time': time_str, 'sub': sub_str, 'bmp': bmp_str, 'srt': srt_str}
+        return (codec_str, res_str, fps_str, time_str, sub_str, bmp_str, srt_str)
     except Exception:
-        return ("-", "-", "-", "-")
+        return ("-", "-", "-", "-", "-", "-", "-")
 
 
-def batch_probe_metadata(items, path_getter, max_workers=24, verbose=False):
+def batch_probe_metadata(items, path_getter, max_workers=12, verbose=False):
     """
-    Batch probe video format/codec, resolution, frame rate, and duration using ThreadPoolExecutor and disk cache.
+    Batch probe video format/codec, resolution, frame rate, duration, and subtitles using ThreadPoolExecutor and disk cache.
     """
     cache = load_resolution_cache()
     paths = [path_getter(item) for item in items]
@@ -349,7 +474,7 @@ def batch_probe_metadata(items, path_getter, max_workers=24, verbose=False):
                 st = os.stat(p)
                 k = f"{p}|{st.st_mtime}|{st.st_size}"
                 cached = cache.get(k)
-                if not (isinstance(cached, dict) and 'res' in cached and 'fps' in cached and 'format' in cached):
+                if not (isinstance(cached, dict) and 'res' in cached and 'fps' in cached and 'format' in cached and 'sub' in cached and 'bmp' in cached):
                     needed += 1
             except Exception:
                 pass
@@ -525,6 +650,9 @@ def scan_video_files(movies_dir, extensions):
                     'resolution': '-',
                     'fps': '-',
                     'time': '-',
+                    'sub': '-',
+                    'bmp': '-',
+                    'srt': '-',
                     'oversized': '-',
                     'size_bytes': sz_bytes,
                     'size_gb': size_gb,
@@ -574,6 +702,9 @@ def load_db_movies(db_path):
             'format': '-',
             'resolution': '-',
             'fps': '-',
+            'sub': '-',
+            'bmp': '-',
+            'srt': '-',
             'oversized': '-',
             'size_bytes': 0,
             'size_gb': '-',
@@ -656,6 +787,9 @@ def compare_db_and_videos(db_movies, video_entries):
             if movie_copy.get('time', '-') == '-' and match.get('time', '-') != '-':
                 movie_copy['time'] = match['time']
             match['time'] = movie_copy.get('time', '-')
+            movie_copy['sub'] = match.get('sub', '-')
+            movie_copy['bmp'] = match.get('bmp', '-')
+            movie_copy['srt'] = match.get('srt', '-')
             matched.append((movie_copy, match))
             matched_video_paths.add(match['path'])
         else:
@@ -681,7 +815,7 @@ def write_matched_file(output_path, matched_records, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Over', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
+            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'BMP', 'SRT', 'Over', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
             for movie_item, match_item in matched_records:
                 writer.writerow([
                     movie_item['imdb_id'],
@@ -692,6 +826,9 @@ def write_matched_file(output_path, matched_records, output_format):
                     match_item.get('fps', '-'),
                     format_size_gb(match_item.get('size_gb')),
                     movie_item.get('time', '-'),
+                    match_item.get('sub', '-'),
+                    match_item.get('bmp', '-'),
+                    match_item.get('srt', '-'),
                     match_item.get('oversized', '-'),
                     movie_item.get('display_title_year', movie_item['title']),
                     movie_item['title'],
@@ -712,6 +849,9 @@ def write_matched_file(output_path, matched_records, output_format):
             item['fps'] = match_item.get('fps', '-')
             item['size_gb'] = match_item.get('size_gb', '-')
             item['time'] = movie_item.get('time', '-')
+            item['sub'] = match_item.get('sub', '-')
+            item['bmp'] = match_item.get('bmp', '-')
+            item['srt'] = match_item.get('srt', '-')
             item['oversized'] = match_item.get('oversized', '-')
             item['filename'] = match_item['filename']
             item['path'] = match_item['path']
@@ -727,9 +867,12 @@ def write_matched_file(output_path, matched_records, output_format):
                 fps_str = f"[{match_item.get('fps', '-')} fps]"
                 sz_str = f"[{format_size_gb(match_item.get('size_gb'))} GB]"
                 time_str = f"[{movie_item.get('time', '-')}]"
+                sub_str = f"[{match_item.get('sub', '-')}]"
+                bmp_str = f"[{match_item.get('bmp', '-')}]"
+                srt_str = f"[{match_item.get('srt', '-')}]"
                 over_str = f"[{match_item.get('oversized', '-')}]"
                 title_str = movie_item.get('display_title_year', movie_item['title'])
-                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {over_str} {title_str}\n")
+                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {over_str} {title_str}\n")
 
 
 def write_missing_file(output_path, missing_movies, output_format):
@@ -737,7 +880,7 @@ def write_missing_file(output_path, missing_movies, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Over', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification'])
+            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'BMP', 'SRT', 'Over', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification'])
             for m in missing_movies:
                 writer.writerow([
                     m['imdb_id'],
@@ -748,6 +891,9 @@ def write_missing_file(output_path, missing_movies, output_format):
                     m.get('fps', '-'),
                     format_size_gb(m.get('size_gb')),
                     m.get('time', '-'),
+                    m.get('sub', '-'),
+                    m.get('bmp', '-'),
+                    m.get('srt', '-'),
                     m.get('oversized', '-'),
                     m.get('display_title_year', m['title']),
                     m['title'],
@@ -761,6 +907,9 @@ def write_missing_file(output_path, missing_movies, output_format):
             item = dict(m)
             item['codec'] = '-'
             item['time'] = m.get('time', '-')
+            item['sub'] = m.get('sub', '-')
+            item['bmp'] = m.get('bmp', '-')
+            item['srt'] = m.get('srt', '-')
             export_data.append(item)
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(export_data, f, indent=2, default=str)
@@ -773,9 +922,12 @@ def write_missing_file(output_path, missing_movies, output_format):
                 fps_str = f"[{m.get('fps', '-')}]"
                 sz_str = f"[{format_size_gb(m.get('size_gb'))}]"
                 time_str = f"[{m.get('time', '-')}]"
+                sub_str = f"[{m.get('sub', '-')}]"
+                bmp_str = f"[{m.get('bmp', '-')}]"
+                srt_str = f"[{m.get('srt', '-')}]"
                 over_str = f"[{m.get('oversized', '-')}]"
                 title_str = m.get('display_title_year', m['title'])
-                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {over_str} {title_str}\n")
+                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {over_str} {title_str}\n")
 
 
 def write_unmatched_file(output_path, unmatched_videos, output_format):
@@ -783,7 +935,7 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['Subfolder', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Over', 'Filename', 'Original_Filename', 'FullPath'])
+            writer.writerow(['Subfolder', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'BMP', 'SRT', 'Over', 'Filename', 'Original_Filename', 'FullPath'])
             for v in unmatched_videos:
                 writer.writerow([
                     v['rel_dir'],
@@ -793,6 +945,9 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
                     v.get('fps', '-'),
                     format_size_gb(v.get('size_gb')),
                     v.get('time', '-'),
+                    v.get('sub', '-'),
+                    v.get('bmp', '-'),
+                    v.get('srt', '-'),
                     v.get('oversized', '-'),
                     v.get('display_filename', v['filename']),
                     v['filename'],
@@ -804,6 +959,9 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
             item = dict(v)
             item['codec'] = v.get('format', '-')
             item['time'] = v.get('time', '-')
+            item['sub'] = v.get('sub', '-')
+            item['bmp'] = v.get('bmp', '-')
+            item['srt'] = v.get('srt', '-')
             export_data.append(item)
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(export_data, f, indent=2, default=str)
@@ -815,9 +973,12 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
                 fps_str = f"[{v.get('fps', '-')} fps]"
                 sz_str = f"[{format_size_gb(v.get('size_gb'))} GB]"
                 time_str = f"[{v.get('time', '-')}]"
+                sub_flag_str = f"[{v.get('sub', '-')}]"
+                bmp_flag_str = f"[{v.get('bmp', '-')}]"
+                srt_flag_str = f"[{v.get('srt', '-')}]"
                 over_str = f"[{v.get('oversized', '-')}]"
                 fn_str = v.get('display_filename', v['filename'])
-                f.write(f"[{v['ext']}] {fmt_str} [{v['resolution']}] {fps_str} {sz_str} {time_str} {over_str} {sub}{fn_str}\n")
+                f.write(f"[{v['ext']}] {fmt_str} [{v['resolution']}] {fps_str} {sz_str} {time_str} {sub_flag_str} {bmp_flag_str} {srt_flag_str} {over_str} {sub}{fn_str}\n")
 
 
 def main():
@@ -955,13 +1116,19 @@ def main():
             matched_meta = batch_probe_metadata(
                 matched, lambda m: m[1]['path'], verbose=(not args.quiet)
             )
-            for (movie_item, match_item), (fmt_val, r, fps, t_val) in zip(matched, matched_meta):
+            for (movie_item, match_item), (fmt_val, r, fps, t_val, sub_val, bmp_val, srt_val) in zip(matched, matched_meta):
                 movie_item['format'] = fmt_val
                 movie_item['resolution'] = r
                 movie_item['fps'] = fps
                 if movie_item.get('time', '-') == '-' and t_val != '-':
                     movie_item['time'] = t_val
                 match_item['time'] = movie_item.get('time', '-')
+                movie_item['sub'] = sub_val
+                match_item['sub'] = sub_val
+                movie_item['bmp'] = bmp_val
+                match_item['bmp'] = bmp_val
+                movie_item['srt'] = srt_val
+                match_item['srt'] = srt_val
                 movie_item['oversized'] = check_oversized(r, match_item.get('size_gb'), movie_item.get('time'))
                 match_item['format'] = fmt_val
                 match_item['resolution'] = r
@@ -973,12 +1140,15 @@ def main():
             unmatched_meta = batch_probe_metadata(
                 unmatched_videos, lambda v: v['path'], verbose=(not args.quiet)
             )
-            for v, (fmt_val, r, fps, t_val) in zip(unmatched_videos, unmatched_meta):
+            for v, (fmt_val, r, fps, t_val, sub_val, bmp_val, srt_val) in zip(unmatched_videos, unmatched_meta):
                 v['format'] = fmt_val
                 v['resolution'] = r
                 v['fps'] = fps
                 if t_val != '-':
                     v['time'] = t_val
+                v['sub'] = sub_val
+                v['bmp'] = bmp_val
+                v['srt'] = srt_val
                 v['oversized'] = check_oversized(r, v.get('size_gb'), v.get('time'))
 
         # Ensure unmatched videos have duration probed if not already present
@@ -1084,16 +1254,19 @@ def main():
                     sz_str = f"{format_size_gb(match_item.get('size_gb'))}GB"
                     fps_str = f"{match_item.get('fps', '-')}fps"
                     time_str = movie_item.get('time', '-')
+                    sub_str = match_item.get('sub', '-')
+                    bmp_str = match_item.get('bmp', '-')
+                    srt_str = match_item.get('srt', '-')
                     over_str = match_item.get('oversized', '-')
                     disp_title = movie_item.get('display_title_year', movie_item['title'])
-                    print(f"{match_item.get('ext', '-'):<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {over_str:<4} {disp_title}")
+                    print(f"{match_item.get('ext', '-'):<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<5} {bmp_str:<5} {srt_str:<5} {over_str:<4} {disp_title}")
             if args.show_only in ('all', 'missing', 'both') and not args.oversized_only:
                 if args.show_only in ('all', 'both'):
                     print("\n=== MISSING TITLES (IN DB, NO VIDEO FILE) ===")
                 for m in missing_db:
                     time_str = m.get('time', '-')
                     disp_title = m.get('display_title_year', m['title'])
-                    print(f"{m.get('ext', '-'):<5} {'-':<6} {m.get('resolution', '-'):<7} {'-':<9} {'-':<9} {time_str:<9} {'-':<4} {disp_title}")
+                    print(f"{m.get('ext', '-'):<5} {'-':<6} {m.get('resolution', '-'):<7} {'-':<9} {'-':<9} {time_str:<9} {'-':<5} {'-':<5} {'-':<5} {'-':<4} {disp_title}")
             if args.show_only in ('all', 'unmatched', 'both'):
                 if args.show_only in ('all', 'both'):
                     print("\n=== UNMATCHED TITLES (VIDEO FILE ON DISK, NOT IN DB) ===")
@@ -1103,11 +1276,14 @@ def main():
                     sz_str = f"{format_size_gb(v.get('size_gb'))}GB"
                     fps_str = f"{v.get('fps', '-')}fps"
                     time_str = v.get('time', '-')
+                    sub_str = v.get('sub', '-')
+                    bmp_str = v.get('bmp', '-')
+                    srt_str = v.get('srt', '-')
                     over_str = v.get('oversized', '-')
                     disp_fn = f"{sub}{v.get('display_filename', v['filename'])}"
-                    print(f"{v['ext']:<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {over_str:<4} {disp_fn}")
+                    print(f"{v['ext']:<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<5} {bmp_str:<5} {srt_str:<5} {over_str:<4} {disp_fn}")
         else:
-            banner_len = 116
+            banner_len = 134
             print("=" * banner_len)
             print("  IMDB_Films.db vs Video Library Comparison")
             print("=" * banner_len)
@@ -1126,8 +1302,8 @@ def main():
             if args.show_only in ('all', 'matched'):
                 over_label = f", {matched_oversized_count:,} oversized" if not args.oversized_only else " [ALL OVERSIZED]\""
                 print(f"\n[1] Matched Titles in Video Library ({len(matched):,} items, {matched_gb:,.2f} GB{over_label}):\n")
-                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Over':<6} {'Title'}")
-                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*4:<6} {'-'*46}")
+                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<5} {'BMP':<5} {'SRT':<5} {'Over':<6} {'Title'}")
+                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*3:<5} {'-'*3:<5} {'-'*3:<5} {'-'*4:<6} {'-'*46}")
                 for movie_item, match_item in matched:
                     dvd_display = str(movie_item['dvd']) if movie_item['dvd'] is not None else "-"
                     ext_display = match_item.get('ext', '-')
@@ -1136,16 +1312,19 @@ def main():
                     fps_display = match_item.get('fps', '-')
                     sz_display = format_size_gb(match_item.get('size_gb'))
                     time_display = movie_item.get('time', '-')
+                    sub_display = match_item.get('sub', '-')
+                    bmp_display = match_item.get('bmp', '-')
+                    srt_display = match_item.get('srt', '-')
                     over_display = match_item.get('oversized', '-')
                     title_display = movie_item.get('display_title_year', movie_item['title'])
-                    print(f"  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {over_display:<6} {title_display}")
+                    print(f"  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_display:<5} {bmp_display:<5} {srt_display:<5} {over_display:<6} {title_display}")
 
             # Section 2: Missing DB Titles
             if args.show_only in ('all', 'missing', 'both') and not args.oversized_only:
                 sec_num = 2 if args.show_only == 'all' else 1
                 print(f"\n[{sec_num}] Missing Titles in Video Library ({len(missing_db):,} items in DB without video):\n")
-                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Over':<6} {'Title'}")
-                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*4:<6} {'-'*46}")
+                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<5} {'BMP':<5} {'SRT':<5} {'Over':<6} {'Title'}")
+                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*3:<5} {'-'*3:<5} {'-'*3:<5} {'-'*4:<6} {'-'*46}")
                 for m in missing_db:
                     dvd_display = str(m['dvd']) if m['dvd'] is not None else "-"
                     ext_display = m.get('ext', '-')
@@ -1154,26 +1333,32 @@ def main():
                     fps_display = m.get('fps', '-')
                     sz_display = format_size_gb(m.get('size_gb'))
                     time_display = m.get('time', '-')
+                    sub_display = m.get('sub', '-')
+                    bmp_display = m.get('bmp', '-')
+                    srt_display = m.get('srt', '-')
                     over_display = m.get('oversized', '-')
                     title_display = m.get('display_title_year', m['title'])
-                    print(f"  {m['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {over_display:<6} {title_display}")
+                    print(f"  {m['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_display:<5} {bmp_display:<5} {srt_display:<5} {over_display:<6} {title_display}")
 
             # Section 3: Unmatched Library Video Files
             if args.show_only in ('all', 'unmatched', 'both'):
                 sec_num = 3 if (args.show_only == 'all' and not args.oversized_only) else (2 if args.show_only in ('all', 'both') else 1)
                 over_label = f", {unmatched_oversized_count:,} oversized" if not args.oversized_only else " [ALL OVERSIZED]\""
                 print(f"\n[{sec_num}] Unmatched Titles in Video Library ({len(unmatched_videos):,} video files not in DB, {unmatched_gb:,.2f} GB{over_label}):\n")
-                print(f"  {'Subfolder':<16} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Over':<6} {'Filename'}")
-                print(f"  {'-'*14:<16} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*4:<6} {'-'*46}")
+                print(f"  {'Subfolder':<16} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<5} {'BMP':<5} {'SRT':<5} {'Over':<6} {'Filename'}")
+                print(f"  {'-'*14:<16} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*3:<5} {'-'*3:<5} {'-'*3:<5} {'-'*4:<6} {'-'*46}")
                 for v in unmatched_videos:
-                    sub_display = v['rel_dir'] if v['rel_dir'] else "-"
+                    subfolder_display = v['rel_dir'] if v['rel_dir'] else "-"
                     fmt_display = v.get('format', '-')
                     fps_display = v.get('fps', '-')
                     sz_display = format_size_gb(v.get('size_gb'))
                     time_display = v.get('time', '-')
+                    sub_display = v.get('sub', '-')
+                    bmp_display = v.get('bmp', '-')
+                    srt_display = v.get('srt', '-')
                     over_display = v.get('oversized', '-')
                     fn_display = v.get('display_filename', v['filename'])
-                    print(f"  {sub_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {over_display:<6} {fn_display}")
+                    print(f"  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_display:<5} {bmp_display:<5} {srt_display:<5} {over_display:<6} {fn_display}")
 
             if args.output_matched:
                 print(f"\n[+] Matched list saved to: {os.path.abspath(args.output_matched)}")
