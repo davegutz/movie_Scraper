@@ -35,6 +35,8 @@
 #  result found in dist folder
 #
 import io
+import re
+ANSI_ESCAPE_RE = re.compile(r'\[([0-9;]+)m')
 import os
 import sys
 from configparser import ConfigParser
@@ -50,6 +52,9 @@ import urllib.request
 import numpy as np
 import PySimpleGUI as pSG  # install PySimpleGUI-4-foss
 from time import sleep
+import subprocess
+import threading
+from tkinter import scrolledtext
 
 if sys.platform == 'darwin':
     # noinspection PyUnresolvedReferences
@@ -367,6 +372,9 @@ class IMDBdataBase:
         self.update_cert_time_btn = tk.Button(self.bot_frame_right, text="Update Cert and Time", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                               width=25, command=self.update_cert_time)
         self.update_cert_time_btn.pack(side='top')
+        self.check_db_health_btn = tk.Button(self.bot_frame_right, text="Check Database Health", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+                                             width=25, command=self.run_check_database_health)
+        self.check_db_health_btn.pack(side='top')
 
         self.root.title(f"Features ({len(self.tree.get_children())})")
         self.root.mainloop()
@@ -1397,6 +1405,131 @@ class IMDBdataBase:
                 change += 1
         self.fill_tree_view()
         print(f"{count=} {change=}")
+
+    def run_check_database_health(self):
+        """Run check_database_health script and display progress/results in a top-level window."""
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'check_database_health.py')
+        if not os.path.isfile(script_path):
+            tk.messagebox.showerror("Error", f"Could not find script: {script_path}")
+            return
+
+        cmd = [sys.executable, script_path, '--color', 'always']
+        if self.db_path and os.path.isfile(self.db_path):
+            cmd.extend(['--db', self.db_path])
+
+        win = tk.Toplevel(self.root)
+        win.title("Check Database Health")
+        win.geometry("1150x650")
+        win.config(bg=bg_color, padx=10, pady=10)
+
+        header_frame = tk.Frame(win, bg=bg_color)
+        header_frame.pack(side='top', fill='x', pady=(0, 5))
+        status_lbl = tk.Label(
+            header_frame,
+            text="Running database health check...",
+            font=('David', 12, 'bold'),
+            bg=bg_color,
+            fg=blue_back_color
+        )
+        status_lbl.pack(side='left')
+
+        txt_frame = tk.Frame(win)
+        txt_frame.pack(side='top', fill='both', expand=True)
+
+        txt = scrolledtext.ScrolledText(
+            txt_frame,
+            wrap='none',
+            font=('Courier', 9),
+            bg='#1e1e1e',
+            fg='#d4d4d4',
+            insertbackground='white'
+        )
+        txt.pack(side='left', fill='both', expand=True)
+
+        # Tags for colored output
+        txt.tag_config('red', foreground='#ff6b6b')
+        txt.tag_config('orange', foreground='#ff9f43')
+        txt.tag_config('yellow', foreground='#feca57')
+        txt.tag_config('green', foreground='#1dd1a1')
+
+        h_scroll = tk.Scrollbar(win, orient='horizontal', command=txt.xview)
+        txt.configure(xscrollcommand=h_scroll.set)
+        h_scroll.pack(side='top', fill='x')
+
+        btn_frame = tk.Frame(win, bg=bg_color)
+        btn_frame.pack(side='bottom', fill='x', pady=(10, 0))
+
+        close_btn = tk.Button(
+            btn_frame,
+            text="Close",
+            font=('LilyUPC', 11, 'bold'),
+            bg=light_purple,
+            width=15,
+            command=win.destroy
+        )
+        close_btn.pack(side='right', padx=5)
+
+        def parse_ansi(raw_text):
+            segments = []
+            curr_tag = None
+            last_idx = 0
+            for match in ANSI_ESCAPE_RE.finditer(raw_text):
+                if match.start() > last_idx:
+                    segments.append((raw_text[last_idx:match.start()], curr_tag))
+                code = match.group(1)
+                if code in ('0', ''):
+                    curr_tag = None
+                elif code in ('91', '31'):
+                    curr_tag = 'red'
+                elif code in ('38;5;208', '38;5;214', '33'):
+                    curr_tag = 'orange'
+                elif code in ('93',):
+                    curr_tag = 'yellow'
+                elif code in ('92', '32'):
+                    curr_tag = 'green'
+                last_idx = match.end()
+            if last_idx < len(raw_text):
+                segments.append((raw_text[last_idx:], curr_tag))
+            return segments
+
+        def append_text(line):
+            txt.config(state='normal')
+            for seg_text, tag in parse_ansi(line):
+                if tag:
+                    txt.insert(tk.END, seg_text, (tag,))
+                else:
+                    txt.insert(tk.END, seg_text)
+            txt.see(tk.END)
+            txt.config(state='disabled')
+
+        def on_done(ret_code):
+            if ret_code == 0:
+                status_lbl.config(text="Database Health Check Complete.")
+            else:
+                status_lbl.config(text=f"Database Health Check finished with exit code {ret_code}.")
+
+        def worker():
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                for line in iter(proc.stdout.readline, ''):
+                    print(line, end='', flush=True)
+                    txt.after(0, append_text, line)
+                proc.stdout.close()
+                proc.wait()
+                txt.after(0, on_done, proc.returncode)
+            except Exception as e:
+                err_msg = "\nError executing check_database_health: " + str(e) + "\n"
+                print(err_msg, flush=True)
+                txt.after(0, append_text, err_msg)
+                txt.after(0, on_done, -1)
+
+        threading.Thread(target=worker, daemon=True).start()
 
 
 def get_bigrams(string):

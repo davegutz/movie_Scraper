@@ -25,7 +25,7 @@ Key Features:
     clients have text subtitles and won't lose subtitles upon H.264 re-encoding.
     Pass --no-download-srt or --skip-srt to disable.
   - Cache Synchronization: Automatically updates the ffprobe cache in
-    ~/.cache/movie_scraper/video_res_cache.json so find_missing_videos.py stays current.
+    ~/.cache/movie_scraper/video_res_cache.json so check_database_health.py stays current.
 
 Usage Examples:
     # Dry-run: preview oversized files, subtitle status, and estimated space savings
@@ -131,23 +131,23 @@ def check_srt_file(file_path):
 
 def check_subtitles_info(file_path):
     """
-    Check subtitle status for a video:
+    Check subtitle type and Jellyfin playback compatibility for a video:
     1. Check for external subtitle files (.srt, .en.srt, .eng.srt, .vtt, etc.)
     2. Check embedded subtitle streams using ffprobe.
     Returns:
-        (sub_str, bmp_str, srt_str):
-          sub_str: 'YES' if English subtitles available, 'NO' otherwise, '-' if no file.
-          bmp_str: 'YES' if video has ONLY bitmap subtitles (and no text/SRT), 'NO' otherwise, '-' if no file.
-          srt_str: 'YES' if external subtitle .srt file exists, 'NO' otherwise, '-' if no file.
+        (sub_type, jf_status, raw_sub, raw_bmp, raw_srt):
+          sub_type: 'SRT', 'Text', 'Bitmap', 'None', or '-'
+          jf_status: 'DIRECT', 'TRANSCODE', or '-'
+          raw_sub, raw_bmp, raw_srt: backward-compatible ('YES' / 'NO')
     """
     if not file_path or not os.path.isfile(file_path):
-        return ('-', '-', '-')
+        return ('-', '-', '-', '-', '-')
 
     base, _ = os.path.splitext(file_path)
-    srt_str = check_srt_file(file_path)
-    has_text = (srt_str == 'YES') or any(os.path.isfile(base + ext) for ext in ('.vtt', '.en.vtt', '.sub'))
+    raw_srt = check_srt_file(file_path)
+    has_text = (raw_srt == 'YES') or any(os.path.isfile(base + ext) for ext in ('.vtt', '.en.vtt', '.sub'))
     has_bmp = False
-    has_eng = (srt_str == 'YES')
+    has_eng = (raw_srt == 'YES')
 
     try:
         cmd = [
@@ -167,25 +167,49 @@ def check_subtitles_info(file_path):
                 if not parts:
                     continue
                 codec = parts[0]
-                if codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt'):
-                    has_text = True
-                elif codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub'):
-                    has_bmp = True
+                is_text_codec = codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt')
+                is_bmp_codec = codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub')
 
+                is_eng_stream = False
                 for p in parts[1:]:
                     if p in ('eng', 'en', 'english', 'en-us', 'en-gb', 'en-ca') or 'english' in p or 'eng' in p:
-                        has_eng = True
+                        is_eng_stream = True
                         break
                 if len(parts) >= 2 and parts[1] in ('und', ''):
+                    is_eng_stream = True
+
+                if is_eng_stream:
                     has_eng = True
+                    if is_text_codec:
+                        has_text = True
+                    elif is_bmp_codec:
+                        has_bmp = True
             if not has_eng and len(lines) == 1:
                 has_eng = True
+                has_text = True
     except Exception:
         pass
 
-    sub_str = 'YES' if has_eng else 'NO'
-    bmp_str = 'YES' if (has_bmp and not has_text) else 'NO'
-    return (sub_str, bmp_str, srt_str)
+    raw_sub = 'YES' if has_eng else 'NO'
+    raw_bmp = 'YES' if (has_bmp and not has_text and raw_srt != 'YES') else 'NO'
+
+    if raw_srt == 'YES':
+        sub_type = 'SRT'
+        jf_status = 'DIRECT'
+    elif has_text and has_eng:
+        sub_type = 'Text'
+        jf_status = 'DIRECT'
+    elif has_bmp:
+        sub_type = 'Bitmap'
+        jf_status = 'TRANSCODE'
+    elif has_eng:
+        sub_type = 'Text'
+        jf_status = 'DIRECT'
+    else:
+        sub_type = 'None'
+        jf_status = '-'
+
+    return (sub_type, jf_status, raw_sub, raw_bmp, raw_srt)
 
 
 def update_cache_entry(cache, file_path):
@@ -231,8 +255,18 @@ def update_cache_entry(cache, file_path):
                 except Exception:
                     pass
 
-        sub_str, bmp_str, srt_str = check_subtitles_info(file_path)
-        cache[cache_key] = {'format': codec_str, 'res': res_str, 'fps': fps_str, 'time': time_str, 'sub': sub_str, 'bmp': bmp_str, 'srt': srt_str}
+        sub_type, jf_status, raw_sub, raw_bmp, raw_srt = check_subtitles_info(file_path)
+        cache[cache_key] = {
+            'format': codec_str,
+            'res': res_str,
+            'fps': fps_str,
+            'time': time_str,
+            'sub': sub_type,
+            'jellyfin': jf_status,
+            'raw_sub': raw_sub,
+            'bmp': raw_bmp,
+            'srt': raw_srt
+        }
         save_cache(cache)
     except Exception:
         pass
@@ -369,24 +403,44 @@ def probe_file_meta(file_path, cache):
                         if m:
                             h, rem = divmod(int(m.group(0)), 60)
                             cached_time = f"{h:02d}:{rem:02d}"
-                sub_val = cached.get('sub')
-                bmp_val = cached.get('bmp')
-                srt_val = cached.get('srt')
-                if bmp_val is None or sub_val is None:
-                    sub_val, bmp_val, srt_val = check_subtitles_info(file_path)
+                if 'jellyfin' in cached and cached.get('sub') in ('SRT', 'Text', 'Bitmap', 'None', '-'):
+                    sub_val = cached['sub']
+                    jf_val = cached['jellyfin']
+                    bmp_val = cached.get('bmp', 'NO')
+                    srt_val = cached.get('srt', 'NO')
+                else:
+                    srt_flag = cached.get('srt')
+                    bmp_flag = cached.get('bmp')
+                    sub_flag = cached.get('sub')
+                    if srt_flag == 'YES':
+                        sub_val = 'SRT'
+                        jf_val = 'DIRECT'
+                    elif bmp_flag == 'YES':
+                        sub_val = 'Bitmap'
+                        jf_val = 'TRANSCODE'
+                    elif sub_flag == 'YES':
+                        sub_val = 'Text'
+                        jf_val = 'DIRECT'
+                    elif sub_flag in ('NO', 'None'):
+                        sub_val = 'None'
+                        jf_val = '-'
+                    else:
+                        sub_val, jf_val, r_sub, bmp_flag, srt_flag = check_subtitles_info(file_path)
+                        cached['raw_sub'] = r_sub
+                        cached['bmp'] = bmp_flag
+                        cached['srt'] = srt_flag
+                    bmp_val = bmp_flag or 'NO'
+                    srt_val = srt_flag or 'NO'
                     cached['sub'] = sub_val
-                    cached['bmp'] = bmp_val
-                    cached['srt'] = srt_val
-                elif srt_val is None:
-                    srt_val = check_srt_file(file_path)
-                    cached['srt'] = srt_val
-                elif srt_val != 'YES':
-                    if check_srt_file(file_path) == 'YES':
-                        srt_val = 'YES'
-                        cached['srt'] = 'YES'
-                        cached['sub'] = 'YES'
-                        cached['bmp'] = 'NO'
-                return cached.get('format', '-'), cached.get('res', '-'), cached.get('fps', '-'), cached_time, cached.get('sub', '-'), bmp_val, srt_val
+                    cached['jellyfin'] = jf_val
+
+                if sub_val != 'SRT' and check_srt_file(file_path) == 'YES':
+                    sub_val = cached['sub'] = 'SRT'
+                    jf_val = cached['jellyfin'] = 'DIRECT'
+                    srt_val = cached['srt'] = 'YES'
+                    bmp_val = cached['bmp'] = 'NO'
+
+                return cached.get('format', '-'), cached.get('res', '-'), cached.get('fps', '-'), cached_time, sub_val, jf_val, bmp_val, srt_val
 
         cmd = [
             "ffprobe", "-v", "error",
@@ -409,20 +463,22 @@ def probe_file_meta(file_path, cache):
                 fps_str = parts[2] if len(parts) >= 3 else "-"
             elif len(parts) == 1:
                 time_str = format_duration_hr_min(parts[0])
-        sub_str, bmp_str, srt_str = check_subtitles_info(file_path)
+        sub_type, jf_status, r_sub, r_bmp, r_srt = check_subtitles_info(file_path)
         cache[cache_key] = {
             'format': codec_str,
             'res': res_str,
             'fps': fps_str,
             'time': time_str,
-            'sub': sub_str,
-            'bmp': bmp_str,
-            'srt': srt_str
+            'sub': sub_type,
+            'jellyfin': jf_status,
+            'raw_sub': r_sub,
+            'bmp': r_bmp,
+            'srt': r_srt
         }
         save_cache(cache)
-        return codec_str, res_str, fps_str, time_str, sub_str, bmp_str, srt_str
+        return codec_str, res_str, fps_str, time_str, sub_type, jf_status, r_bmp, r_srt
     except Exception:
-        return "-", "-", "-", "-", "-", "-", "-"
+        return "-", "-", "-", "-", "-", "-", "-", "-"
 
 
 def download_srt_if_needed(file_info, imdb_mapping=None, db_path=DEFAULT_DB_PATH, dry_run=False, force=False):
@@ -453,9 +509,13 @@ def download_srt_if_needed(file_info, imdb_mapping=None, db_path=DEFAULT_DB_PATH
         file_info['sub'] = 'YES'
         return 'already_exists', "External .srt subtitle already exists on disk."
 
-    # Subtitle is needed if video has bitmap-only subtitles (BMP=YES)
-    # OR if video has NO English subtitles at all (Sub=NO)
-    needs_sub = (bmp_val == 'YES' or sub_val == 'NO')
+    # Subtitle is needed if video has bitmap-only subtitles (BMP=YES / Sub=Bitmap)
+    # OR if video has NO English subtitles at all (Sub=NO / Sub=None)
+    needs_sub = (
+        bmp_val == 'YES'
+        or sub_val in ('NO', 'None', 'Bitmap')
+        or file_info.get('jellyfin') == 'TRANSCODE'
+    )
     if not needs_sub:
         return 'not_needed', None
 
@@ -672,7 +732,7 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
         if sz_gb < min_size_gb:
             continue
 
-        fmt, res, fps, time_str, sub_str, bmp_str, srt_str = probe_file_meta(path, cache)
+        fmt, res, fps, time_str, sub_str, jf_str, bmp_str, srt_str = probe_file_meta(path, cache)
         oversized = is_oversized(res, sz_gb, time_str)
 
         if oversized_only and not oversized:
@@ -689,6 +749,7 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
             'fps': fps,
             'time': time_str,
             'sub': sub_str,
+            'jellyfin': jf_str,
             'bmp': bmp_str,
             'srt': srt_str,
             'oversized': oversized
@@ -891,14 +952,14 @@ def main():
     # Dry-run output
     if args.dry_run:
         print("\n[DRY RUN] The following files would be resampled (no files modified):\n")
-        print(f"  {'Size (GB)':>9} {'Res':<6} {'Format':<6} {'Time':<7} {'Sub':<5} {'BMP':<5} {'SRT':<5} {'Filename'}")
-        print(f"  {'-'*9:>9} {'-'*6:<6} {'-'*6:<6} {'-'*7:<7} {'-'*5:<5} {'-'*5:<5} {'-'*5:<5} {'-'*44}")
+        print(f"  {'Size (GB)':>9} {'Res':<6} {'Format':<6} {'Time':<7} {'Sub':<8} {'Jellyfin':<11} {'Filename'}")
+        print(f"  {'-'*9:>9} {'-'*6:<6} {'-'*6:<6} {'-'*7:<7} {'-'*6:<8} {'-'*8:<11} {'-'*44}")
         for c in candidates[:50]:
-            print(f"  {c['size_gb']:>9.2f} {c['resolution']:<6} {c['format']:<6} {c.get('time', '-'):<7} {c.get('sub', '-'):<5} {c.get('bmp', '-'):<5} {c.get('srt', '-'):<5} {c['filename']}")
+            print(f"  {c['size_gb']:>9.2f} {c['resolution']:<6} {c['format']:<6} {c.get('time', '-'):<7} {c.get('sub', '-'):<8} {c.get('jellyfin', '-'):<11} {c['filename']}")
         if len(candidates) > 50:
             print(f"  ... and {len(candidates) - 50} more files.")
 
-        need_srt = [c for c in candidates if (c.get('bmp') == 'YES' or c.get('sub') == 'NO') and c.get('srt') != 'YES']
+        need_srt = [c for c in candidates if (c.get('bmp') == 'YES' or c.get('sub') in ('NO', 'None', 'Bitmap') or c.get('jellyfin') == 'TRANSCODE') and c.get('srt') != 'YES']
         if args.download_srt:
             if need_srt:
                 print(f"\n  Subtitle Download (Default): {len(need_srt)} candidate(s) need .srt subtitles (BMP=YES or Sub=NO).")

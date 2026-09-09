@@ -61,7 +61,7 @@ def normalize_title(title):
     if not title:
         return ""
     import unicodedata
-    title = unicodedata.normalize('NFKD', title)
+    title = unicodedata.normalize('NFKD', title).encode('ASCII', 'ignore').decode('utf-8')
     title = re.sub(r'[^\w\s]', ' ', title)
     return ' '.join(title.lower().split())
 
@@ -243,7 +243,7 @@ def find_candidate_movies(movies_dir, mode="all_bmp"):
     """
     candidates = []
     if not os.path.isfile(CACHE_PATH):
-        print(f"Notice: Cache file '{CACHE_PATH}' not found. Run find_missing_videos.py first to scan library.", file=sys.stderr)
+        print(f"Notice: Cache file '{CACHE_PATH}' not found. Run check_database_health.py first to scan library.", file=sys.stderr)
         return candidates
 
     with open(CACHE_PATH, "r", encoding="utf-8") as f:
