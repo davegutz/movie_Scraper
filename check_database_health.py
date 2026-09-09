@@ -247,9 +247,9 @@ def parse_duration_minutes(val):
     return None
 
 
-def check_oversized(res_str, size_gb, duration=None):
+def check_sized(res_str, size_gb, duration=None):
     """
-    Determine if a video file is oversized based on its resolution, file size, and duration.
+    Determine if a video file is properly sized based on its resolution, file size, and duration.
     Base thresholds for standard ~2-hour (120 min) movies:
       - SD (<=540p): 2.5 GB
       - 720p (541p - 720p): 3.5 GB
@@ -258,7 +258,7 @@ def check_oversized(res_str, size_gb, duration=None):
       - Unknown resolution: 4.0 GB
     Threshold scales proportionally with runtime: threshold * max(duration_minutes / 120, 0.5).
     Returns:
-      'YES' if oversized, 'NO' if within optimal bounds, '-' if no video file.
+      'YES' if within optimal bounds (properly sized), 'NO' if oversized (not properly sized), '-' if no video file.
     """
     if not isinstance(size_gb, (int, float)):
         return "-"
@@ -284,9 +284,19 @@ def check_oversized(res_str, size_gb, duration=None):
     else:
         thresh = base_thresh
 
-    return "YES" if size_gb > thresh else "NO"
+    return "NO" if size_gb > thresh else "YES"
 
 
+def check_oversized(res_str, size_gb, duration=None):
+    """
+    Backward-compatible wrapper: returns 'YES' if oversized, 'NO' if within bounds, '-' if no video file.
+    """
+    s = check_sized(res_str, size_gb, duration)
+    if s == "YES":
+        return "NO"
+    elif s == "NO":
+        return "YES"
+    return s
 def check_srt_file(file_path):
     """
     Quickly check whether an external subtitle .srt file exists on disk for a video file.
@@ -342,7 +352,7 @@ def check_subtitles_info(file_path):
         cmd = [
             "ffprobe", "-v", "error",
             "-select_streams", "s",
-            "-show_entries", "stream=codec_name,stream_tags=language,title",
+            "-show_entries", "stream=codec_name,nb_frames:stream_tags=language,title",
             "-of", "csv=p=0",
             "-analyzeduration", "500000",
             "-probesize", "500000",
@@ -351,25 +361,41 @@ def check_subtitles_info(file_path):
         out = subprocess.check_output(cmd, timeout=5, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore").strip()
         if out:
             lines = [line.strip() for line in out.splitlines() if line.strip()]
+            valid_streams = []
             for line in lines:
                 parts = [p.strip().lower() for p in line.split(',') if p.strip()]
                 if not parts:
                     continue
                 codec = parts[0]
-                if codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt'):
-                    has_text = True
-                elif codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub'):
-                    has_bmp = True
+                nb_frames_str = parts[1] if len(parts) >= 2 else None
+                # Skip dummy / empty subtitle tracks (e.g. mov_text placeholder with <= 5 frames)
+                if nb_frames_str and nb_frames_str.isdigit() and int(nb_frames_str) <= 5:
+                    continue
+                valid_streams.append((codec, parts[2:] if len(parts) >= 2 else []))
 
-                for p in parts[1:]:
+            for codec, tags in valid_streams:
+                is_eng_stream = False
+                for p in tags:
                     if p in ('eng', 'en', 'english', 'en-us', 'en-gb', 'en-ca') or 'english' in p or 'eng' in p:
-                        has_eng = True
+                        is_eng_stream = True
                         break
-                if len(parts) >= 2 and parts[1] in ('und', ''):
+                if not tags or (tags and tags[0] in ('und', '')):
+                    is_eng_stream = True
+
+                if is_eng_stream:
                     has_eng = True
-            if not has_eng and len(lines) == 1:
+                    if codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt'):
+                        has_text = True
+                    elif codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub'):
+                        has_bmp = True
+
+            if not has_eng and len(valid_streams) == 1:
                 has_eng = True
-                has_text = True
+                single_codec = valid_streams[0][0]
+                if single_codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt'):
+                    has_text = True
+                elif single_codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub'):
+                    has_bmp = True
     except Exception:
         pass
 
@@ -500,11 +526,11 @@ def get_video_metadata(file_path, cache=None):
 
 
 
-def get_entry_colors(sub_val, jf_val, over_val, has_video=True, use_color=True):
+def get_entry_colors(sub_val, jf_val, sized_val, has_video=True, use_color=True):
     """
     Determine row color and column colors:
       - If no subtitles will be displayed in jellyfin code it red.
-      - If oversized code it orange.
+      - If improperly sized (Sized=NO) code it orange.
       - If jellyfin is loaded heavily code it yellow.
       - If clean code green.
     """
@@ -536,25 +562,25 @@ def get_entry_colors(sub_val, jf_val, over_val, has_video=True, use_color=True):
     else:
         jf_c = c_green
 
-    # Oversized column
-    if over_val == 'YES':
-        over_c = c_orange
-    elif over_val == 'NO':
-        over_c = c_green
+    # Sized column (YES = properly sized/green, NO = improperly sized/orange)
+    if sized_val == 'NO':
+        sized_c = c_orange
+    elif sized_val == 'YES':
+        sized_c = c_green
     else:
-        over_c = ''
+        sized_c = ''
 
-    # Overall row color (priority: No subs (Red) > Oversized (Orange) > Transcode (Yellow) > Clean (Green))
+    # Overall row color (priority: No subs (Red) > Improperly sized (Orange) > Transcode (Yellow) > Clean (Green))
     if sub_val in ('None', '-') or jf_val == '-':
         row_c = c_red
-    elif over_val == 'YES':
+    elif sized_val == 'NO':
         row_c = c_orange
     elif jf_val == 'TRANSCODE':
         row_c = c_yellow
     else:
         row_c = c_green
 
-    return (row_c, sub_c, jf_c, over_c, c_reset)
+    return (row_c, sub_c, jf_c, sized_c, c_reset)
 
 def batch_probe_metadata(items, path_getter, max_workers=12, verbose=False):
     """
@@ -748,6 +774,7 @@ def scan_video_files(movies_dir, extensions):
                     'time': '-',
                     'sub': '-',
                     'jellyfin': '-',
+                    'sized': '-',
                     'oversized': '-',
                     'size_bytes': sz_bytes,
                     'size_gb': size_gb,
@@ -799,6 +826,7 @@ def load_db_movies(db_path):
             'fps': '-',
             'sub': '-',
             'jellyfin': '-',
+            'sized': '-',
             'oversized': '-',
             'size_bytes': 0,
             'size_gb': '-',
@@ -908,7 +936,7 @@ def write_matched_file(output_path, matched_records, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Oversized', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
+            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
             for movie_item, match_item in matched_records:
                 writer.writerow([
                     movie_item['imdb_id'],
@@ -921,7 +949,7 @@ def write_matched_file(output_path, matched_records, output_format):
                     movie_item.get('time', '-'),
                     match_item.get('sub', '-'),
                     match_item.get('jellyfin', '-'),
-                    match_item.get('oversized', '-'),
+                    match_item.get('sized', '-'),
                     movie_item.get('display_title_year', movie_item['title']),
                     movie_item['title'],
                     movie_item['watched'],
@@ -943,6 +971,7 @@ def write_matched_file(output_path, matched_records, output_format):
             item['time'] = movie_item.get('time', '-')
             item['sub'] = match_item.get('sub', '-')
             item['jellyfin'] = match_item.get('jellyfin', '-')
+            item['sized'] = match_item.get('sized', '-')
             item['oversized'] = match_item.get('oversized', '-')
             item['filename'] = match_item['filename']
             item['path'] = match_item['path']
@@ -961,9 +990,9 @@ def write_matched_file(output_path, matched_records, output_format):
                 sub_str = f"[{match_item.get('sub', '-')}]"
                 bmp_str = f"[{match_item.get('bmp', '-')}]"
                 srt_str = f"[{match_item.get('srt', '-')}]"
-                over_str = f"[{match_item.get('oversized', '-')}]"
+                sized_str = f"[{match_item.get('sized', '-')}]"
                 title_str = movie_item.get('display_title_year', movie_item['title'])
-                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {over_str} {title_str}\n")
+                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {sized_str} {title_str}\n")
 
 
 def write_missing_file(output_path, missing_movies, output_format):
@@ -971,7 +1000,7 @@ def write_missing_file(output_path, missing_movies, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Oversized', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification'])
+            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification'])
             for m in missing_movies:
                 writer.writerow([
                     m['imdb_id'],
@@ -984,7 +1013,7 @@ def write_missing_file(output_path, missing_movies, output_format):
                     m.get('time', '-'),
                     m.get('sub', '-'),
                     m.get('jellyfin', '-'),
-                    m.get('oversized', '-'),
+                    m.get('sized', '-'),
                     m.get('display_title_year', m['title']),
                     m['title'],
                     m['watched'],
@@ -999,6 +1028,7 @@ def write_missing_file(output_path, missing_movies, output_format):
             item['time'] = m.get('time', '-')
             item['sub'] = m.get('sub', '-')
             item['jellyfin'] = m.get('jellyfin', '-')
+            item['sized'] = m.get('sized', '-')
             export_data.append(item)
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(export_data, f, indent=2, default=str)
@@ -1014,9 +1044,9 @@ def write_missing_file(output_path, missing_movies, output_format):
                 sub_str = f"[{m.get('sub', '-')}]"
                 bmp_str = f"[{m.get('bmp', '-')}]"
                 srt_str = f"[{m.get('srt', '-')}]"
-                over_str = f"[{m.get('oversized', '-')}]"
+                sized_str = f"[{m.get('sized', '-')}]"
                 title_str = m.get('display_title_year', m['title'])
-                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {over_str} {title_str}\n")
+                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {sized_str} {title_str}\n")
 
 
 def write_unmatched_file(output_path, unmatched_videos, output_format):
@@ -1024,7 +1054,7 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['Subfolder', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Oversized', 'Filename', 'Original_Filename', 'FullPath'])
+            writer.writerow(['Subfolder', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Filename', 'Original_Filename', 'FullPath'])
             for v in unmatched_videos:
                 writer.writerow([
                     v['rel_dir'],
@@ -1036,7 +1066,7 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
                     v.get('time', '-'),
                     v.get('sub', '-'),
                     v.get('jellyfin', '-'),
-                    v.get('oversized', '-'),
+                    v.get('sized', '-'),
                     v.get('display_filename', v['filename']),
                     v['filename'],
                     v['path']
@@ -1049,6 +1079,7 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
             item['time'] = v.get('time', '-')
             item['sub'] = v.get('sub', '-')
             item['jellyfin'] = v.get('jellyfin', '-')
+            item['sized'] = v.get('sized', '-')
             export_data.append(item)
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(export_data, f, indent=2, default=str)
@@ -1063,9 +1094,9 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
                 sub_flag_str = f"[{v.get('sub', '-')}]"
                 bmp_flag_str = f"[{v.get('bmp', '-')}]"
                 srt_flag_str = f"[{v.get('srt', '-')}]"
-                over_str = f"[{v.get('oversized', '-')}]"
+                sized_str = f"[{v.get('sized', '-')}]"
                 fn_str = v.get('display_filename', v['filename'])
-                f.write(f"[{v['ext']}] {fmt_str} [{v['resolution']}] {fps_str} {sz_str} {time_str} {sub_flag_str} {bmp_flag_str} {srt_flag_str} {over_str} {sub}{fn_str}\n")
+                f.write(f"[{v['ext']}] {fmt_str} [{v['resolution']}] {fps_str} {sz_str} {time_str} {sub_flag_str} {bmp_flag_str} {srt_flag_str} {sized_str} {sub}{fn_str}\n")
 
 
 def main():
@@ -1112,9 +1143,10 @@ def main():
         help="Which section(s) to display: 'all' (default: matched, missing, and unmatched), 'matched', 'missing', 'unmatched', or 'both' (missing and unmatched)."
     )
     parser.add_argument(
-        "--oversized-only",
+        "--not-sized-only", "--oversized-only",
+        dest="not_sized_only",
         action="store_true",
-        help="Filter output to display/export only oversized video files."
+        help="Filter output to display/export only improperly sized (Sized=NO) video files."
     )
     parser.add_argument(
         "-q", "--quiet",
@@ -1232,11 +1264,14 @@ def main():
                 match_item['sub'] = sub_val
                 movie_item['jellyfin'] = jf_val
                 match_item['jellyfin'] = jf_val
-                movie_item['oversized'] = check_oversized(r, match_item.get('size_gb'), movie_item.get('time'))
+                sized_val = check_sized(r, match_item.get('size_gb'), movie_item.get('time'))
+                movie_item['sized'] = sized_val
+                match_item['sized'] = sized_val
+                movie_item['oversized'] = 'YES' if sized_val == 'NO' else ('NO' if sized_val == 'YES' else '-')
+                match_item['oversized'] = movie_item['oversized']
                 match_item['format'] = fmt_val
                 match_item['resolution'] = r
                 match_item['fps'] = fps
-                match_item['oversized'] = movie_item['oversized']
 
         # Probe unmatched video files
         if args.show_only in ('all', 'unmatched', 'both') or args.output_unmatched or True:
@@ -1251,7 +1286,8 @@ def main():
                     v['time'] = t_val
                 v['sub'] = sub_val
                 v['jellyfin'] = jf_val
-                v['oversized'] = check_oversized(r, v.get('size_gb'), v.get('time'))
+                v['sized'] = check_sized(r, v.get('size_gb'), v.get('time'))
+                v['oversized'] = 'YES' if v['sized'] == 'NO' else ('NO' if v['sized'] == 'YES' else '-')
 
         # Ensure unmatched videos have duration probed if not already present
         missing_unmatched_dur = [v for v in unmatched_videos if v.get('time', '-') == '-']
@@ -1276,28 +1312,30 @@ def main():
                 list(ex.map(_probe_dur_single, missing_unmatched_dur))
             save_resolution_cache(cache)
             for v in unmatched_videos:
-                v['oversized'] = check_oversized(v.get('resolution'), v.get('size_gb'), v.get('time'))
+                v['sized'] = check_sized(v.get('resolution'), v.get('size_gb'), v.get('time'))
+                v['oversized'] = 'YES' if v['sized'] == 'NO' else ('NO' if v['sized'] == 'YES' else '-')
 
-    # Calculate oversized totals
-    matched_oversized_count = sum(1 for _, match_item in matched if match_item.get('oversized') == 'YES')
-    matched_oversized_bytes = sum(
+    # Calculate sized totals (Sized=NO means improperly sized / oversized)
+    matched_not_sized_count = sum(1 for _, match_item in matched if match_item.get('sized') == 'NO')
+    matched_not_sized_bytes = sum(
         os.path.getsize(m[1]['path']) for m in matched
-        if m[1].get('oversized') == 'YES' and os.path.isfile(m[1]['path'])
+        if m[1].get('sized') == 'NO' and os.path.isfile(m[1]['path'])
     )
-    matched_oversized_gb = matched_oversized_bytes / (1024 ** 3)
+    matched_not_sized_gb = matched_not_sized_bytes / (1024 ** 3)
 
-    unmatched_oversized_count = sum(1 for v in unmatched_videos if v.get('oversized') == 'YES')
-    unmatched_oversized_bytes = sum(v.get('size_bytes', 0) for v in unmatched_videos if v.get('oversized') == 'YES')
-    unmatched_oversized_gb = unmatched_oversized_bytes / (1024 ** 3)
+    unmatched_not_sized_count = sum(1 for v in unmatched_videos if v.get('sized') == 'NO')
+    unmatched_not_sized_bytes = sum(v.get('size_bytes', 0) for v in unmatched_videos if v.get('sized') == 'NO')
+    unmatched_not_sized_gb = unmatched_not_sized_bytes / (1024 ** 3)
 
-    total_oversized_count = matched_oversized_count + unmatched_oversized_count
-    total_oversized_gb = (matched_oversized_bytes + unmatched_oversized_bytes) / (1024 ** 3)
+    total_not_sized_count = matched_not_sized_count + unmatched_not_sized_count
+    total_not_sized_gb = (matched_not_sized_bytes + unmatched_not_sized_bytes) / (1024 ** 3)
 
-    # Filter for oversized-only if requested
-    if args.oversized_only:
-        matched = [(mov, mat) for mov, mat in matched if mat.get('oversized') == 'YES']
-        missing_db = []  # Missing movies have no file on disk, so they cannot be oversized
-        unmatched_videos = [v for v in unmatched_videos if v.get('oversized') == 'YES']
+    # Filter for not-sized-only / oversized-only if requested
+    is_filtered_not_sized = getattr(args, 'not_sized_only', False) or getattr(args, 'oversized_only', False)
+    if is_filtered_not_sized:
+        matched = [(mov, mat) for mov, mat in matched if mat.get('sized') == 'NO']
+        missing_db = []  # Missing movies have no file on disk, so they cannot be improperly sized
+        unmatched_videos = [v for v in unmatched_videos if v.get('sized') == 'NO']
 
     # Determine output format for primary output file
     fmt = args.format
@@ -1358,16 +1396,16 @@ def main():
                     time_str = movie_item.get('time', '-')
                     sub_str = match_item.get('sub', '-')
                     jf_str = match_item.get('jellyfin', '-')
-                    over_str = match_item.get('oversized', '-')
+                    sized_str = match_item.get('sized', '-')
                     disp_title = movie_item.get('display_title_year', movie_item['title'])
-                    print(f"{match_item.get('ext', '-'):<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {over_str:<4} {disp_title}")
-            if args.show_only in ('all', 'missing', 'both') and not args.oversized_only:
+                    print(f"{match_item.get('ext', '-'):<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_title}")
+            if args.show_only in ('all', 'missing', 'both') and not is_filtered_not_sized:
                 if args.show_only in ('all', 'both'):
                     print("\n=== MISSING TITLES (IN DB, NO VIDEO FILE) ===")
                 for m in missing_db:
                     time_str = m.get('time', '-')
                     disp_title = m.get('display_title_year', m['title'])
-                    print(f"{m.get('ext', '-'):<5} {'-':<6} {m.get('resolution', '-'):<7} {'-':<9} {'-':<9} {time_str:<9} {'-':<8} {'-':<11} {'-':<4} {disp_title}")
+                    print(f"{m.get('ext', '-'):<5} {'-':<6} {m.get('resolution', '-'):<7} {'-':<9} {'-':<9} {time_str:<9} {'-':<8} {'-':<11} {'-':<6} {disp_title}")
             if args.show_only in ('all', 'unmatched', 'both'):
                 if args.show_only in ('all', 'both'):
                     print("\n=== UNMATCHED TITLES (VIDEO FILE ON DISK, NOT IN DB) ===")
@@ -1379,9 +1417,9 @@ def main():
                     time_str = v.get('time', '-')
                     sub_str = v.get('sub', '-')
                     jf_str = v.get('jellyfin', '-')
-                    over_str = v.get('oversized', '-')
+                    sized_str = v.get('sized', '-')
                     disp_fn = f"{sub}{v.get('display_filename', v['filename'])}"
-                    print(f"{v['ext']:<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {over_str:<4} {disp_fn}")
+                    print(f"{v['ext']:<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_fn}")
         else:
             banner_len = 134
             print("=" * banner_len)
@@ -1390,33 +1428,33 @@ def main():
             print(f"  Database Path:            {args.db}")
             print(f"  Movies Directory:         {args.movies_dir}")
             print(f"  Total Video Library Size: {total_library_gb:,.2f} GB")
-            print(f"  Oversized Video Files:    {total_oversized_count:,} files  ({total_oversized_gb:,.2f} GB)")
+            print(f"  Improperly Sized Files:   {total_not_sized_count:,} files  ({total_not_sized_gb:,.2f} GB)")
             print(f"  DB Titles Total:          {len(db_movies):,}")
             print(f"  Video Files Total:        {len(video_entries):,}  ({total_library_gb:,.2f} GB)")
-            print(f"  Matched DB Titles:        {len(matched):,}  ({matched_gb:,.2f} GB, {matched_oversized_count:,} oversized)")
+            print(f"  Matched DB Titles:        {len(matched):,}  ({matched_gb:,.2f} GB, {matched_not_sized_count:,} improperly sized)")
             print(f"  Missing in Video Library: {len(missing_db):,}  (in DB, no video file)")
-            print(f"  Unmatched Library Videos: {len(unmatched_videos):,}  (video on disk, not in DB, {unmatched_gb:,.2f} GB, {unmatched_oversized_count:,} oversized)")
+            print(f"  Unmatched Library Videos: {len(unmatched_videos):,}  (video on disk, not in DB, {unmatched_gb:,.2f} GB, {unmatched_not_sized_count:,} improperly sized)")
             print("-" * banner_len)
             print("  Notes:")
             print("    1. Format:    H264 is best for older hardware such as 2011 Sony Bravia.")
-            print("    2. Oversized: resample_library could be run to dramatically save space.")
+            print("    2. Sized:     resample_library could be run on Sized=NO to dramatically save space.")
             print("    3. Missing:   Missing titles could be restored by re-ripping hard DVD in storage.")
             print("    4. Resample:  Running resample_library is time-consuming.")
             print("    5. Subtitles: Running fetch_subtitles is not time-consuming.")
             print("-" * banner_len)
             print("  Color Key:")
-            print(f"    {c_green}● Green:{c_reset}   Clean (normal size & Jellyfin DIRECT text subtitles)")
+            print(f"    {c_green}● Green:{c_reset}   Clean (Sized=YES & Jellyfin DIRECT text subtitles)")
             print(f"    {c_yellow}● Yellow:{c_reset}  Heavy Jellyfin load (TRANSCODE for bitmap subs; fix: run resample_library or fetch_subtitles)")
-            print(f"    {c_orange}● Orange:{c_reset}  Oversized (video file exceeds size threshold; fix: run resample_library)")
+            print(f"    {c_orange}● Orange:{c_reset}  Improperly Sized (Sized=NO; fix: run resample_library)")
             print(f"    {c_red}● Red:{c_reset}     No subtitles (no English subs in Jellyfin; fix: run resample_library or fetch_subtitles)")
             print("=" * banner_len)
 
             # Section 1: Matched Titles (Output before Missing Titles)
             if args.show_only in ('all', 'matched'):
-                over_label = f", {matched_oversized_count:,} oversized" if not args.oversized_only else " [ALL OVERSIZED]\""
-                print(f"\n[1] Matched Titles in Video Library ({len(matched):,} items, {matched_gb:,.2f} GB{over_label}):\n")
-                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Oversized':<11} {'Title'}")
-                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*9:<11} {'-'*46}")
+                sized_label = f", {matched_not_sized_count:,} improperly sized" if not is_filtered_not_sized else " [ALL IMPROPERLY SIZED]"
+                print(f"\n[1] Matched Titles in Video Library ({len(matched):,} items, {matched_gb:,.2f} GB{sized_label}):\n")
+                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Title'}")
+                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
                 for movie_item, match_item in matched:
                     dvd_display = str(movie_item['dvd']) if movie_item['dvd'] is not None else "-"
                     ext_display = match_item.get('ext', '-')
@@ -1427,20 +1465,20 @@ def main():
                     time_display = movie_item.get('time', '-')
                     sub_display = match_item.get('sub', '-')
                     jf_display = match_item.get('jellyfin', '-')
-                    over_display = match_item.get('oversized', '-')
+                    sized_display = match_item.get('sized', '-')
                     title_display = movie_item.get('display_title_year', movie_item['title'])
-                    r_c, s_c, j_c, o_c, rst = get_entry_colors(sub_display, jf_display, over_display, True, use_color)
+                    r_c, s_c, j_c, sz_c, rst = get_entry_colors(sub_display, jf_display, sized_display, True, use_color)
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
-                    over_p = f"{o_c}{over_display:<11}{r_c}" if use_color else f"{over_display:<11}"
-                    print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {over_p} {title_display}{rst}")
+                    sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
+                    print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
 
             # Section 2: Missing DB Titles
-            if args.show_only in ('all', 'missing', 'both') and not args.oversized_only:
+            if args.show_only in ('all', 'missing', 'both') and not is_filtered_not_sized:
                 sec_num = 2 if args.show_only == 'all' else 1
                 print(f"\n[{sec_num}] Missing Titles in Video Library ({len(missing_db):,} items in DB without video):\n")
-                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Oversized':<11} {'Title'}")
-                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*9:<11} {'-'*46}")
+                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Title'}")
+                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
                 for m in missing_db:
                     dvd_display = str(m['dvd']) if m['dvd'] is not None else "-"
                     ext_display = m.get('ext', '-')
@@ -1451,21 +1489,21 @@ def main():
                     time_display = m.get('time', '-')
                     sub_display = m.get('sub', '-')
                     jf_display = m.get('jellyfin', '-')
-                    over_display = m.get('oversized', '-')
+                    sized_display = m.get('sized', '-')
                     title_display = m.get('display_title_year', m['title'])
-                    r_c, s_c, j_c, o_c, rst = get_entry_colors('-', '-', '-', False, use_color)
+                    r_c, s_c, j_c, sz_c, rst = get_entry_colors('-', '-', '-', False, use_color)
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
-                    over_p = f"{o_c}{over_display:<11}{r_c}" if use_color else f"{over_display:<11}"
-                    print(f"{r_c}  {m['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {over_p} {title_display}{rst}")
+                    sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
+                    print(f"{r_c}  {m['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
 
             # Section 3: Unmatched Library Video Files
             if args.show_only in ('all', 'unmatched', 'both'):
-                sec_num = 3 if (args.show_only == 'all' and not args.oversized_only) else (2 if args.show_only in ('all', 'both') else 1)
-                over_label = f", {unmatched_oversized_count:,} oversized" if not args.oversized_only else " [ALL OVERSIZED]\""
-                print(f"\n[{sec_num}] Unmatched Titles in Video Library ({len(unmatched_videos):,} video files not in DB, {unmatched_gb:,.2f} GB{over_label}):\n")
-                print(f"  {'Subfolder':<16} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Oversized':<11} {'Filename'}")
-                print(f"  {'-'*14:<16} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*9:<11} {'-'*46}")
+                sec_num = 3 if (args.show_only == 'all' and not is_filtered_not_sized) else (2 if args.show_only in ('all', 'both') else 1)
+                sized_label = f", {unmatched_not_sized_count:,} improperly sized" if not is_filtered_not_sized else " [ALL IMPROPERLY SIZED]"
+                print(f"\n[{sec_num}] Unmatched Titles in Video Library ({len(unmatched_videos):,} video files not in DB, {unmatched_gb:,.2f} GB{sized_label}):\n")
+                print(f"  {'Subfolder':<16} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Filename'}")
+                print(f"  {'-'*14:<16} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
                 for v in unmatched_videos:
                     subfolder_display = v['rel_dir'] if v['rel_dir'] else "-"
                     fmt_display = v.get('format', '-')
@@ -1474,13 +1512,13 @@ def main():
                     time_display = v.get('time', '-')
                     sub_display = v.get('sub', '-')
                     jf_display = v.get('jellyfin', '-')
-                    over_display = v.get('oversized', '-')
+                    sized_display = v.get('sized', '-')
                     fn_display = v.get('display_filename', v['filename'])
-                    r_c, s_c, j_c, o_c, rst = get_entry_colors(sub_display, jf_display, over_display, True, use_color)
+                    r_c, s_c, j_c, sz_c, rst = get_entry_colors(sub_display, jf_display, sized_display, True, use_color)
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
-                    over_p = f"{o_c}{over_display:<11}{r_c}" if use_color else f"{over_display:<11}"
-                    print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {over_p} {fn_display}{rst}")
+                    sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
+                    print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {fn_display}{rst}")
 
             if args.output_matched:
                 print(f"\n[+] Matched list saved to: {os.path.abspath(args.output_matched)}")

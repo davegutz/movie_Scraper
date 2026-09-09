@@ -264,10 +264,11 @@ def find_candidate_movies(movies_dir, mode="all_bmp"):
 
         bmp_val = info.get("bmp", "NO")
         sub_val = info.get("sub", "NO")
+        jf_val = info.get("jellyfin", "-")
 
-        if mode == "all_bmp" and bmp_val == "YES":
+        if mode == "all_bmp" and (bmp_val == "YES" or sub_val == "Bitmap" or jf_val == "TRANSCODE"):
             candidates.append(file_path)
-        elif mode == "all_missing" and sub_val == "NO":
+        elif mode == "all_missing" and (sub_val in ("NO", "None", "-") and bmp_val != "YES"):
             candidates.append(file_path)
 
     candidates.sort(key=lambda p: os.path.basename(p))

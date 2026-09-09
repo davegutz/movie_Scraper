@@ -24,6 +24,11 @@ Key Features:
     or are missing English subtitles using fetch_subtitles.py, ensuring Jellyfin/Roku/web
     clients have text subtitles and won't lose subtitles upon H.264 re-encoding.
     Pass --no-download-srt or --skip-srt to disable.
+  - Automatic Subtitle Verification: By default, verifies that subtitles actually
+    render onto video frames after re-encoding using verify_jellyfin_subtitles.py.
+    Extracts dialogue cues, renders frames with burned-in subtitles, and (if GEMINI_API_KEY
+    is set) runs AI multimodal visual QA to ensure captions are visible and legible.
+    Pass --no-verify-subtitles or --skip-sub-verify to disable.
   - Cache Synchronization: Automatically updates the ffprobe cache in
     ~/.cache/movie_scraper/video_res_cache.json so check_database_health.py stays current.
 
@@ -79,6 +84,16 @@ except ImportError:
         import fetch_subtitles
     except ImportError:
         fetch_subtitles = None
+
+# Import verify_jellyfin_subtitles module for automatic post-encode subtitle verification
+try:
+    import verify_jellyfin_subtitles
+except ImportError:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import verify_jellyfin_subtitles
+    except ImportError:
+        verify_jellyfin_subtitles = None
 
 
 def load_cache():
@@ -153,7 +168,7 @@ def check_subtitles_info(file_path):
         cmd = [
             "ffprobe", "-v", "error",
             "-select_streams", "s",
-            "-show_entries", "stream=codec_name,stream_tags=language,title",
+            "-show_entries", "stream=codec_name,nb_frames:stream_tags=language,title",
             "-of", "csv=p=0",
             "-analyzeduration", "500000",
             "-probesize", "500000",
@@ -162,31 +177,41 @@ def check_subtitles_info(file_path):
         out = subprocess.check_output(cmd, timeout=5, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore").strip()
         if out:
             lines = [line.strip() for line in out.splitlines() if line.strip()]
+            valid_streams = []
             for line in lines:
                 parts = [p.strip().lower() for p in line.split(',') if p.strip()]
                 if not parts:
                     continue
                 codec = parts[0]
-                is_text_codec = codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt')
-                is_bmp_codec = codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub')
+                nb_frames_str = parts[1] if len(parts) >= 2 else None
+                # Skip dummy / empty subtitle tracks (e.g. mov_text placeholder with <= 5 frames)
+                if nb_frames_str and nb_frames_str.isdigit() and int(nb_frames_str) <= 5:
+                    continue
+                valid_streams.append((codec, parts[2:] if len(parts) >= 2 else []))
 
+            for codec, tags in valid_streams:
                 is_eng_stream = False
-                for p in parts[1:]:
+                for p in tags:
                     if p in ('eng', 'en', 'english', 'en-us', 'en-gb', 'en-ca') or 'english' in p or 'eng' in p:
                         is_eng_stream = True
                         break
-                if len(parts) >= 2 and parts[1] in ('und', ''):
+                if not tags or (tags and tags[0] in ('und', '')):
                     is_eng_stream = True
 
                 if is_eng_stream:
                     has_eng = True
-                    if is_text_codec:
+                    if codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt'):
                         has_text = True
-                    elif is_bmp_codec:
+                    elif codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub'):
                         has_bmp = True
-            if not has_eng and len(lines) == 1:
+
+            if not has_eng and len(valid_streams) == 1:
                 has_eng = True
-                has_text = True
+                single_codec = valid_streams[0][0]
+                if single_codec in ('mov_text', 'subrip', 'text', 'ass', 'ssa', 'webvtt'):
+                    has_text = True
+                elif single_codec in ('dvd_subtitle', 'hdmv_pgs_subtitle', 'dvdsub'):
+                    has_bmp = True
     except Exception:
         pass
 
@@ -560,7 +585,7 @@ def get_subtitle_args(file_path, ext):
         cmd = [
             "ffprobe", "-v", "error",
             "-select_streams", "s",
-            "-show_entries", "stream=index,codec_name",
+            "-show_entries", "stream=index,codec_name,nb_frames",
             "-of", "csv=p=0",
             file_path
         ]
@@ -570,6 +595,10 @@ def get_subtitle_args(file_path, ext):
             parts = line.strip().split(',')
             if len(parts) >= 2:
                 idx, codec = parts[0], parts[1].lower()
+                nb_frames_str = parts[2] if len(parts) >= 3 else None
+                # Skip dummy / empty placeholder subtitle tracks
+                if nb_frames_str and nb_frames_str.isdigit() and int(nb_frames_str) <= 5:
+                    continue
                 if codec in text_codecs:
                     mapped_args.extend(["-map", f"0:{idx}"])
         if mapped_args:
@@ -588,10 +617,75 @@ def format_time(seconds):
     return f"{m:02d}m {s:02d}s"
 
 
+def get_fps_args(file_path):
+    """
+    Detect frame rate anomalies (such as container timescale inflating r_frame_rate to 120 fps).
+    Returns ffmpeg arguments to normalize frame rate and prevent duplicate frame explosion.
+    """
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=r_frame_rate,avg_frame_rate",
+            "-of", "csv=p=0",
+            file_path
+        ]
+        out = subprocess.check_output(cmd, timeout=10, stderr=subprocess.DEVNULL).decode("utf-8").strip()
+        if not out:
+            return ["-fps_mode", "passthrough"]
+        parts = out.split(',')
+        r_str = parts[0].strip() if len(parts) >= 1 else ""
+        avg_str = parts[1].strip() if len(parts) >= 2 else ""
+
+        def parse_rate(s):
+            if not s or s == '0/0' or s == '-':
+                return None
+            if '/' in s:
+                num, den = s.split('/')
+                return float(num) / float(den) if float(den) != 0 else None
+            return float(s)
+
+        r_fps = parse_rate(r_str)
+        avg_fps = parse_rate(avg_str)
+
+        if r_fps and r_fps > 60:
+            cand = avg_fps if (avg_fps and 0 < avg_fps <= 60) else 23.976
+            if abs(cand - 23.976) < 0.1 or abs(cand - 24.0) < 0.1:
+                target_fps = "24000/1001"
+            elif abs(cand - 29.97) < 0.1 or abs(cand - 30.0) < 0.1:
+                target_fps = "30000/1001"
+            elif abs(cand - 25.0) < 0.1:
+                target_fps = "25"
+            elif abs(cand - 50.0) < 0.1:
+                target_fps = "50"
+            elif abs(cand - 59.94) < 0.1 or abs(cand - 60.0) < 0.1:
+                target_fps = "60000/1001"
+            else:
+                target_fps = f"{cand:.3f}"
+            return ["-r", target_fps]
+        else:
+            return ["-fps_mode", "passthrough"]
+    except Exception:
+        return ["-fps_mode", "passthrough"]
+
+
 def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium'):
     """Construct robust ffmpeg command line."""
     _, ext = os.path.splitext(input_path)
     sub_args = get_subtitle_args(input_path, ext)
+
+    # Check for external sidecar subtitle (.en.srt or .srt) if no text subtitles embedded
+    sidecar_srt = None
+    if not sub_args:
+        base_no_ext, _ = os.path.splitext(input_path)
+        if base_no_ext.endswith(('.m4v', '.mp4', '.mkv', '.avi')):
+            base_no_ext, _ = os.path.splitext(base_no_ext)
+        for cand in [f"{base_no_ext}.en.srt", f"{base_no_ext}.srt", f"{base_no_ext}.en.default.srt"]:
+            if os.path.isfile(cand) and os.path.getsize(cand) > 0:
+                sidecar_srt = cand
+                break
+
+    fps_args = get_fps_args(input_path)
 
     cmd = [
         "ffmpeg",
@@ -600,15 +694,30 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium'):
         "-stats",
         "-y",
         "-i", input_path,
+    ]
+    if sidecar_srt:
+        cmd.extend(["-i", sidecar_srt])
+    cmd.extend([
         "-map", "0:v:0",
         "-c:v", "libx264",
         "-preset", preset,
         "-crf", str(crf),
-        "-pix_fmt", "yuv420p",
+        "-pix_fmt", "yuv420p"
+    ])
+    cmd.extend(fps_args)
+    cmd.extend([
         "-map", "0:a?",
         "-c:a", "copy"
-    ]
-    cmd.extend(sub_args)
+    ])
+    if sub_args:
+        cmd.extend(sub_args)
+    elif sidecar_srt:
+        sub_codec = "mov_text" if ext.lower() in ('.mp4', '.m4v', '.mov') else "srt"
+        cmd.extend([
+            "-map", "1:0",
+            "-c:s", sub_codec,
+            "-metadata:s:s:0", "language=eng"
+        ])
     if ext.lower() in ('.mp4', '.m4v', '.mov'):
         cmd.extend(["-movflags", "+faststart"])
     cmd.append(output_path)
@@ -844,6 +953,28 @@ def main():
         help="Overwrite existing .srt subtitle files when downloading (default: False)."
     )
     parser.add_argument(
+        "--verify-subtitles",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Visually verify that subtitles render onto video frames after re-encoding (default: True)."
+    )
+    parser.add_argument(
+        "--skip-sub-verify", "--no-sub-verify",
+        dest="verify_subtitles",
+        action="store_false",
+        help="Alias for --no-verify-subtitles: skip visual subtitle verification."
+    )
+    parser.add_argument(
+        "--sub-samples",
+        type=int,
+        default=1,
+        help="Number of dialogue cue frames to verify per movie (default: 1 for fast verification)."
+    )
+    parser.add_argument(
+        "--gemini-api-key",
+        help="Google Gemini API key for automated AI visual inspection (defaults to GEMINI_API_KEY environment variable)."
+    )
+    parser.add_argument(
         "--db",
         default=DEFAULT_DB_PATH,
         help=f"Path to IMDB_Films.db database for subtitle lookup (default: {DEFAULT_DB_PATH})"
@@ -864,7 +995,7 @@ def main():
             print(f"Error: File not found: {args.file}", file=sys.stderr)
             sys.exit(1)
         sz = os.path.getsize(args.file)
-        fmt, res, fps, time_str, sub_str, bmp_str, srt_str = probe_file_meta(args.file, cache)
+        fmt, res, fps, time_str, sub_str, jf_str, bmp_str, srt_str = probe_file_meta(args.file, cache)
         if not time_str or time_str == '-':
             time_str = get_file_duration_hr_min(args.file, cache)
         sz_gb = round(sz / (1024 ** 3), 2)
@@ -881,16 +1012,17 @@ def main():
             'fps': fps,
             'time': time_str,
             'sub': sub_str,
+            'jellyfin': jf_str,
             'bmp': bmp_str,
             'srt': srt_str,
             'oversized': oversized
         }
 
         if not args.all and not oversized:
-            print(f"File '{os.path.basename(args.file)}' is already within optimal bounds ({sz_gb} GB, {res}, Oversized: NO).")
+            print(f"File '{os.path.basename(args.file)}' is already within optimal bounds ({sz_gb} GB, {res}, Sized: YES).")
             print("Skipping re-encoding. (Pass --all to re-encode anyway.)")
             # If subtitle download is enabled, check and download subtitles even if re-encoding was skipped
-            if args.download_srt and ((bmp_str == 'YES' or sub_str == 'NO') and srt_str != 'YES'):
+            if args.download_srt and ((bmp_str == 'YES' or sub_str in ('NO', 'None', 'Bitmap') or jf_str == 'TRANSCODE') and srt_str != 'YES'):
                 sub_status, sub_msg = download_srt_if_needed(
                     file_info,
                     db_path=args.db,
@@ -901,6 +1033,26 @@ def main():
                     print(f"    Subtitle: {sub_msg}")
                 elif sub_status == 'failed':
                     print(f"    Subtitle: [-] {sub_msg}")
+
+            # Also perform subtitle verification if requested
+            if args.verify_subtitles and verify_jellyfin_subtitles is not None:
+                sub_res = verify_jellyfin_subtitles.verify_movie_subtitles(
+                    args.file,
+                    samples=args.sub_samples,
+                    gemini_api_key=args.gemini_api_key
+                )
+                if sub_res.get('verified'):
+                    if sub_res.get('gemini_used'):
+                        det_sample = sub_res.get('detected_text') or sub_res.get('expected_text')
+                        print(f'    Subtitles: [✓] VERIFIED with Gemini Vision ("{det_sample}")')
+                    else:
+                        cue_info = f" at {sub_res['details'][0]['timestamp']}" if sub_res.get('details') else ""
+                        print(f"    Subtitles: [✓] Verified dialogue cue{cue_info} & frame captured")
+                elif sub_res.get('has_subtitles'):
+                    print(f"    Subtitles: [!] Warning: {sub_res.get('notes', 'Failed verification')}")
+                else:
+                    print("    Subtitles: [-] No subtitle track found to verify")
+
             sys.exit(0)
 
         candidates = [file_info]
@@ -946,6 +1098,7 @@ def main():
     print(f"  Streaming Flag:           -movflags +faststart")
     print(f"  Backup Original:          {'Enabled (.bak, default)' if args.backup else 'Disabled (--no-backup)'}")
     print(f"  Download SRT Subtitles:   {'Enabled (default)' if args.download_srt else 'Disabled'}")
+    print(f"  Verify Subtitles:         {'Enabled (default)' if args.verify_subtitles else 'Disabled'}")
     print(f"  Estimated Space Savings:  ~75% to 85% (~{total_candidate_gb * 0.78:,.2f} GB)")
     print("=" * 90)
 
@@ -973,6 +1126,20 @@ def main():
             print(f"\n  [DRY RUN] Testing subtitle lookup for '{candidates[0]['filename']}':")
             test_mapping = fetch_subtitles.get_imdb_mapping(args.db)
             fetch_subtitles.process_single_movie(candidates[0]['path'], test_mapping, dry_run=True, force=args.force_srt)
+
+        if len(candidates) == 1 and args.verify_subtitles and verify_jellyfin_subtitles is not None:
+            print(f"\n  [DRY RUN] Subtitle verification test for '{candidates[0]['filename']}':")
+            test_ver = verify_jellyfin_subtitles.verify_movie_subtitles(
+                candidates[0]['path'],
+                samples=1,
+                gemini_api_key=args.gemini_api_key
+            )
+            if test_ver.get('has_subtitles'):
+                cue_txt = f" (cue: \"{test_ver['expected_text']}\")" if test_ver.get('expected_text') else ""
+                status_txt = "PASSED" if test_ver.get('verified') else "READY"
+                print(f"    Track detected: {test_ver['subtitle_type']}{cue_txt} -> verification {status_txt}")
+            else:
+                print("    No subtitle track found for candidate.")
 
         print(f"\nExample FFmpeg command for first file:")
         ex_cmd = build_ffmpeg_cmd(candidates[0]['path'], "/path/to/temp_output.mp4", args.crf, args.preset)
@@ -1034,6 +1201,28 @@ def main():
                 print(f"    Result:   {new_gb:.2f} GB  (Saved: {saved_gb:.2f} GB, {pct:.1f}%) in {format_time(result['elapsed'])}")
                 if result.get('backup_path'):
                     print(f"    Backup:   {result['backup_path']}")
+
+                # Visual subtitle verification by default
+                if args.verify_subtitles and verify_jellyfin_subtitles is not None:
+                    try:
+                        sub_res = verify_jellyfin_subtitles.verify_movie_subtitles(
+                            fp,
+                            samples=args.sub_samples,
+                            gemini_api_key=args.gemini_api_key
+                        )
+                        if sub_res.get('verified'):
+                            if sub_res.get('gemini_used'):
+                                det_sample = sub_res.get('detected_text') or sub_res.get('expected_text')
+                                print(f"    Subtitles: [✓] VERIFIED with Gemini Vision (\"{det_sample}\")")
+                            else:
+                                cue_info = f" at {sub_res['details'][0]['timestamp']}" if sub_res.get('details') else ""
+                                print(f"    Subtitles: [✓] Verified dialogue cue{cue_info} & frame captured")
+                        elif sub_res.get('has_subtitles'):
+                            print(f"    Subtitles: [!] Warning: {sub_res.get('notes', 'Failed verification')}")
+                        else:
+                            print("    Subtitles: [-] No subtitle track to verify")
+                    except Exception as ex:
+                        print(f"    Subtitles: [!] Verification error: {ex}")
             else:
                 fail_count += 1
                 print(f"    FAILED:   {result.get('error', 'Unknown error')}", file=sys.stderr)
