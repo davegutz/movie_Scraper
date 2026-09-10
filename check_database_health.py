@@ -40,11 +40,16 @@ Examples:
     python3 check_database_health.py --output-matched matched.csv --format csv
     python3 check_database_health.py -o missing.csv --format csv
     python3 check_database_health.py --output-unmatched unmatched.csv --format csv
+    python3 check_database_health.py --sort-by size
+    python3 check_database_health.py --size --oversized-only
+    python3 check_database_health.py --sort-by mtime
+    python3 check_database_health.py --recent --show-only matched
     python3 check_database_health.py --quiet --show-only matched
 """
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from configparser import ConfigParser
 import csv
 import json
@@ -718,6 +723,31 @@ def format_title_with_year(display_title, year):
     return display_title
 
 
+def scan_bak_files(movies_dir):
+    """Scan movies_dir recursively for .bak files."""
+    bak_files = []
+    if not os.path.isdir(movies_dir):
+        return bak_files
+    for root, _, files in os.walk(movies_dir):
+        for f in files:
+            if f.endswith('.bak'):
+                full_p = os.path.join(root, f)
+                try:
+                    st = os.stat(full_p)
+                    ts = max(st.st_mtime, st.st_ctime)
+                    bak_files.append({
+                        'path': full_p,
+                        'filename': f,
+                        'timestamp': ts,
+                        'size_bytes': st.st_size,
+                        'size_gb': round(st.st_size / (1024 ** 3), 2)
+                    })
+                except Exception:
+                    pass
+    bak_files.sort(key=lambda x: x['timestamp'])
+    return bak_files
+
+
 def scan_video_files(movies_dir, extensions):
     """
     Recursively scan movies_dir for video files and extract title, year,
@@ -737,11 +767,14 @@ def scan_video_files(movies_dir, extensions):
             if ext_clean in extensions:
                 full_path = os.path.join(root, f)
                 try:
-                    sz_bytes = os.path.getsize(full_path)
+                    st = os.stat(full_path)
+                    sz_bytes = st.st_size
                     size_gb = round(sz_bytes / (1024 ** 3), 2)
+                    mtime = st.st_mtime
                 except Exception:
                     sz_bytes = 0
                     size_gb = '-'
+                    mtime = 0.0
 
                 m = pattern_year.match(base)
                 if m:
@@ -778,6 +811,8 @@ def scan_video_files(movies_dir, extensions):
                     'oversized': '-',
                     'size_bytes': sz_bytes,
                     'size_gb': size_gb,
+                    'mtime': mtime,
+                    'modified': datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M') if mtime > 0 else '-',
                     'norm_title': norm_t,
                     'full_norm_title': normalize_title(full_title),
                     'compact_title': compact_title(raw_title),
@@ -911,6 +946,8 @@ def compare_db_and_videos(db_movies, video_entries):
             match['time'] = movie_copy.get('time', '-')
             movie_copy['sub'] = match.get('sub', '-')
             movie_copy['jellyfin'] = match.get('jellyfin', '-')
+            movie_copy['mtime'] = match.get('mtime', 0.0)
+            movie_copy['modified'] = match.get('modified', '-')
             matched.append((movie_copy, match))
             matched_video_paths.add(match['path'])
         else:
@@ -936,7 +973,7 @@ def write_matched_file(output_path, matched_records, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
+            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Modified', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
             for movie_item, match_item in matched_records:
                 writer.writerow([
                     movie_item['imdb_id'],
@@ -950,6 +987,7 @@ def write_matched_file(output_path, matched_records, output_format):
                     match_item.get('sub', '-'),
                     match_item.get('jellyfin', '-'),
                     match_item.get('sized', '-'),
+                    match_item.get('modified', '-'),
                     movie_item.get('display_title_year', movie_item['title']),
                     movie_item['title'],
                     movie_item['watched'],
@@ -1143,6 +1181,26 @@ def main():
         help="Which section(s) to display: 'all' (default: matched, missing, and unmatched), 'matched', 'missing', 'unmatched', or 'both' (missing and unmatched)."
     )
     parser.add_argument(
+        "--sort-by",
+        choices=['title', 'alpha', 'name', 'size', 'size_desc', 'size_asc', 'filesize', 'mtime', 'recent', 'date', 'modified'],
+        default='title',
+        help="Sort order: 'title' (alphabetical ignoring leading articles, default), 'size' / 'size_desc' (largest file size first), 'size_asc' (smallest first), or 'mtime' / 'recent' / 'date' (most recent file modified date first)."
+    )
+    parser.add_argument(
+        "--sort-by-size", "--size",
+        dest="sort_by",
+        action="store_const",
+        const="size",
+        help="Alias for --sort-by size: sort movies by file size (largest first)."
+    )
+    parser.add_argument(
+        "--sort-by-mtime", "--recent",
+        dest="sort_by",
+        action="store_const",
+        const="mtime",
+        help="Alias for --sort-by mtime: sort by most recent file modified date first."
+    )
+    parser.add_argument(
         "--not-sized-only", "--oversized-only",
         dest="not_sized_only",
         action="store_true",
@@ -1169,6 +1227,17 @@ def main():
         "--extensions",
         default=None,
         help="Comma-separated list of video extensions to scan (e.g. .m4v,.mp4,.mkv)."
+    )
+    parser.add_argument(
+        "--max-backups",
+        type=int,
+        default=50,
+        help="Maximum allowed .bak backup files in movies directory (default: 50)."
+    )
+    parser.add_argument(
+        "--prune-backups",
+        action="store_true",
+        help="Delete older .bak files completely so that no more than --max-backups (default: 50) remain."
     )
     parser.add_argument(
         "--skip-resolution",
@@ -1217,22 +1286,62 @@ def main():
         db_movies = [m for m in db_movies if str(m['dvd']) == '0']
 
     video_entries = scan_video_files(args.movies_dir, exts)
+    bak_entries = scan_bak_files(args.movies_dir)
+
+    if args.prune_backups and len(bak_entries) > args.max_backups:
+        to_prune = len(bak_entries) - args.max_backups
+        print(f"\nPruning {to_prune} old .bak backup file(s) exceeding {args.max_backups} limit:")
+        for b in bak_entries[:to_prune]:
+            try:
+                os.remove(b['path'])
+                print(f"  [-] Deleted: {b['filename']} ({b['size_gb']:.2f} GB)")
+            except Exception as e:
+                print(f"  [!] Failed to delete {b['filename']}: {e}", file=sys.stderr)
+        bak_entries = scan_bak_files(args.movies_dir)
+
+    total_bak_bytes = sum(b['size_bytes'] for b in bak_entries)
+    total_bak_gb = total_bak_bytes / (1024 ** 3)
 
     matched, missing_db, unmatched_videos = compare_db_and_videos(db_movies, video_entries)
 
-    # Alphabetize matched titles ignoring leading articles (using display_title)
-    matched.sort(
-        key=lambda item: (item[0].get('display_title', '').lower(), item[0].get('year') or 0)
-    )
+    sort_by_mtime = args.sort_by in ('mtime', 'recent', 'date', 'modified')
+    sort_by_size = args.sort_by in ('size', 'size_desc', 'size_asc', 'filesize')
+
+    if sort_by_mtime:
+        # Sort matched and unmatched videos by most recent file modification date first
+        matched.sort(
+            key=lambda item: (item[1].get('mtime', 0.0), item[0].get('display_title', '').lower()),
+            reverse=True
+        )
+        unmatched_videos.sort(
+            key=lambda item: (item.get('mtime', 0.0), item.get('display_raw_title', item.get('filename', '')).lower()),
+            reverse=True
+        )
+    elif sort_by_size:
+        is_asc = (args.sort_by == 'size_asc')
+        # Sort matched and unmatched videos by file size (size_bytes)
+        matched.sort(
+            key=lambda item: (item[1].get('size_bytes', 0), item[0].get('display_title', '').lower()),
+            reverse=not is_asc
+        )
+        unmatched_videos.sort(
+            key=lambda item: (item.get('size_bytes', 0), item.get('display_raw_title', item.get('filename', '')).lower()),
+            reverse=not is_asc
+        )
+    else:
+        # Alphabetize matched titles ignoring leading articles (using display_title)
+        matched.sort(
+            key=lambda item: (item[0].get('display_title', '').lower(), item[0].get('year') or 0)
+        )
+        # Alphabetize unmatched videos ignoring leading articles (using display_raw_title or display_filename)
+        unmatched_videos.sort(
+            key=lambda item: (item.get('display_raw_title', item.get('filename', '')).lower(), item.get('year') or 0)
+        )
 
     # Alphabetize missing titles ignoring leading articles (using display_title)
+    # Missing titles have no video file on disk, so they remain alphabetical
     missing_db.sort(
         key=lambda item: (item.get('display_title', '').lower(), item.get('year') or 0)
-    )
-
-    # Alphabetize unmatched videos ignoring leading articles (using display_raw_title or display_filename)
-    unmatched_videos.sort(
-        key=lambda item: (item.get('display_raw_title', item.get('filename', '')).lower(), item.get('year') or 0)
     )
 
     # Calculate library size statistics in decimal GB (1 GB = 1024^3 bytes)
@@ -1398,7 +1507,11 @@ def main():
                     jf_str = match_item.get('jellyfin', '-')
                     sized_str = match_item.get('sized', '-')
                     disp_title = movie_item.get('display_title_year', movie_item['title'])
-                    print(f"{match_item.get('ext', '-'):<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_title}")
+                    if sort_by_mtime:
+                        mod_str = match_item.get('modified', '-')
+                        print(f"{match_item.get('ext', '-'):<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {mod_str:<17} {disp_title}")
+                    else:
+                        print(f"{match_item.get('ext', '-'):<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_title}")
             if args.show_only in ('all', 'missing', 'both') and not is_filtered_not_sized:
                 if args.show_only in ('all', 'both'):
                     print("\n=== MISSING TITLES (IN DB, NO VIDEO FILE) ===")
@@ -1419,7 +1532,11 @@ def main():
                     jf_str = v.get('jellyfin', '-')
                     sized_str = v.get('sized', '-')
                     disp_fn = f"{sub}{v.get('display_filename', v['filename'])}"
-                    print(f"{v['ext']:<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_fn}")
+                    if sort_by_mtime:
+                        mod_str = v.get('modified', '-')
+                        print(f"{v['ext']:<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {mod_str:<17} {disp_fn}")
+                    else:
+                        print(f"{v['ext']:<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_fn}")
         else:
             banner_len = 134
             print("=" * banner_len)
@@ -1427,10 +1544,19 @@ def main():
             print("=" * banner_len)
             print(f"  Database Path:            {args.db}")
             print(f"  Movies Directory:         {args.movies_dir}")
+            if sort_by_mtime:
+                sort_desc = "Most Recent File Modified Date"
+            elif sort_by_size:
+                sort_desc = "File Size (Smallest First)" if args.sort_by == 'size_asc' else "File Size (Largest First)"
+            else:
+                sort_desc = "Alphabetical (Title)"
+            print(f"  Sort Order:               {sort_desc}")
             print(f"  Total Video Library Size: {total_library_gb:,.2f} GB")
             print(f"  Improperly Sized Files:   {total_not_sized_count:,} files  ({total_not_sized_gb:,.2f} GB)")
             print(f"  DB Titles Total:          {len(db_movies):,}")
             print(f"  Video Files Total:        {len(video_entries):,}  ({total_library_gb:,.2f} GB)")
+            bak_limit_notice = f" [EXCEEDS LIMIT: {len(bak_entries)} > {args.max_backups}]" if len(bak_entries) > args.max_backups else f" [<= {args.max_backups} limit]"
+            print(f"  Backup Files (.bak):      {len(bak_entries):,} files  ({total_bak_gb:,.2f} GB){bak_limit_notice}")
             print(f"  Matched DB Titles:        {len(matched):,}  ({matched_gb:,.2f} GB, {matched_not_sized_count:,} improperly sized)")
             print(f"  Missing in Video Library: {len(missing_db):,}  (in DB, no video file)")
             print(f"  Unmatched Library Videos: {len(unmatched_videos):,}  (video on disk, not in DB, {unmatched_gb:,.2f} GB, {unmatched_not_sized_count:,} improperly sized)")
@@ -1441,6 +1567,7 @@ def main():
             print("    3. Missing:   Missing titles could be restored by re-ripping hard DVD in storage.")
             print("    4. Resample:  Running resample_library is time-consuming.")
             print("    5. Subtitles: Running fetch_subtitles is not time-consuming.")
+            print("    6. Backups:   Keep <= 50 .bak files; resample_library or check_database_health --prune-backups deletes older ones.")
             print("-" * banner_len)
             print("  Color Key:")
             print(f"    {c_green}● Green:{c_reset}   Clean (Sized=YES & Jellyfin DIRECT text subtitles)")
@@ -1452,9 +1579,14 @@ def main():
             # Section 1: Matched Titles (Output before Missing Titles)
             if args.show_only in ('all', 'matched'):
                 sized_label = f", {matched_not_sized_count:,} improperly sized" if not is_filtered_not_sized else " [ALL IMPROPERLY SIZED]"
-                print(f"\n[1] Matched Titles in Video Library ({len(matched):,} items, {matched_gb:,.2f} GB{sized_label}):\n")
-                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Title'}")
-                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
+                sort_suffix = f", sorted by {sort_desc}" if (sort_by_mtime or sort_by_size) else ""
+                print(f"\n[1] Matched Titles in Video Library ({len(matched):,} items, {matched_gb:,.2f} GB{sized_label}{sort_suffix}):\n")
+                if sort_by_mtime:
+                    print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Title'}")
+                    print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*15:<17} {'-'*46}")
+                else:
+                    print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Title'}")
+                    print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
                 for movie_item, match_item in matched:
                     dvd_display = str(movie_item['dvd']) if movie_item['dvd'] is not None else "-"
                     ext_display = match_item.get('ext', '-')
@@ -1471,7 +1603,11 @@ def main():
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
                     sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
-                    print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
+                    if sort_by_mtime:
+                        mod_display = match_item.get('modified', '-')
+                        print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {title_display}{rst}")
+                    else:
+                        print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
 
             # Section 2: Missing DB Titles
             if args.show_only in ('all', 'missing', 'both') and not is_filtered_not_sized:
@@ -1501,9 +1637,14 @@ def main():
             if args.show_only in ('all', 'unmatched', 'both'):
                 sec_num = 3 if (args.show_only == 'all' and not is_filtered_not_sized) else (2 if args.show_only in ('all', 'both') else 1)
                 sized_label = f", {unmatched_not_sized_count:,} improperly sized" if not is_filtered_not_sized else " [ALL IMPROPERLY SIZED]"
-                print(f"\n[{sec_num}] Unmatched Titles in Video Library ({len(unmatched_videos):,} video files not in DB, {unmatched_gb:,.2f} GB{sized_label}):\n")
-                print(f"  {'Subfolder':<16} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Filename'}")
-                print(f"  {'-'*14:<16} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
+                sort_suffix = f", sorted by {sort_desc}" if (sort_by_mtime or sort_by_size) else ""
+                print(f"\n[{sec_num}] Unmatched Titles in Video Library ({len(unmatched_videos):,} video files not in DB, {unmatched_gb:,.2f} GB{sized_label}{sort_suffix}):\n")
+                if sort_by_mtime:
+                    print(f"  {'Subfolder':<16} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Filename'}")
+                    print(f"  {'-'*14:<16} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*15:<17} {'-'*46}")
+                else:
+                    print(f"  {'Subfolder':<16} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Filename'}")
+                    print(f"  {'-'*14:<16} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
                 for v in unmatched_videos:
                     subfolder_display = v['rel_dir'] if v['rel_dir'] else "-"
                     fmt_display = v.get('format', '-')
@@ -1518,7 +1659,11 @@ def main():
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
                     sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
-                    print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {fn_display}{rst}")
+                    if sort_by_mtime:
+                        mod_display = v.get('modified', '-')
+                        print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {fn_display}{rst}")
+                    else:
+                        print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {fn_display}{rst}")
 
             if args.output_matched:
                 print(f"\n[+] Matched list saved to: {os.path.abspath(args.output_matched)}")

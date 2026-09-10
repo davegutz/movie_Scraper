@@ -53,7 +53,7 @@ except ImportError:
 DEFAULT_MOVIES_DIR = "/media/daveg/Lib/Movies"
 DEFAULT_DB_PATH = "/home/daveg/Documents/GitHub/movie_Scraper/IMDB_Films.db"
 DEFAULT_CACHE_DIR = os.path.expanduser("~/.cache/movie_scraper/sub_verify")
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.6-flash"
 VIDEO_EXTS = {'.m4v', '.mp4', '.mkv', '.avi', '.mov', '.ts', '.m2ts', '.webm'}
 
 # ANSI color codes
@@ -257,6 +257,7 @@ def extract_cues(video_path, sub_type, sub_target):
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-i", video_path,
             "-map", f"0:{sub_target}",
+            "-vn", "-an",
             "-f", "srt", "-"
         ]
         try:
@@ -452,6 +453,20 @@ You MUST reply with ONLY a single valid JSON object with the following keys:
 
     try:
         resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=25)
+        if resp.status_code in (404, 429, 503):
+            # Try fallback models if primary model is unavailable, decommissioned, or rate/quota limited
+            fallback_candidates = ['gemini-flash-latest', 'gemini-3.5-flash', 'gemini-3.1-flash-lite']
+            if model != 'gemini-3.6-flash':
+                fallback_candidates.insert(0, 'gemini-3.6-flash')
+            for fallback_model in fallback_candidates:
+                if fallback_model == model:
+                    continue
+                fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent?key={api_key}"
+                fallback_resp = requests.post(fallback_url, json=payload, headers={"Content-Type": "application/json"}, timeout=25)
+                if fallback_resp.status_code == 200:
+                    resp = fallback_resp
+                    break
+
         if resp.status_code != 200:
             return {
                 'success': False,
@@ -662,7 +677,15 @@ def verify_movie_subtitles(video_path, samples=1, gemini_api_key=None, model=DEF
             })
 
     verified = (cues_passed > 0 and cues_passed == cues_checked)
-    overall_status = "PASS" if verified else ("PARTIAL" if cues_passed > 0 else "CAPTURE_ERROR")
+    api_errors = [d.get('notes') for d in details if d.get('status') == 'API_ERROR' and d.get('notes')]
+    if verified:
+        overall_status = "PASS"
+    elif cues_passed > 0:
+        overall_status = "PARTIAL"
+    elif api_errors:
+        overall_status = "API_ERROR"
+    else:
+        overall_status = "CAPTURE_ERROR"
 
     primary_det = details[0].get('detected_text', '') if (details and 'detected_text' in details[0]) else ''
     primary_exp = details[0].get('expected_text', '') if (details and 'expected_text' in details[0]) else ''
@@ -679,7 +702,7 @@ def verify_movie_subtitles(video_path, samples=1, gemini_api_key=None, model=DEF
         'detected_text': primary_det,
         'expected_text': primary_exp,
         'gemini_used': gemini_used,
-        'notes': f"{cues_passed}/{cues_checked} cues verified" if cues_checked else "No cues could be checked"
+        'notes': (api_errors[0] if (api_errors and cues_passed == 0) else (f"{cues_passed}/{cues_checked} cues verified" if cues_checked else "No cues could be checked"))
     }
 
 

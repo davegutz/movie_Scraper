@@ -566,6 +566,36 @@ def download_srt_if_needed(file_info, imdb_mapping=None, db_path=DEFAULT_DB_PATH
 download_srt_for_bitmap = download_srt_if_needed
 
 
+def sanitize_srt_utf8(srt_path):
+    """Ensures an external .srt file is encoded in valid UTF-8 without BOM so FFmpeg can parse it."""
+    if not srt_path or not os.path.isfile(srt_path) or os.path.getsize(srt_path) == 0:
+        return False
+    try:
+        with open(srt_path, 'rb') as f:
+            raw = f.read()
+
+        encoding = None
+        if raw.startswith(bytes([255, 254, 0, 0])) or raw.startswith(bytes([0, 0, 254, 255])):
+            encoding = 'utf-32'
+        elif raw.startswith(bytes([255, 254])) or raw.startswith(bytes([254, 255])) or (len(raw) >= 4 and raw[1] == 0 and raw[3] == 0):
+            encoding = 'utf-16'
+        elif raw.startswith(bytes([239, 187, 191])):
+            encoding = 'utf-8-sig'
+        else:
+            try:
+                raw.decode('utf-8')
+                return True
+            except UnicodeDecodeError:
+                encoding = 'cp1252'
+
+        decoded = raw.decode(encoding, errors='replace')
+        with open(srt_path, 'w', encoding='utf-8') as f:
+            f.write(decoded)
+        return True
+    except Exception:
+        return False
+
+
 def get_subtitle_args(file_path, ext):
     """
     Determine subtitle handling for ffmpeg.
@@ -576,6 +606,7 @@ def get_subtitle_args(file_path, ext):
       fails with "Subtitle encoding currently only possible from text to text or bitmap to bitmap"
       because FFmpeg cannot perform OCR on image-based subtitles.
       Therefore, we only map text subtitle streams individually to 'mov_text', and skip bitmap subtitles.
+      Corrupted or non-decodable subtitle tracks are verified and skipped.
     """
     if ext.lower() not in ('.mp4', '.m4v', '.mov'):
         return ["-map", "0:s?", "-c:s", "copy"]
@@ -600,12 +631,66 @@ def get_subtitle_args(file_path, ext):
                 if nb_frames_str and nb_frames_str.isdigit() and int(nb_frames_str) <= 5:
                     continue
                 if codec in text_codecs:
-                    mapped_args.extend(["-map", f"0:{idx}"])
+                    # Verify subtitle stream does not error during decoding
+                    verify_cmd = [
+                        "ffmpeg", "-v", "error", "-i", file_path,
+                        "-map", f"0:{idx}", "-c:s", "mov_text", "-f", "null", "-"
+                    ]
+                    vret = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=5)
+                    if vret.returncode == 0 and 'Error decoding subtitles' not in vret.stderr and 'invalid UTF-8' not in vret.stderr:
+                        mapped_args.extend(["-map", f"0:{idx}"])
         if mapped_args:
             mapped_args.extend(["-c:s", "mov_text"])
     except Exception:
         pass
     return mapped_args
+
+
+def get_audio_args(file_path, ext):
+    """
+    Inspect audio streams, remove corrupt or redundant duplicate stereo tracks,
+    and return clean ffmpeg audio arguments.
+    """
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "a",
+            "-show_entries", "stream=index,codec_name,channels",
+            "-of", "csv=p=0",
+            file_path
+        ]
+        out = subprocess.check_output(cmd, timeout=10, stderr=subprocess.DEVNULL).decode("utf-8").strip()
+        if not out:
+            return ["-map", "0:a?", "-c:a", "copy"]
+
+        audio_streams = []
+        for line in out.splitlines():
+            parts = line.strip().split(',')
+            if len(parts) >= 2:
+                idx = parts[0].strip()
+                codec = parts[1].strip().lower()
+                channels = int(parts[2].strip()) if len(parts) >= 3 and parts[2].strip().isdigit() else 2
+                audio_streams.append({'index': idx, 'codec': codec, 'channels': channels})
+
+        if not audio_streams:
+            return ["-map", "0:a?", "-c:a", "copy"]
+
+        is_mp4 = ext.lower() in ('.mp4', '.m4v', '.mov')
+        if is_mp4 and len(audio_streams) > 1:
+            has_stereo_aac = any(s['codec'] == 'aac' and s['channels'] <= 2 for s in audio_streams)
+            if has_stereo_aac:
+                # Filter out redundant 2-channel AC3 tracks when 2-channel AAC already exists
+                filtered = [s for s in audio_streams if not (s['codec'] in ('ac3', 'eac3') and s['channels'] <= 2)]
+                if filtered:
+                    audio_streams = filtered
+
+        args = []
+        for s in audio_streams:
+            args.extend(["-map", f"0:{s['index']}"])
+        args.extend(["-c:a", "copy"])
+        return args
+    except Exception:
+        return ["-map", "0:a?", "-c:a", "copy"]
 
 
 def format_time(seconds):
@@ -669,9 +754,33 @@ def get_fps_args(file_path):
         return ["-fps_mode", "passthrough"]
 
 
-def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium'):
+def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fallback=False):
     """Construct robust ffmpeg command line."""
     _, ext = os.path.splitext(input_path)
+
+    if safe_fallback:
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel", "warning",
+            "-stats",
+            "-y",
+            "-fflags", "+genpts+discardcorrupt",
+            "-err_detect", "ignore_err",
+            "-i", input_path,
+            "-map", "0:v:0",
+            "-c:v", "libx264",
+            "-preset", preset,
+            "-crf", str(crf),
+            "-pix_fmt", "yuv420p",
+            "-map", "0:a:0?",
+            "-c:a", "copy"
+        ]
+        if ext.lower() in ('.mp4', '.m4v', '.mov'):
+            cmd.extend(["-movflags", "+faststart"])
+        cmd.append(output_path)
+        return cmd
+
     sub_args = get_subtitle_args(input_path, ext)
 
     # Check for external sidecar subtitle (.en.srt or .srt) if no text subtitles embedded
@@ -682,9 +791,11 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium'):
             base_no_ext, _ = os.path.splitext(base_no_ext)
         for cand in [f"{base_no_ext}.en.srt", f"{base_no_ext}.srt", f"{base_no_ext}.en.default.srt"]:
             if os.path.isfile(cand) and os.path.getsize(cand) > 0:
+                sanitize_srt_utf8(cand)
                 sidecar_srt = cand
                 break
 
+    audio_args = get_audio_args(input_path, ext)
     fps_args = get_fps_args(input_path)
 
     cmd = [
@@ -693,6 +804,8 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium'):
         "-loglevel", "warning",
         "-stats",
         "-y",
+        "-fflags", "+genpts+discardcorrupt",
+        "-err_detect", "ignore_err",
         "-i", input_path,
     ]
     if sidecar_srt:
@@ -705,10 +818,7 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium'):
         "-pix_fmt", "yuv420p"
     ])
     cmd.extend(fps_args)
-    cmd.extend([
-        "-map", "0:a?",
-        "-c:a", "copy"
-    ])
+    cmd.extend(audio_args)
     if sub_args:
         cmd.extend(sub_args)
     elif sidecar_srt:
@@ -750,7 +860,20 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
                     os.remove(temp_path)
                 except Exception:
                     pass
-            return {'success': False, 'error': f"FFmpeg exited with error code {ret}"}
+
+            # Fallback transcode: retry with safe primary stream settings
+            print(f"    [!] Initial encode exited with code {ret}. Retrying with safe fallback...")
+            fallback_cmd = build_ffmpeg_cmd(src_path, temp_path, crf=crf, preset=preset, safe_fallback=True)
+            proc_fallback = subprocess.Popen(fallback_cmd)
+            ret_fallback = proc_fallback.wait()
+            if ret_fallback != 0:
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
+                return {'success': False, 'error': f"FFmpeg exited with error code {ret} (fallback also failed with {ret_fallback})"}
+            print("    [+] Fallback encode succeeded!")
 
         # Verify output file
         if not os.path.exists(temp_path):
@@ -771,6 +894,10 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
             backup_path = f"{src_path}.bak"
             try:
                 os.replace(src_path, backup_path)
+                try:
+                    os.utime(backup_path, None)
+                except Exception:
+                    pass
             except Exception as e:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
@@ -816,6 +943,80 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
             except Exception:
                 pass
         return {'success': False, 'error': str(e)}
+
+
+def prune_backups(movies_dir, max_backups=50):
+    """
+    Ensure the movies directory holds no more than `max_backups` .bak files.
+    Older .bak files are deleted completely (oldest by mtime/ctime first).
+    Returns list of dicts with details of pruned backup files.
+    """
+    if not movies_dir or not os.path.isdir(movies_dir) or max_backups is None or max_backups < 0:
+        return []
+
+    bak_files = []
+    for root, _, files in os.walk(movies_dir):
+        for f in files:
+            if f.endswith('.bak'):
+                full_p = os.path.join(root, f)
+                try:
+                    st = os.stat(full_p)
+                    ts = max(st.st_mtime, st.st_ctime)
+                    bak_files.append({
+                        'path': full_p,
+                        'filename': f,
+                        'timestamp': ts,
+                        'size_bytes': st.st_size,
+                        'size_gb': st.st_size / (1024 ** 3)
+                    })
+                except Exception:
+                    pass
+
+    bak_files.sort(key=lambda x: x['timestamp'])
+
+    to_prune_count = len(bak_files) - max_backups
+    pruned = []
+    if to_prune_count > 0:
+        for item in bak_files[:to_prune_count]:
+            try:
+                os.remove(item['path'])
+                pruned.append(item)
+            except Exception as e:
+                print(f"    [!] Failed to delete old backup {item['filename']}: {e}", file=sys.stderr)
+
+    return pruned
+
+
+def prompt_caffeine_check(movie_count):
+    """
+    Prompt user with a blocking Tkinter dialog asking 'Have you turned on caffeine?'
+    for batch runs of more than 5 movies.
+    """
+    if movie_count <= 5:
+        return True
+
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+
+        confirmed = messagebox.askokcancel(
+            title="Caffeine Check",
+            message=f"Batch run: {movie_count} movies queued for resampling.\n\nHave you turned on caffeine?",
+            icon=messagebox.QUESTION
+        )
+        root.destroy()
+        return confirmed
+    except Exception:
+        print(f"\n[!] Notice: Batch run of {movie_count} movies queued for resampling.")
+        try:
+            resp = input("Have you turned on caffeine and turned of suspend_until (sudo crontab -e)? (Press Enter/Y for OK, N to cancel): ").strip().lower()
+            return resp not in ('n', 'no', 'cancel')
+        except (EOFError, KeyboardInterrupt):
+            return False
 
 
 def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size_gb=0.0):
@@ -975,6 +1176,24 @@ def main():
         help="Google Gemini API key for automated AI visual inspection (defaults to GEMINI_API_KEY environment variable)."
     )
     parser.add_argument(
+        "--max-backups",
+        type=int,
+        default=50,
+        help="Maximum number of .bak backup files to retain across the library (default: 50). Older backups are deleted completely."
+    )
+    parser.add_argument(
+        "--caffeine-check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Prompt with a blocking Tkinter window asking 'Have you turned on caffeine?' for batch runs of > 5 movies (default: True)."
+    )
+    parser.add_argument(
+        "--skip-caffeine-check",
+        dest="caffeine_check",
+        action="store_false",
+        help="Skip the caffeine reminder prompt."
+    )
+    parser.add_argument(
         "--db",
         default=DEFAULT_DB_PATH,
         help=f"Path to IMDB_Films.db database for subtitle lookup (default: {DEFAULT_DB_PATH})"
@@ -1096,7 +1315,8 @@ def main():
     print(f"  Encoding Configuration:   libx264, CRF {args.crf}, preset '{args.preset}', yuv420p")
     print(f"  Audio Configuration:      -c:a copy (lossless stream copy)")
     print(f"  Streaming Flag:           -movflags +faststart")
-    print(f"  Backup Original:          {'Enabled (.bak, default)' if args.backup else 'Disabled (--no-backup)'}")
+    bak_str = f"Enabled (.bak, max {args.max_backups})" if (args.backup and args.max_backups > 0) else ("Enabled (.bak, unlimited)" if args.backup else "Disabled (--no-backup)")
+    print(f"  Backup Original:          {bak_str}")
     print(f"  Download SRT Subtitles:   {'Enabled (default)' if args.download_srt else 'Disabled'}")
     print(f"  Verify Subtitles:         {'Enabled (default)' if args.verify_subtitles else 'Disabled'}")
     print(f"  Estimated Space Savings:  ~75% to 85% (~{total_candidate_gb * 0.78:,.2f} GB)")
@@ -1111,6 +1331,14 @@ def main():
             print(f"  {c['size_gb']:>9.2f} {c['resolution']:<6} {c['format']:<6} {c.get('time', '-'):<7} {c.get('sub', '-'):<8} {c.get('jellyfin', '-'):<11} {c['filename']}")
         if len(candidates) > 50:
             print(f"  ... and {len(candidates) - 50} more files.")
+
+        if args.backup and args.max_backups > 0:
+            existing_baks = [os.path.join(r, f) for r, _, fs in os.walk(args.movies_dir) for f in fs if f.endswith('.bak')]
+            excess = max(0, len(existing_baks) - args.max_backups)
+            if excess > 0:
+                print(f"\n  Backup Retention:         {len(existing_baks)} existing .bak files ({excess} oldest would be pruned to maintain <= {args.max_backups} limit).")
+            else:
+                print(f"\n  Backup Retention:         {len(existing_baks)} existing .bak files (within <= {args.max_backups} limit).")
 
         need_srt = [c for c in candidates if (c.get('bmp') == 'YES' or c.get('sub') in ('NO', 'None', 'Bitmap') or c.get('jellyfin') == 'TRANSCODE') and c.get('srt') != 'YES']
         if args.download_srt:
@@ -1146,6 +1374,16 @@ def main():
         print(f"  {' '.join(ex_cmd)}\n")
         sys.exit(0)
 
+    # Prune any old backups exceeding max_backups before beginning
+    if args.backup and args.max_backups > 0:
+        initial_pruned = prune_backups(args.movies_dir, max_backups=args.max_backups)
+        if initial_pruned:
+            init_gb = sum(p['size_bytes'] for p in initial_pruned) / (1024 ** 3)
+            print(f"Pruned {len(initial_pruned)} old .bak backup(s) exceeding {args.max_backups} limit (freed {init_gb:.2f} GB):\n")
+            for p in initial_pruned:
+                print(f"  [-] Deleted: {p['filename']} ({p['size_gb']:.2f} GB)")
+            print()
+
     # Actual processing loop
     print(f"\nBeginning resampling of {len(candidates):,} files...\n")
 
@@ -1157,6 +1395,7 @@ def main():
     total_saved_bytes = 0
     success_count = 0
     fail_count = 0
+    failed_movies = []
     overall_start = time.time()
 
     for i, file_info in enumerate(candidates, 1):
@@ -1197,12 +1436,18 @@ def main():
                 saved_gb = result['saved_bytes'] / (1024 ** 3)
                 pct = (result['saved_bytes'] / file_info['size_bytes']) * 100
                 total_saved_bytes += result['saved_bytes']
-                success_count += 1
                 print(f"    Result:   {new_gb:.2f} GB  (Saved: {saved_gb:.2f} GB, {pct:.1f}%) in {format_time(result['elapsed'])}")
                 if result.get('backup_path'):
                     print(f"    Backup:   {result['backup_path']}")
+                    if args.backup and args.max_backups > 0:
+                        pruned_after = prune_backups(args.movies_dir, max_backups=args.max_backups)
+                        if pruned_after:
+                            for p in pruned_after:
+                                print(f"    Backup Pruned: {p['filename']} ({p['size_gb']:.2f} GB, exceeded {args.max_backups} backups limit)")
 
                 # Visual subtitle verification by default
+                sub_failed = False
+                sub_fail_reason = None
                 if args.verify_subtitles and verify_jellyfin_subtitles is not None:
                     try:
                         sub_res = verify_jellyfin_subtitles.verify_movie_subtitles(
@@ -1213,19 +1458,42 @@ def main():
                         if sub_res.get('verified'):
                             if sub_res.get('gemini_used'):
                                 det_sample = sub_res.get('detected_text') or sub_res.get('expected_text')
-                                print(f"    Subtitles: [✓] VERIFIED with Gemini Vision (\"{det_sample}\")")
+                                print(f'    Subtitles: [✓] VERIFIED with Gemini Vision ("{det_sample}")')
                             else:
                                 cue_info = f" at {sub_res['details'][0]['timestamp']}" if sub_res.get('details') else ""
                                 print(f"    Subtitles: [✓] Verified dialogue cue{cue_info} & frame captured")
                         elif sub_res.get('has_subtitles'):
-                            print(f"    Subtitles: [!] Warning: {sub_res.get('notes', 'Failed verification')}")
+                            sub_fail_reason = f"Subtitle vision check failed ({sub_res.get('notes', 'Failed verification')})"
+                            print(f"    Subtitles: [✗] {sub_fail_reason}")
+                            sub_failed = True
                         else:
                             print("    Subtitles: [-] No subtitle track to verify")
                     except Exception as ex:
-                        print(f"    Subtitles: [!] Verification error: {ex}")
+                        sub_fail_reason = f"Subtitle verification error: {ex}"
+                        print(f"    Subtitles: [!] {sub_fail_reason}")
+                        sub_failed = True
+
+                if sub_failed:
+                    fail_count += 1
+                    failed_movies.append({
+                        'path': fp,
+                        'filename': file_info.get('filename', os.path.basename(fp)),
+                        'size_gb': sz_gb,
+                        'error': sub_fail_reason
+                    })
+                    print(f"    FAILED:   {sub_fail_reason} (new resampled file retained)", file=sys.stderr)
+                else:
+                    success_count += 1
             else:
                 fail_count += 1
-                print(f"    FAILED:   {result.get('error', 'Unknown error')}", file=sys.stderr)
+                err_msg = result.get('error', 'Unknown error')
+                failed_movies.append({
+                    'path': fp,
+                    'filename': file_info.get('filename', os.path.basename(fp)),
+                    'size_gb': sz_gb,
+                    'error': err_msg
+                })
+                print(f"    FAILED:   {err_msg}", file=sys.stderr)
         except KeyboardInterrupt:
             print("\n\nOperation interrupted by user (Ctrl+C). Exiting cleanly...", file=sys.stderr)
             break
@@ -1243,6 +1511,18 @@ def main():
     print(f"  Total Disk Space Freed:   {total_saved_gb:,.2f} GB")
     print(f"  Total Time Taken:         {format_time(total_elapsed)}")
     print("=" * 90)
+
+    if failed_movies:
+        print(f"\n[!] Failed Movies ({len(failed_movies):,}):")
+        print(f"  {'Size (GB)':>9}  {'Filename':<45}  {'Reason'}")
+        print(f"  {'-'*9:>9}  {'-'*45:<45}  {'-'*25}")
+        for fm in failed_movies:
+            err_msg = ' '.join(fm['error'].strip().splitlines())
+            if len(err_msg) > 60:
+                err_msg = err_msg[:57] + "..."
+            print(f"  {fm['size_gb']:>9.2f}  {fm['filename']:<45}  {err_msg}")
+        print()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
