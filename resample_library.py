@@ -1078,7 +1078,17 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
     return candidates
 
 
-def main():
+def main(*raw_args):
+    argv = None
+    if raw_args:
+        import shlex
+        if len(raw_args) == 1 and isinstance(raw_args[0], (list, tuple)):
+            argv = list(raw_args[0])
+        else:
+            argv = []
+            for a in raw_args:
+                argv.extend(shlex.split(a) if isinstance(a, str) else [str(a)])
+
     parser = argparse.ArgumentParser(
         description="Resample oversized movie files in the Lib folder using optimal H.264 (libx264) settings."
     )
@@ -1214,7 +1224,7 @@ def main():
         help="Preview candidate files and estimated savings without modifying any files."
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     cache = load_cache()
 
@@ -1542,4 +1552,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        main()
+    else:
+        main("--max-files 3 --sort-by size_desc")
