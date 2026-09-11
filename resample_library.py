@@ -632,12 +632,22 @@ def get_subtitle_args(file_path, ext):
                     continue
                 if codec in text_codecs:
                     # Verify subtitle stream does not error during decoding
-                    verify_cmd = [
-                        "ffmpeg", "-v", "error", "-i", file_path,
-                        "-map", f"0:{idx}", "-c:s", "mov_text", "-f", "null", "-"
-                    ]
-                    vret = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=5)
-                    if vret.returncode == 0 and 'Error decoding subtitles' not in vret.stderr and 'invalid UTF-8' not in vret.stderr:
+                    is_valid = False
+                    try:
+                        verify_cmd = [
+                            "ffmpeg", "-v", "error", "-i", file_path,
+                            "-map", f"0:{idx}", "-c:s", "mov_text", "-f", "null", "-"
+                        ]
+                        vret = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=30)
+                        if vret.returncode == 0 and 'Error decoding subtitles' not in vret.stderr and 'invalid UTF-8' not in vret.stderr:
+                            is_valid = True
+                    except subprocess.TimeoutExpired:
+                        # Large file took longer than 30s to demux/scan to the end, but didn't error out
+                        is_valid = True
+                    except Exception:
+                        pass
+
+                    if is_valid:
                         mapped_args.extend(["-map", f"0:{idx}"])
         if mapped_args:
             mapped_args.extend(["-c:s", "mov_text"])
@@ -1005,7 +1015,7 @@ def prompt_caffeine_check(movie_count):
 
         confirmed = messagebox.askokcancel(
             title="Caffeine Check",
-            message=f"Batch run: {movie_count} movies queued for resampling.\n\nHave you turned on caffeine?",
+            message=f"Batch run: {movie_count} movies queued for resampling.\n\nHave you turned on caffeine and turned off suspend_until (sudo crontab -e)?",
             icon=messagebox.QUESTION
         )
         root.destroy()
@@ -1013,7 +1023,7 @@ def prompt_caffeine_check(movie_count):
     except Exception:
         print(f"\n[!] Notice: Batch run of {movie_count} movies queued for resampling.")
         try:
-            resp = input("Have you turned on caffeine and turned of suspend_until (sudo crontab -e)? (Press Enter/Y for OK, N to cancel): ").strip().lower()
+            resp = input("Have you turned on caffeine and turned off suspend_until (sudo crontab -e)? (Press Enter/Y for OK, N to cancel): ").strip().lower()
             return resp not in ('n', 'no', 'cancel')
         except (EOFError, KeyboardInterrupt):
             return False
@@ -1374,6 +1384,12 @@ def main():
         print(f"  {' '.join(ex_cmd)}\n")
         sys.exit(0)
 
+    # Caffeine check reminder for batch runs (> 5 movies)
+    if getattr(args, 'caffeine_check', True) and not args.dry_run:
+        if not prompt_caffeine_check(len(candidates)):
+            print("\nResampling cancelled by user at caffeine check prompt.")
+            sys.exit(0)
+
     # Prune any old backups exceeding max_backups before beginning
     if args.backup and args.max_backups > 0:
         initial_pruned = prune_backups(args.movies_dir, max_backups=args.max_backups)
@@ -1388,7 +1404,7 @@ def main():
     print(f"\nBeginning resampling of {len(candidates):,} files...\n")
 
     imdb_mapping = None
-    if args.download_srt and any((c.get('bmp') == 'YES' or c.get('sub') == 'NO') for c in candidates):
+    if args.download_srt and any((c.get('bmp') == 'YES' or c.get('sub') in ('NO', 'None', 'Bitmap') or c.get('jellyfin') == 'TRANSCODE') for c in candidates):
         if fetch_subtitles is not None:
             imdb_mapping = fetch_subtitles.get_imdb_mapping(args.db)
 
@@ -1409,12 +1425,12 @@ def main():
             time_str = get_file_duration_hr_min(file_info['path'], cache)
             file_info['time'] = time_str
 
-        time_tail = f"  Time: {time_str}" if time_str != '-' else ""
+        time_tail = f"  Time: {time_str}" if time_str != '-' else "Time: unknown"
         print(f"[{i}/{len(candidates)}] Processing: {fp}{time_tail}")
         print(f"    Current:  {sz_gb:.2f} GB | {res} | {fmt} | {file_info['fps']} fps")
 
         # Automatically download external .en.srt for videos with bitmapped or missing subtitles by default
-        if args.download_srt and (file_info.get('bmp') == 'YES' or file_info.get('sub') == 'NO'):
+        if args.download_srt and (file_info.get('bmp') == 'YES' or file_info.get('sub') in ('NO', 'None', 'Bitmap') or file_info.get('jellyfin') == 'TRANSCODE'):
             sub_status, sub_msg = download_srt_if_needed(
                 file_info,
                 imdb_mapping=imdb_mapping,

@@ -200,6 +200,33 @@ def download_srt_from_yts_page(page_url):
     return None
 
 
+def search_opensubtitles(imdb_id):
+    """Fallback: Search OpenSubtitles REST API using IMDb ID and download English SRT."""
+    if not imdb_id:
+        return None
+    clean_id = imdb_id.lstrip('t') if imdb_id.startswith('tt') else str(imdb_id)
+    url = f"https://rest.opensubtitles.org/search/imdbid-{clean_id}/sublanguageid-eng"
+    raw_json = get_http(url)
+    if not raw_json:
+        return None
+    try:
+        import gzip
+        data = json.loads(raw_json.decode("utf-8", errors="ignore"))
+        for item in data:
+            dl_url = item.get("SubDownloadLink")
+            if dl_url:
+                gz_bytes = get_http(dl_url)
+                if gz_bytes:
+                    with gzip.GzipFile(fileobj=io.BytesIO(gz_bytes)) as gz:
+                        srt_bytes = gz.read()
+                    text = srt_bytes.decode("utf-8", errors="ignore")
+                    if len(text.strip()) > 50:
+                        return text
+    except Exception as e:
+        print(f"    [Error searching OpenSubtitles]: {e}", file=sys.stderr)
+    return None
+
+
 def fetch_english_srt(imdb_id=None, title=None):
     """Attempt to find and download English SRT text for a movie."""
     page_urls = []
@@ -210,6 +237,12 @@ def fetch_english_srt(imdb_id=None, title=None):
 
     for page_url in page_urls:
         srt_text = download_srt_from_yts_page(page_url)
+        if srt_text and len(srt_text.strip()) > 50:
+            return srt_text
+
+    # Fallback to OpenSubtitles when YTS does not have subtitles (classics, TV movies, etc.)
+    if imdb_id:
+        srt_text = search_opensubtitles(imdb_id)
         if srt_text and len(srt_text.strip()) > 50:
             return srt_text
 

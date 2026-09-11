@@ -1137,7 +1137,17 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
                 f.write(f"[{v['ext']}] {fmt_str} [{v['resolution']}] {fps_str} {sz_str} {time_str} {sub_flag_str} {bmp_flag_str} {srt_flag_str} {sized_str} {sub}{fn_str}\n")
 
 
-def main():
+def main(*raw_args):
+    argv = None
+    if raw_args:
+        import shlex
+        if len(raw_args) == 1 and isinstance(raw_args[0], (list, tuple)):
+            argv = list(raw_args[0])
+        else:
+            argv = []
+            for a in raw_args:
+                argv.extend(shlex.split(a) if isinstance(a, str) else [str(a)])
+
     default_db = get_default_db_path()
 
     parser = argparse.ArgumentParser(
@@ -1245,7 +1255,7 @@ def main():
         help="Skip probing video metadata via ffprobe (faster)."
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Validate database path
     if not os.path.isfile(args.db):
@@ -1677,4 +1687,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        main()
+    else:
+        main("--recent", "--show-only matched")
