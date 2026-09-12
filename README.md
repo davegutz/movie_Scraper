@@ -53,22 +53,13 @@ Re-run `check_database_health.py` to confirm:
 
 ---
 
-## PyCharm Setup: Enabling Terminal Emulation for FFmpeg Progress
+## FFmpeg Real-Time Progress & PyCharm Run Tabs
 
-When running `resample_library.py` directly inside PyCharm, you might notice that FFmpeg's interactive progress line (`frame=... fps=... time=... speed=...`) is not displayed while encoding is running.
+`resample_library.py` streams live FFmpeg encoding status (`time=00:14:22 / 01:45:10 (13.7%) | fps=52 | speed=2.15x`) directly through Python using FFmpeg's `-progress pipe:1` interface.
 
-### Why This Happens
-* **Carriage Returns (`\r`) vs. Newlines (`\n`):** In standard terminals, FFmpeg outputs its live encoding status using carriage returns (`\r`) so that the progress updates in-place on a single line.
-* **Pipe Buffering:** By default, PyCharm's Run Console acts as a standard stream pipe rather than a pseudo-terminal (PTY). Non-interactive pipes buffer output and **only refresh the display when a newline (`\n`) is received**. Because FFmpeg only sends `\r` during encoding, the console appears completely frozen until the entire file finishes encoding.
-
-### How to Fix It
-Enable **"Emulate terminal in output console"** in PyCharm:
-1. In PyCharm, open the top menu: **Run** &rarr; **Edit Configurations...**
-2. In the left panel under **Python**, select **`resample_library`** (or **Edit configuration templates...** &rarr; **Python** to apply to all scripts).
-3. Check the box: **☑ "Emulate terminal in output console"** *(if hidden, click "Modify options" &rarr; select "Emulate terminal in output console")*.
-4. Click **Apply** / **OK**.
-
-Once enabled, PyCharm provides a full PTY console, allowing FFmpeg's live progress line to update in real time.
+### Benefits
+* **No Terminal Emulation Needed:** Raw carriage returns (`\r`) from FFmpeg are parsed and converted to cleanly flushed status lines ending with standard newlines (`\n`), preventing console freezing in PyCharm, standard shells, and headless scripts.
+* **Seamless Multi-Tab Coexistence:** Because `resample_library.py` does not require "Emulate terminal in output console", both `resample_library.py` and `check_database_health.py` run in PyCharm's standard IDE console. This allows both tabs to stay pinned side-by-side in the Run tool window without either tab closing or conflicting.
 
 ---
 

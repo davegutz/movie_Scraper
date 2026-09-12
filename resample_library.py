@@ -364,6 +364,18 @@ def format_duration_hr_min(seconds):
     return '-'
 
 
+def parse_time_str_to_sec(t_str):
+    """Convert 'HH:MM:SS.micro' or 'HH:MM:SS' string into float seconds."""
+    try:
+        if t_str and t_str != 'N/A':
+            parts = t_str.split(':')
+            if len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    except Exception:
+        pass
+    return None
+
+
 def get_file_duration_hr_min(file_path, cache=None):
     """Retrieve duration in 'hr:min' (e.g. '2:31') using cache or ffprobe."""
     if not file_path or not os.path.isfile(file_path):
@@ -787,7 +799,7 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fall
             "ffmpeg",
             "-hide_banner",
             "-loglevel", "warning",
-            "-stats",
+            "-progress", "pipe:1",
             "-y",
             "-fflags", "+genpts+discardcorrupt",
             "-err_detect", "ignore_err",
@@ -828,7 +840,7 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fall
         "ffmpeg",
         "-hide_banner",
         "-loglevel", "warning",
-        "-stats",
+        "-progress", "pipe:1",
         "-y",
         "-fflags", "+genpts+discardcorrupt",
         "-err_detect", "ignore_err",
@@ -860,6 +872,75 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fall
     return cmd
 
 
+def run_ffmpeg_with_progress(cmd, total_duration_sec=None, throttle_sec=0.5):
+    """
+    Execute an FFmpeg command with progress reported via stdout (-progress pipe:1).
+    Overwrites a single status line in-place using carriage returns (\r) with flush=True
+    and space padding, avoiding thousands of scrolling lines while running in PyCharm's
+    standard console without terminal emulation.
+    Returns:
+        (retcode, stderr_output)
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1
+    )
+    cur_stats = {}
+    last_print = 0.0
+    has_printed = False
+
+    try:
+        if proc.stdout:
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                if '=' in line:
+                    k, v = line.split('=', 1)
+                    cur_stats[k.strip()] = v.strip()
+                if line.startswith('progress='):
+                    now = time.time()
+                    is_end = (cur_stats.get('progress') == 'end')
+                    if (now - last_print >= throttle_sec) or is_end:
+                        out_time_raw = cur_stats.get('out_time', '')
+                        if out_time_raw and out_time_raw != 'N/A':
+                            out_time_display = out_time_raw.split('.')[0]
+                            fps = cur_stats.get('fps', '0')
+                            speed = cur_stats.get('speed', '0x')
+                            dur_sec = parse_time_str_to_sec(out_time_raw)
+                            pct_str = ""
+                            total_str = ""
+                            if total_duration_sec and total_duration_sec > 0 and dur_sec is not None:
+                                pct = min(100.0, (dur_sec / total_duration_sec) * 100.0)
+                                pct_str = f" ({pct:4.1f}%)"
+                                tot_h = int(total_duration_sec // 3600)
+                                tot_m = int((total_duration_sec % 3600) // 60)
+                                tot_s = int(total_duration_sec % 60)
+                                total_str = f" / {tot_h:02d}:{tot_m:02d}:{tot_s:02d}"
+
+                            msg = f"    [FFmpeg] time={out_time_display}{total_str}{pct_str} | fps={fps} | speed={speed}"
+                            sys.stdout.write("\r" + f"{msg:<85}")
+                            sys.stdout.flush()
+                            has_printed = True
+                            last_print = now
+
+        _, stderr_text = proc.communicate()
+        if has_printed:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        return proc.returncode, (stderr_text or '')
+    except KeyboardInterrupt:
+        if has_printed:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        proc.kill()
+        proc.wait()
+        raise
+
+
 def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=True):
     """
     Encode a single file to a temporary file, verify integrity,
@@ -875,10 +956,11 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
     cmd = build_ffmpeg_cmd(src_path, temp_path, crf=crf, preset=preset)
 
     t_start = time.time()
-    proc = None
     try:
-        proc = subprocess.Popen(cmd)
-        ret = proc.wait()
+        dur_m = parse_duration_minutes(file_info.get('time'))
+        total_dur_sec = (dur_m * 60) if (dur_m and dur_m > 0) else None
+
+        ret, err_text = run_ffmpeg_with_progress(cmd, total_duration_sec=total_dur_sec)
 
         if ret != 0:
             if os.path.exists(temp_path):
@@ -890,15 +972,15 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
             # Fallback transcode: retry with safe primary stream settings
             print(f"    [!] Initial encode exited with code {ret}. Retrying with safe fallback...")
             fallback_cmd = build_ffmpeg_cmd(src_path, temp_path, crf=crf, preset=preset, safe_fallback=True)
-            proc_fallback = subprocess.Popen(fallback_cmd)
-            ret_fallback = proc_fallback.wait()
+            ret_fallback, err_fallback = run_ffmpeg_with_progress(fallback_cmd, total_duration_sec=total_dur_sec)
             if ret_fallback != 0:
                 if os.path.exists(temp_path):
                     try:
                         os.remove(temp_path)
                     except Exception:
                         pass
-                return {'success': False, 'error': f"FFmpeg exited with error code {ret} (fallback also failed with {ret_fallback})"}
+                err_summary = (err_fallback.strip() or err_text.strip())
+                return {'success': False, 'error': f"FFmpeg exited with error code {ret} (fallback also failed with {ret_fallback}): {err_summary}"}
             print("    [+] Fallback encode succeeded!")
 
         # Verify output file
@@ -1596,4 +1678,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        main("--max-files 50 --sort-by size_desc")
+        main("--max-files 10 --sort-by size_desc")

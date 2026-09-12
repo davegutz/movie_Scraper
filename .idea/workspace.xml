@@ -6,9 +6,8 @@
   <component name="ChangeListManager">
     <list default="true" id="0cae84e8-8944-4574-befa-511288ccf470" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/check_database_health.py" beforeDir="false" afterPath="$PROJECT_DIR$/check_database_health.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/resample_library.py" beforeDir="false" afterPath="$PROJECT_DIR$/resample_library.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/verify_jellyfin_subtitles.py" beforeDir="false" afterPath="$PROJECT_DIR$/verify_jellyfin_subtitles.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -24,23 +23,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.3659929405239517" />
-      <entry key="MS500" value="4.027152109880149" />
-      <entry key="S2" value="10.767328890078193" />
-      <entry key="S5" value="20.86246385753082" />
-      <entry key="S10" value="30.826347901098647" />
-      <entry key="S30" value="43.392418496509336" />
-      <entry key="S60" value="47.834468460021846" />
-      <entry key="M2" value="50.318745652921315" />
-      <entry key="M5" value="52.05602798878364" />
-      <entry key="M10" value="58.47882239660566" />
-      <entry key="M15" value="74.54238757104864" />
-      <entry key="M30" value="138.38952125231253" />
-      <entry key="H1" value="236.93850127921937" />
-      <entry key="H2" value="344.59561878173275" />
-      <entry key="H4" value="514.2023840801761" />
-      <entry key="D1" value="1892.77596521786" />
-      <entry key="W1" value="2854.3082241128923" />
+      <entry key="MS100" value="1.0" />
+      <entry key="MS500" value="1.0" />
+      <entry key="S2" value="1.0" />
+      <entry key="S5" value="1.0" />
+      <entry key="S10" value="1.0" />
+      <entry key="S30" value="1.000000000000001" />
+      <entry key="S60" value="1.0000004027754419" />
+      <entry key="M2" value="1.0095176629610438" />
+      <entry key="M5" value="6.524201698732992" />
+      <entry key="M10" value="56.574461490905485" />
+      <entry key="M15" value="129.58498381389634" />
+      <entry key="M30" value="320.0533745291794" />
+      <entry key="H1" value="522.0191634305637" />
+      <entry key="H2" value="674.1736307732635" />
+      <entry key="H4" value="782.132312387012" />
+      <entry key="D1" value="2120.479637402443" />
+      <entry key="W1" value="4786.978675927434" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -62,23 +61,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.3302719944618944" />
-      <entry key="MS500" value="4.007131408972178" />
-      <entry key="S2" value="10.752913376969023" />
-      <entry key="S5" value="20.850432258806592" />
-      <entry key="S10" value="30.81707391010038" />
-      <entry key="S30" value="43.38791066313089" />
-      <entry key="S60" value="47.83195976882476" />
-      <entry key="M2" value="50.31741965836151" />
-      <entry key="M5" value="52.05547335403504" />
-      <entry key="M10" value="58.47842319985634" />
-      <entry key="M15" value="74.54191701140836" />
-      <entry key="M30" value="138.3889145551958" />
-      <entry key="H1" value="236.93794769170142" />
-      <entry key="H2" value="344.59522664091753" />
-      <entry key="H4" value="514.2021307946953" />
-      <entry key="D1" value="1892.7758757549723" />
-      <entry key="W1" value="2854.3082068930453" />
+      <entry key="MS100" value="0.8766057213160351" />
+      <entry key="MS500" value="0.974004268543241" />
+      <entry key="S2" value="0.9934367347173356" />
+      <entry key="S5" value="0.9973695065410157" />
+      <entry key="S10" value="0.9986838871940489" />
+      <entry key="S30" value="0.9995611031290691" />
+      <entry key="S60" value="0.9997809302402854" />
+      <entry key="M2" value="1.0094077385098013" />
+      <entry key="M5" value="6.524115907761408" />
+      <entry key="M10" value="56.574206932182186" />
+      <entry key="M15" value="129.58456845256515" />
+      <entry key="M30" value="320.0527747677112" />
+      <entry key="H1" value="522.0186203967149" />
+      <entry key="H2" value="674.1732595774582" />
+      <entry key="H4" value="782.1320915312162" />
+      <entry key="D1" value="2120.47954630175" />
+      <entry key="W1" value="4786.978648036203" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -92,11 +91,13 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
+    "KEY_CHAT_IN_TOOLWINDOW": "false",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "Python.GUI_sqlite_scrape.executor": "Run",
     "Python.check_database_health.executor": "Run",
     "Python.find_missing_videos.executor": "Run",
     "Python.install.executor": "Run",
+    "Python.resample_library.executor": "Run",
     "RunOnceActivity.MCP Project settings loaded": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
@@ -107,19 +108,19 @@
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
     "git-widget-placeholder": "main",
     "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "/home/daveg/Documents/GitHub/myPyScreencast",
+    "last_opened_file_path": "/home/daveg/Documents/GitHub/mySOC/SOC_Particle/pyStateOfCharge",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
     "python.packages.toolwindow.project.migrated.to.right.top.v2": "true",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
+    "settings.editor.selected.configurable": "configurable.group.tools",
     "to.speed.mode.migration.done": "true",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
-  <component name="RunManager" selected="Python.check_database_health">
+  <component name="RunManager" selected="Python.resample_library">
     <configuration name="GUI_sqlite_scrape" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="movie_Scraper" />
       <option name="ENV_FILES" value="" />
@@ -137,30 +138,6 @@
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/GUI_sqlite_scrape.py" />
-      <option name="PARAMETERS" value="" />
-      <option name="SHOW_COMMAND_LINE" value="false" />
-      <option name="EMULATE_TERMINAL" value="false" />
-      <option name="MODULE_MODE" value="false" />
-      <option name="REDIRECT_INPUT" value="false" />
-      <option name="INPUT_FILE" value="" />
-      <method v="2" />
-    </configuration>
-    <configuration name="check_database_health" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
-      <module name="movie_Scraper" />
-      <option name="ENV_FILES" value="" />
-      <option name="INTERPRETER_OPTIONS" value="" />
-      <option name="PARENT_ENVS" value="true" />
-      <envs>
-        <env name="PYTHONUNBUFFERED" value="1" />
-      </envs>
-      <option name="SDK_HOME" value="" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-      <option name="IS_MODULE_SDK" value="false" />
-      <option name="ADD_CONTENT_ROOTS" value="true" />
-      <option name="ADD_SOURCE_ROOTS" value="true" />
-      <option name="DEBUG_JUST_MY_CODE" value="false" />
-      <option name="RUN_TOOL" value="" />
-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/check_database_health.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -218,9 +195,16 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
+    <list>
+      <item itemvalue="Python.check_database_health" />
+      <item itemvalue="Python.resample_library" />
+      <item itemvalue="Python.find_missing_videos" />
+      <item itemvalue="Python.GUI_sqlite_scrape" />
+      <item itemvalue="Python.install" />
+    </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.check_database_health" />
+        <item itemvalue="Python.resample_library" />
         <item itemvalue="Python.GUI_sqlite_scrape" />
         <item itemvalue="Python.find_missing_videos" />
         <item itemvalue="Python.install" />
