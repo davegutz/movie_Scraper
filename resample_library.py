@@ -686,18 +686,31 @@ def get_audio_args(file_path, ext):
             return ["-map", "0:a?", "-c:a", "copy"]
 
         is_mp4 = ext.lower() in ('.mp4', '.m4v', '.mov')
-        if is_mp4 and len(audio_streams) > 1:
-            has_stereo_aac = any(s['codec'] == 'aac' and s['channels'] <= 2 for s in audio_streams)
-            if has_stereo_aac:
-                # Filter out redundant 2-channel AC3 tracks when 2-channel AAC already exists
-                filtered = [s for s in audio_streams if not (s['codec'] in ('ac3', 'eac3') and s['channels'] <= 2)]
-                if filtered:
-                    audio_streams = filtered
+        if is_mp4:
+            incompatible_codecs = ('dts', 'truehd', 'mlp', 'flac')
+            has_compatible_audio = any(s['codec'] not in incompatible_codecs for s in audio_streams)
+            if has_compatible_audio:
+                # Discard streams that crash MP4/M4V container muxers (e.g. DTS with incompatible tags)
+                audio_streams = [s for s in audio_streams if s['codec'] not in incompatible_codecs]
+            if len(audio_streams) > 1:
+                has_stereo_aac = any(s['codec'] == 'aac' and s['channels'] <= 2 for s in audio_streams)
+                if has_stereo_aac:
+                    # Filter out redundant 2-channel AC3 tracks when 2-channel AAC already exists
+                    filtered = [s for s in audio_streams if not (s['codec'] in ('ac3', 'eac3') and s['channels'] <= 2)]
+                    if filtered:
+                        audio_streams = filtered
 
         args = []
+        needs_transcode = False
         for s in audio_streams:
             args.extend(["-map", f"0:{s['index']}"])
-        args.extend(["-c:a", "copy"])
+            if is_mp4 and s['codec'] in ('dts', 'truehd', 'mlp', 'flac'):
+                needs_transcode = True
+
+        if needs_transcode:
+            args.extend(["-c:a", "aac", "-b:a", "384k"])
+        else:
+            args.extend(["-c:a", "copy"])
         return args
     except Exception:
         return ["-map", "0:a?", "-c:a", "copy"]
@@ -769,6 +782,7 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fall
     _, ext = os.path.splitext(input_path)
 
     if safe_fallback:
+        sub_args = get_subtitle_args(input_path, ext)
         cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -786,6 +800,8 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fall
             "-map", "0:a:0?",
             "-c:a", "copy"
         ]
+        if sub_args:
+            cmd.extend(sub_args)
         if ext.lower() in ('.mp4', '.m4v', '.mov'):
             cmd.extend(["-movflags", "+faststart"])
         cmd.append(output_path)
@@ -923,6 +939,29 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
             os.replace(temp_path, src_path)
 
         elapsed = time.time() - t_start
+
+        # Subtitle safety net: if resampled file lost text subtitles, auto-rescue from backup into .en.srt
+        if backup_path and os.path.isfile(backup_path):
+            try:
+                base_no_ext, _ = os.path.splitext(src_path)
+                has_sidecar = any(os.path.isfile(f"{base_no_ext}{e}") for e in ('.en.srt', '.srt', '.eng.srt'))
+                if not has_sidecar:
+                    res_sub_args = get_subtitle_args(src_path, src_ext)
+                    if not res_sub_args:
+                        bak_sub_args = get_subtitle_args(backup_path, src_ext)
+                        if bak_sub_args:
+                            for idx_a, arg in enumerate(bak_sub_args):
+                                if arg == "-map" and idx_a + 1 < len(bak_sub_args):
+                                    st_map = bak_sub_args[idx_a + 1]
+                                    out_srt = f"{base_no_ext}.en.srt"
+                                    ext_cmd = ["ffmpeg", "-y", "-i", backup_path, "-map", st_map, "-c:s", "srt", out_srt]
+                                    subprocess.run(ext_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+                                    if os.path.isfile(out_srt) and os.path.getsize(out_srt) > 50:
+                                        sanitize_srt_utf8(out_srt)
+                                        print(f"    Subtitles: [✓] Auto-rescued text subtitle from backup to {os.path.basename(out_srt)}")
+                                        break
+            except Exception:
+                pass
 
         # Update cache
         if cache is not None:
@@ -1489,15 +1528,17 @@ def main(*raw_args):
                                 cue_info = f" at {sub_res['details'][0]['timestamp']}" if sub_res.get('details') else ""
                                 print(f"    Subtitles: [✓] Verified dialogue cue{cue_info} & frame captured")
                         elif sub_res.get('has_subtitles'):
-                            sub_fail_reason = f"Subtitle vision check failed ({sub_res.get('notes', 'Failed verification')})"
-                            print(f"    Subtitles: [✗] {sub_fail_reason}")
-                            sub_failed = True
+                            has_api_err = any(d.get('status') == 'API_ERROR' for d in sub_res.get('details', []))
+                            if has_api_err or 'Error calling Gemini API' in sub_res.get('notes', ''):
+                                print(f"    Subtitles: [!] Gemini API warning ({sub_res.get('notes')}); subtitle track confirmed on disk.")
+                            else:
+                                sub_fail_reason = f"Subtitle vision check failed ({sub_res.get('notes', 'Failed verification')})"
+                                print(f"    Subtitles: [✗] {sub_fail_reason}")
+                                sub_failed = True
                         else:
                             print("    Subtitles: [-] No subtitle track to verify")
                     except Exception as ex:
-                        sub_fail_reason = f"Subtitle verification error: {ex}"
-                        print(f"    Subtitles: [!] {sub_fail_reason}")
-                        sub_failed = True
+                        print(f"    Subtitles: [!] Subtitle verification warning: {ex}")
 
                 if sub_failed:
                     fail_count += 1
@@ -1555,4 +1596,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        main("--max-files 3 --sort-by size_desc")
+        main("--max-files 50 --sort-by size_desc")

@@ -326,22 +326,23 @@ def capture_subtitle_frame(video_path, cue_sec, output_jpg_path, sub_type, sub_t
 
     try:
         if sub_type == 'sidecar_srt':
-            escaped_sub = sub_target.replace('\\', '/').replace("'", "'\\''").replace(':', '\\:')
-            vf_filter = f"subtitles='{escaped_sub}'"
+            # Create a clean temporary symlink without special characters/apostrophes for robust ffmpeg filter parsing
+            temp_fd, temp_srt = tempfile.mkstemp(suffix='.srt', dir='/tmp')
+            os.close(temp_fd)
+            os.remove(temp_srt)
+            os.symlink(os.path.abspath(sub_target), temp_srt)
+            vf_filter = f'subtitles={temp_srt}'
         elif sub_type == 'embedded_text':
-            # Dump full srt to temporary file for fast rendering
-            temp_fd, temp_srt = tempfile.mkstemp(suffix=".srt")
+            # Dump full srt to clean temporary file for fast rendering
+            temp_fd, temp_srt = tempfile.mkstemp(suffix='.srt', dir='/tmp')
             os.close(temp_fd)
             subprocess.run([
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                "-i", video_path,
-                "-map", f"0:{sub_target}",
-                "-f", "srt", temp_srt
+                'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+                '-i', video_path,
+                '-map', f'0:{sub_target}',
+                '-f', 'srt', temp_srt
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)
-            escaped_sub = temp_srt.replace('\\', '/').replace("'", "'\\''").replace(':', '\\:')
-            vf_filter = f"subtitles='{escaped_sub}'"
-        elif sub_type == 'embedded_bitmap':
-            vf_filter = None  # Handled via filter_complex overlay below
+            vf_filter = f'subtitles={temp_srt}'
 
         # CRITICAL: -copyts keeps presentation timestamps (PTS) aligned with the subtitle file,
         # ensuring the subtitles filter evaluates cues at cue_sec instead of resetting to t=0.
@@ -370,7 +371,7 @@ def capture_subtitle_frame(video_path, cue_sec, output_jpg_path, sub_type, sub_t
         print(f"  {C_RED}[!] Error capturing frame at {time_str}: {e}{C_RESET}", file=sys.stderr)
         return False
     finally:
-        if temp_srt and os.path.isfile(temp_srt):
+        if temp_srt and (os.path.isfile(temp_srt) or os.path.islink(temp_srt)):
             try:
                 os.remove(temp_srt)
             except Exception:
@@ -452,7 +453,16 @@ You MUST reply with ONLY a single valid JSON object with the following keys:
     }
 
     try:
-        resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=25)
+        resp = None
+        for attempt in range(2):
+            try:
+                resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=35)
+                break
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                if attempt == 0:
+                    time.sleep(2.0)
+                    continue
+                raise
         if resp.status_code in (404, 429, 503):
             # Try fallback models if primary model is unavailable, decommissioned, or rate/quota limited
             fallback_candidates = ['gemini-flash-latest', 'gemini-3.5-flash', 'gemini-3.1-flash-lite']
