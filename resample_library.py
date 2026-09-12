@@ -63,6 +63,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 DEFAULT_MOVIES_DIR = "/media/daveg/Lib/Movies"
@@ -878,6 +879,8 @@ def run_ffmpeg_with_progress(cmd, total_duration_sec=None, throttle_sec=0.5):
     Overwrites a single status line in-place using carriage returns (\r) with flush=True
     and space padding, avoiding thousands of scrolling lines while running in PyCharm's
     standard console without terminal emulation.
+    Drains stderr in a concurrent background thread so FFmpeg never blocks if it emits
+    more than 64KB of stream/container warnings.
     Returns:
         (retcode, stderr_output)
     """
@@ -891,6 +894,14 @@ def run_ffmpeg_with_progress(cmd, total_duration_sec=None, throttle_sec=0.5):
     cur_stats = {}
     last_print = 0.0
     has_printed = False
+    stderr_lines = []
+
+    # Drain stderr concurrently in a background thread to prevent 64KB pipe buffer deadlock
+    stderr_thread = threading.Thread(
+        target=lambda: stderr_lines.extend(proc.stderr.readlines()),
+        daemon=True
+    )
+    stderr_thread.start()
 
     try:
         if proc.stdout:
@@ -927,7 +938,10 @@ def run_ffmpeg_with_progress(cmd, total_duration_sec=None, throttle_sec=0.5):
                             has_printed = True
                             last_print = now
 
-        _, stderr_text = proc.communicate()
+        proc.wait()
+        stderr_thread.join(timeout=2.0)
+        stderr_text = "".join(stderr_lines)
+
         if has_printed:
             sys.stdout.write("\n")
             sys.stdout.flush()
@@ -938,6 +952,7 @@ def run_ffmpeg_with_progress(cmd, total_duration_sec=None, throttle_sec=0.5):
             sys.stdout.flush()
         proc.kill()
         proc.wait()
+        stderr_thread.join(timeout=1.0)
         raise
 
 
@@ -1678,4 +1693,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        main("--max-files 10 --sort-by size_desc")
+        main("--max-files 30 --sort-by size_desc")
