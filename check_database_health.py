@@ -55,11 +55,13 @@ import csv
 import json
 import os
 import re
+import shutil
 import signal
 import sqlite3
 import subprocess
 import sys
 import threading
+import time
 import unicodedata
 
 # Prevent BrokenPipeError stack trace when piping output to head/more/less
@@ -302,21 +304,20 @@ def check_oversized(res_str, size_gb, duration=None):
     elif s == "NO":
         return "YES"
     return s
-def check_srt_file(file_path):
-    """
-    Quickly check whether an external subtitle .srt file exists on disk for a video file.
-    Returns: 'YES' if an external .srt file exists, 'NO' if not, '-' if no video file.
-    """
+def find_srt_file(file_path):
+    """Find the path of the sidecar .srt file if one exists for file_path."""
     if not file_path or not os.path.isfile(file_path):
-        return '-'
+        return None
     base, _ = os.path.splitext(file_path)
     srt_exts = (
         '.srt', '.en.srt', '.eng.srt', '.English.srt', '.english.srt',
         '.forced.srt', '.en.forced.srt', '.default.srt', '.en.default.srt',
         '.SRT', '.EN.SRT', '.ENG.SRT'
     )
-    if any(os.path.isfile(base + ext) for ext in srt_exts):
-        return 'YES'
+    for ext in srt_exts:
+        candidate = base + ext
+        if os.path.isfile(candidate):
+            return candidate
     try:
         parent_dir = os.path.dirname(file_path)
         base_name = os.path.basename(base).lower()
@@ -325,21 +326,91 @@ def check_srt_file(file_path):
             if entry_lower.endswith('.srt'):
                 stem = entry_lower[:-4]
                 if stem == base_name or stem.startswith(base_name + '.'):
-                    return 'YES'
+                    return os.path.join(parent_dir, entry)
     except Exception:
         pass
-    return 'NO'
+    return None
 
 
-def check_subtitles_info(file_path):
+def get_srt_last_timestamp(srt_path):
+    """
+    Read the timestamp of the last subtitle entry in an .srt file.
+    Returns:
+        Total seconds (float) of the last subtitle end time, or None if unavailable.
+    """
+    if not srt_path or not os.path.isfile(srt_path):
+        return None
+    try:
+        with open(srt_path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            seek_pos = max(0, size - 8192)
+            f.seek(seek_pos)
+            chunk = f.read().decode('utf-8', errors='ignore')
+        matches = re.findall(r'(\d{2}):(\d{2}):(\d{2})[,\.](\d{3})', chunk)
+        if matches:
+            h, m, s, ms = matches[-1]
+            return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+    except Exception:
+        pass
+    return None
+
+
+def check_srt_file(file_path):
+    """
+    Quickly check whether an external subtitle .srt file exists on disk for a video file.
+    Returns: 'YES' if an external .srt file exists, 'NO' if not, '-' if no video file.
+    """
+    if not file_path or not os.path.isfile(file_path):
+        return '-'
+    return 'YES' if find_srt_file(file_path) else 'NO'
+
+
+MULTIPART_RE = re.compile(r'\b(part|pt|disc|disk|cd|side|vol)\s*0*([1-9]|[a-b])\b', re.IGNORECASE)
+
+
+def check_multipart(filename):
+    """
+    Check if a filename indicates a multi-part media file (e.g. Part 1, Disc 2, Side A).
+    Returns matched part string (e.g. 'Part 1') or None.
+    """
+    if not filename:
+        return None
+    m = MULTIPART_RE.search(filename)
+    if m:
+        return m.group(0).strip()
+    return None
+
+
+def check_duration_health(db_time_str, file_time_str, tolerance_min=15, tolerance_pct=0.15):
+    """
+    Compare database runtime against probed file duration.
+    Returns:
+        (status, diff_minutes)
+        status: 'OK', 'MISMATCH', or '-'
+        diff_minutes: file_minutes - db_minutes
+    """
+    db_m = parse_duration_minutes(db_time_str)
+    file_m = parse_duration_minutes(file_time_str)
+    if not db_m or not file_m or db_m <= 0 or file_m <= 0:
+        return ('-', 0)
+    diff = abs(file_m - db_m)
+    allowed = max(tolerance_min, int(db_m * tolerance_pct))
+    if diff > allowed:
+        return ('MISMATCH', round(file_m - db_m))
+    return ('OK', round(file_m - db_m))
+
+
+def check_subtitles_info(file_path, video_duration_sec=None):
     """
     Check subtitle type and Jellyfin playback compatibility for a video:
     1. Check for external subtitle files (.srt, .en.srt, .eng.srt, .vtt, etc.)
     2. Check embedded subtitle streams using ffprobe.
+    3. Check if external subtitle timestamps overrun video duration (>5 min past end).
     Returns:
         (sub_type, jf_status, raw_sub, raw_bmp, raw_srt):
-          sub_type: 'SRT', 'Text', 'Bitmap', 'None', or '-'
-          jf_status: 'DIRECT', 'TRANSCODE', or '-'
+          sub_type: 'SRT', 'Text', 'Bitmap', 'OVERRUN', 'None', or '-'
+          jf_status: 'DIRECT', 'TRANSCODE', 'DESYNC', or '-'
           raw_sub, raw_bmp, raw_srt: backward-compatible ('YES' / 'NO')
     """
     if not file_path or not os.path.isfile(file_path):
@@ -347,10 +418,18 @@ def check_subtitles_info(file_path):
 
     # 1. External subtitle files
     base, _ = os.path.splitext(file_path)
-    raw_srt = check_srt_file(file_path)
+    srt_path = find_srt_file(file_path)
+    raw_srt = 'YES' if srt_path else 'NO'
     has_text = (raw_srt == 'YES') or any(os.path.isfile(base + ext) for ext in ('.vtt', '.en.vtt', '.sub'))
     has_bmp = False
     has_eng = (raw_srt == 'YES')
+
+    # Subtitle overrun check: if external .srt timestamps extend far past the video duration
+    is_overrun = False
+    if raw_srt == 'YES' and video_duration_sec and video_duration_sec > 60:
+        last_sub_sec = get_srt_last_timestamp(srt_path)
+        if last_sub_sec and (last_sub_sec > video_duration_sec + 300) and (last_sub_sec > video_duration_sec * 1.05):
+            is_overrun = True
 
     # 2. Embedded subtitle streams via ffprobe
     try:
@@ -407,7 +486,11 @@ def check_subtitles_info(file_path):
     raw_sub = 'YES' if has_eng else 'NO'
     raw_bmp = 'YES' if (has_bmp and not has_text and raw_srt != 'YES') else 'NO'
 
-    if raw_srt == 'YES':
+    if is_overrun:
+        sub_type = 'OVERRUN'
+        jf_status = 'DESYNC'
+        raw_srt = 'DESYNC'
+    elif raw_srt == 'YES':
         sub_type = 'SRT'
         jf_status = 'DIRECT'
     elif has_text and has_eng:
@@ -476,10 +559,22 @@ def get_video_metadata(file_path, cache=None):
                             cached_val['jellyfin'] = jf_status
 
                         # Check if an external .srt has been added to disk since caching
+                        c_dur_m = parse_duration_minutes(cached_val.get('time', '-'))
+                        c_dur_s = (c_dur_m * 60.0) if c_dur_m else None
                         if cached_val.get('sub') != 'SRT' and check_srt_file(file_path) == 'YES':
-                            cached_val['sub'] = 'SRT'
-                            cached_val['jellyfin'] = 'DIRECT'
-                            cached_val['srt'] = 'YES'
+                            sub_type, jf_status, r_sub, r_bmp, r_srt = check_subtitles_info(file_path, video_duration_sec=c_dur_s)
+                            cached_val['sub'] = sub_type
+                            cached_val['jellyfin'] = jf_status
+                            cached_val['srt'] = r_srt
+                        elif cached_val.get('sub') in ('SRT', 'OVERRUN') and c_dur_s:
+                            srt_f = find_srt_file(file_path)
+                            last_ts = get_srt_last_timestamp(srt_f)
+                            if last_ts and (last_ts > c_dur_s + 300) and (last_ts > c_dur_s * 1.05):
+                                cached_val['sub'] = 'OVERRUN'
+                                cached_val['jellyfin'] = 'DESYNC'
+                            elif cached_val.get('sub') == 'OVERRUN':
+                                cached_val['sub'] = 'SRT'
+                                cached_val['jellyfin'] = 'DIRECT'
 
                         return (
                             cached_val['format'],
@@ -502,6 +597,7 @@ def get_video_metadata(file_path, cache=None):
         out = subprocess.check_output(cmd, timeout=10, stderr=subprocess.DEVNULL).decode("utf-8").strip()
         lines = [line.strip() for line in out.splitlines() if line.strip()]
         codec_str, res_str, fps_str, time_str = "-", "-", "-", "-"
+        dur_sec = None
         for line in lines:
             parts = line.split(',')
             if len(parts) >= 3:
@@ -509,9 +605,13 @@ def get_video_metadata(file_path, cache=None):
                 res_str = f"{parts[1]}p" if parts[1].isdigit() else "-"
                 fps_str = parse_fps(parts[2])
             elif len(parts) == 1:
+                try:
+                    dur_sec = float(parts[0])
+                except Exception:
+                    pass
                 time_str = format_time_seconds(parts[0])
 
-        sub_type, jf_status, r_sub, r_bmp, r_srt = check_subtitles_info(file_path)
+        sub_type, jf_status, r_sub, r_bmp, r_srt = check_subtitles_info(file_path, video_duration_sec=dur_sec)
         if cache is not None:
             with _cache_lock:
                 cache[cache_key] = {
@@ -531,28 +631,31 @@ def get_video_metadata(file_path, cache=None):
 
 
 
-def get_entry_colors(sub_val, jf_val, sized_val, has_video=True, use_color=True):
+def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=False, has_video=True, use_color=True):
     """
     Determine row color and column colors:
-      - If no subtitles will be displayed in jellyfin code it red.
-      - If improperly sized (Sized=NO) code it orange.
+      - If no subtitles or desynced/overrun, code it red.
+      - If duration mismatch (or incomplete multi-part), code it red.
+      - If improperly sized (Sized=NO), code it orange.
       - If jellyfin is loaded heavily code it yellow.
       - If clean code green.
+    Returns:
+      (row_c, sub_c, jf_c, sized_c, time_c, c_reset)
     """
     if not use_color:
-        return ('', '', '', '', '')
+        return ('', '', '', '', '', '')
 
-    c_red = '[91m'
-    c_orange = '[38;5;208m'
-    c_yellow = '[93m'
-    c_green = '[92m'
-    c_reset = '[0m'
+    c_red = '\033[91m'
+    c_orange = '\033[38;5;208m'
+    c_yellow = '\033[93m'
+    c_green = '\033[92m'
+    c_reset = '\033[0m'
 
     if not has_video:
-        return (c_red, c_red, c_red, '', c_reset)
+        return (c_red, c_red, c_red, '', '', c_reset)
 
     # Sub column
-    if sub_val in ('None', '-'):
+    if sub_val in ('None', '-', 'OVERRUN', 'DESYNC'):
         sub_c = c_red
     elif sub_val == 'Bitmap':
         sub_c = c_yellow
@@ -560,7 +663,7 @@ def get_entry_colors(sub_val, jf_val, sized_val, has_video=True, use_color=True)
         sub_c = c_green
 
     # Jellyfin column
-    if jf_val == '-':
+    if jf_val in ('-', 'DESYNC'):
         jf_c = c_red
     elif jf_val == 'TRANSCODE':
         jf_c = c_yellow
@@ -575,8 +678,16 @@ def get_entry_colors(sub_val, jf_val, sized_val, has_video=True, use_color=True)
     else:
         sized_c = ''
 
-    # Overall row color (priority: No subs (Red) > Improperly sized (Orange) > Transcode (Yellow) > Clean (Green))
-    if sub_val in ('None', '-') or jf_val == '-':
+    # Time column
+    if dur_status == 'MISMATCH' or is_multipart:
+        time_c = c_red
+    elif dur_status == 'OK':
+        time_c = c_green
+    else:
+        time_c = ''
+
+    # Overall row color (priority: Red (Fail: No subs / Overrun / Dur Mismatch / Multi-part) > Orange (Improperly sized) > Yellow (Transcode) > Green (Clean))
+    if sub_val in ('None', '-', 'OVERRUN', 'DESYNC') or jf_val in ('-', 'DESYNC') or dur_status == 'MISMATCH' or is_multipart:
         row_c = c_red
     elif sized_val == 'NO':
         row_c = c_orange
@@ -585,14 +696,34 @@ def get_entry_colors(sub_val, jf_val, sized_val, has_video=True, use_color=True)
     else:
         row_c = c_green
 
-    return (row_c, sub_c, jf_c, sized_c, c_reset)
+    return (row_c, sub_c, jf_c, sized_c, time_c, c_reset)
 
-def batch_probe_metadata(items, path_getter, max_workers=12, verbose=False):
+def status_msg(msg, advance=False):
+    """
+    Print status message using \r without advancing the line if advance=False.
+    If advance=True, print the message and advance to the next line.
+    Automatically clips and pads to terminal width to prevent line wrapping.
+    """
+    cols = shutil.get_terminal_size((80, 24)).columns
+    max_len = max(10, cols - 1)
+    clean = msg[:max_len]
+    padded = clean.ljust(max_len)
+    sys.stdout.write(f"\r{padded}")
+    if advance:
+        sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
+def batch_probe_metadata(items, path_getter, max_workers=12, verbose=False, label="Probing"):
     """
     Batch probe video format/codec, resolution, frame rate, duration, and subtitles using ThreadPoolExecutor and disk cache.
+    Reports real-time periodic status with \r overwriting the current line.
     """
     cache = load_resolution_cache()
     paths = [path_getter(item) for item in items]
+    total = len(paths)
+    if total == 0:
+        return []
 
     needed = 0
     for p in paths:
@@ -606,11 +737,36 @@ def batch_probe_metadata(items, path_getter, max_workers=12, verbose=False):
             except Exception:
                 pass
 
-    if needed > 20 and verbose:
-        print(f"Probing video stream format/metadata for {needed} files...", file=sys.stderr)
+    lock = threading.Lock()
+    completed = 0
+    newly_saved = 0
+    last_print = [0.0]
+    has_printed = False
+
+    def _probe_item(p):
+        nonlocal completed, newly_saved, has_printed
+        res = get_video_metadata(p, cache)
+        with lock:
+            completed += 1
+            if verbose and needed > 0:
+                now = time.time()
+                if (now - last_print[0] >= 0.25) or (completed == total):
+                    pct = (completed / total) * 100.0 if total > 0 else 100.0
+                    fname = os.path.basename(p) if p else ''
+                    msg = f"  [{label}] {completed:,}/{total:,} ({pct:4.1f}%) | {fname}"
+                    status_msg(msg, advance=False)
+                    has_printed = True
+                    last_print[0] = now
+            newly_saved += 1
+            if newly_saved % 50 == 0:
+                save_resolution_cache(cache)
+        return res
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        meta_results = list(executor.map(lambda p: get_video_metadata(p, cache), paths))
+        meta_results = list(executor.map(_probe_item, paths))
+
+    if verbose and needed > 0:
+        status_msg(f"  [{label}] Probed {total:,} file(s) ({needed:,} new, {total - needed:,} cached) - Done!", advance=True)
 
     save_resolution_cache(cache)
     return meta_results
@@ -728,8 +884,11 @@ def scan_bak_files(movies_dir):
     bak_files = []
     if not os.path.isdir(movies_dir):
         return bak_files
-    for root, _, files in os.walk(movies_dir):
+    for root, dirs, files in os.walk(movies_dir):
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
         for f in files:
+            if f.startswith('.') or '.tmp.' in f.lower():
+                continue
             if f.endswith('.bak'):
                 full_p = os.path.join(root, f)
                 try:
@@ -759,9 +918,12 @@ def scan_video_files(movies_dir, extensions):
     if not os.path.isdir(movies_dir):
         return video_entries
 
-    for root, _, files in os.walk(movies_dir):
+    for root, dirs, files in os.walk(movies_dir):
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
         rel_dir = os.path.relpath(root, movies_dir)
         for f in sorted(files):
+            if f.startswith('.') or '.tmp.' in f.lower():
+                continue
             base, ext = os.path.splitext(f)
             ext_clean = ext.lower()
             if ext_clean in extensions:
@@ -940,9 +1102,12 @@ def compare_db_and_videos(db_movies, video_entries):
             movie_copy['ext'] = match['ext']
             movie_copy['size_bytes'] = match.get('size_bytes', 0)
             movie_copy['size_gb'] = match.get('size_gb', '-')
-            # Synchronize time between DB movie record and matched video file
+            # Retain original DB runtime
+            movie_copy['db_time'] = movie_copy.get('time', '-')
             if movie_copy.get('time', '-') == '-' and match.get('time', '-') != '-':
                 movie_copy['time'] = match['time']
+            match['db_time'] = movie_copy.get('db_time', '-')
+            match['file_time'] = match.get('time', '-')
             match['time'] = movie_copy.get('time', '-')
             movie_copy['sub'] = match.get('sub', '-')
             movie_copy['jellyfin'] = match.get('jellyfin', '-')
@@ -973,7 +1138,7 @@ def write_matched_file(output_path, matched_records, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Modified', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
+            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'DB_Time', 'Dur_Status', 'Sub', 'Jellyfin', 'Sized', 'Modified', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
             for movie_item, match_item in matched_records:
                 writer.writerow([
                     movie_item['imdb_id'],
@@ -983,7 +1148,9 @@ def write_matched_file(output_path, matched_records, output_format):
                     match_item.get('resolution', '-'),
                     match_item.get('fps', '-'),
                     format_size_gb(match_item.get('size_gb')),
-                    movie_item.get('time', '-'),
+                    movie_item.get('file_time', movie_item.get('time', '-')),
+                    movie_item.get('db_time', '-'),
+                    movie_item.get('dur_status', '-'),
                     match_item.get('sub', '-'),
                     match_item.get('jellyfin', '-'),
                     match_item.get('sized', '-'),
@@ -1006,7 +1173,11 @@ def write_matched_file(output_path, matched_records, output_format):
             item['resolution'] = match_item.get('resolution', '-')
             item['fps'] = match_item.get('fps', '-')
             item['size_gb'] = match_item.get('size_gb', '-')
-            item['time'] = movie_item.get('time', '-')
+            item['time'] = movie_item.get('file_time', movie_item.get('time', '-'))
+            item['file_time'] = movie_item.get('file_time', movie_item.get('time', '-'))
+            item['db_time'] = movie_item.get('db_time', '-')
+            item['dur_status'] = movie_item.get('dur_status', '-')
+            item['is_multipart'] = movie_item.get('is_multipart', False)
             item['sub'] = match_item.get('sub', '-')
             item['jellyfin'] = match_item.get('jellyfin', '-')
             item['sized'] = match_item.get('sized', '-')
@@ -1024,7 +1195,10 @@ def write_matched_file(output_path, matched_records, output_format):
                 res_str = f"[{match_item.get('resolution', '-')}]"
                 fps_str = f"[{match_item.get('fps', '-')} fps]"
                 sz_str = f"[{format_size_gb(match_item.get('size_gb'))} GB]"
-                time_str = f"[{movie_item.get('time', '-')}]"
+                raw_t = movie_item.get('file_time', movie_item.get('time', '-'))
+                if (movie_item.get('dur_status') == 'MISMATCH' or movie_item.get('is_multipart')) and raw_t != '-':
+                    raw_t = f"{raw_t}*"
+                time_str = f"[{raw_t}]" 
                 sub_str = f"[{match_item.get('sub', '-')}]"
                 bmp_str = f"[{match_item.get('bmp', '-')}]"
                 srt_str = f"[{match_item.get('srt', '-')}]"
@@ -1217,6 +1391,12 @@ def main(*raw_args):
         help="Filter output to display/export only improperly sized (Sized=NO) video files."
     )
     parser.add_argument(
+        "--mismatched-only", "--dur-mismatch-only",
+        dest="mismatched_only",
+        action="store_true",
+        help="Filter output to display/export only movies with duration mismatches or split parts."
+    )
+    parser.add_argument(
         "-q", "--quiet",
         action="store_true",
         help="Quiet mode: prints plain title lists to stdout."
@@ -1287,6 +1467,8 @@ def main(*raw_args):
     c_green = '[92m' if use_color else ''
     c_reset = '[0m' if use_color else ''
 
+    if not args.quiet:
+        status_msg(f"Loading database records from: {args.db}...", advance=False)
     db_movies = load_db_movies(args.db)
 
     # Apply DVD filter if requested
@@ -1295,8 +1477,15 @@ def main(*raw_args):
     elif args.dvd_filter == 'non_dvd':
         db_movies = [m for m in db_movies if str(m['dvd']) == '0']
 
+    if not args.quiet:
+        status_msg(f"Loaded {len(db_movies):,} movie record(s) from database.", advance=True)
+        status_msg(f"Scanning movies directory: {args.movies_dir}...", advance=False)
+
     video_entries = scan_video_files(args.movies_dir, exts)
     bak_entries = scan_bak_files(args.movies_dir)
+
+    if not args.quiet:
+        status_msg(f"Found {len(video_entries):,} video file(s) and {len(bak_entries):,} backup (.bak) file(s).", advance=True)
 
     if args.prune_backups and len(bak_entries) > args.max_backups:
         to_prune = len(bak_entries) - args.max_backups
@@ -1312,7 +1501,13 @@ def main(*raw_args):
     total_bak_bytes = sum(b['size_bytes'] for b in bak_entries)
     total_bak_gb = total_bak_bytes / (1024 ** 3)
 
+    if not args.quiet:
+        status_msg("Comparing database records against library video files...", advance=False)
+
     matched, missing_db, unmatched_videos = compare_db_and_videos(db_movies, video_entries)
+
+    if not args.quiet:
+        status_msg(f"Comparison complete: {len(matched):,} matched, {len(missing_db):,} missing, {len(unmatched_videos):,} unmatched.", advance=True)
 
     sort_by_mtime = args.sort_by in ('mtime', 'recent', 'date', 'modified')
     sort_by_size = args.sort_by in ('size', 'size_desc', 'size_asc', 'filesize')
@@ -1367,23 +1562,43 @@ def main(*raw_args):
 
     # Probe format/codec, resolution & fps if needed
     if not args.skip_resolution:
-        # Probe matched video files
+                # Probe matched video files
         if args.show_only in ('all', 'matched') or args.output_matched or True:
             matched_meta = batch_probe_metadata(
-                matched, lambda m: m[1]['path'], verbose=(not args.quiet)
+                matched, lambda m: m[1]['path'], verbose=(not args.quiet), label="Probing matched"
             )
             for (movie_item, match_item), (fmt_val, r, fps, t_val, sub_val, jf_val) in zip(matched, matched_meta):
                 movie_item['format'] = fmt_val
                 movie_item['resolution'] = r
                 movie_item['fps'] = fps
-                if movie_item.get('time', '-') == '-' and t_val != '-':
-                    movie_item['time'] = t_val
-                match_item['time'] = movie_item.get('time', '-')
+
+                # Track probed file duration vs DB runtime
+                file_t = t_val if t_val != '-' else match_item.get('time', '-')
+                movie_item['file_time'] = file_t
+                match_item['file_time'] = file_t
+                match_item['time'] = file_t
+
+                db_t = movie_item.get('db_time', movie_item.get('time', '-'))
+                if db_t == '-' and file_t != '-':
+                    db_t = file_t
+                    movie_item['time'] = file_t
+                movie_item['db_time'] = db_t
+                match_item['db_time'] = db_t
+
+                dur_stat, dur_diff = check_duration_health(db_t, file_t)
+                is_mp = bool(check_multipart(match_item.get('filename')))
+                movie_item['dur_status'] = dur_stat
+                match_item['dur_status'] = dur_stat
+                movie_item['dur_diff'] = dur_diff
+                match_item['dur_diff'] = dur_diff
+                movie_item['is_multipart'] = is_mp
+                match_item['is_multipart'] = is_mp
+
                 movie_item['sub'] = sub_val
                 match_item['sub'] = sub_val
                 movie_item['jellyfin'] = jf_val
                 match_item['jellyfin'] = jf_val
-                sized_val = check_sized(r, match_item.get('size_gb'), movie_item.get('time'))
+                sized_val = check_sized(r, match_item.get('size_gb'), file_t if file_t != '-' else db_t)
                 movie_item['sized'] = sized_val
                 match_item['sized'] = sized_val
                 movie_item['oversized'] = 'YES' if sized_val == 'NO' else ('NO' if sized_val == 'YES' else '-')
@@ -1395,7 +1610,7 @@ def main(*raw_args):
         # Probe unmatched video files
         if args.show_only in ('all', 'unmatched', 'both') or args.output_unmatched or True:
             unmatched_meta = batch_probe_metadata(
-                unmatched_videos, lambda v: v['path'], verbose=(not args.quiet)
+                unmatched_videos, lambda v: v['path'], verbose=(not args.quiet), label="Probing unmatched"
             )
             for v, (fmt_val, r, fps, t_val, sub_val, jf_val) in zip(unmatched_videos, unmatched_meta):
                 v['format'] = fmt_val
@@ -1408,31 +1623,68 @@ def main(*raw_args):
                 v['sized'] = check_sized(r, v.get('size_gb'), v.get('time'))
                 v['oversized'] = 'YES' if v['sized'] == 'NO' else ('NO' if v['sized'] == 'YES' else '-')
 
-        # Ensure unmatched videos have duration probed if not already present
-        missing_unmatched_dur = [v for v in unmatched_videos if v.get('time', '-') == '-']
-        if missing_unmatched_dur:
-            cache = load_resolution_cache()
-            def _probe_dur_single(v_entry):
-                p = v_entry['path']
-                try:
-                    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", p]
-                    dur = subprocess.check_output(cmd, timeout=5, stderr=subprocess.DEVNULL).decode().strip()
-                    t = format_time_seconds(dur)
-                    if t != '-':
-                        v_entry['time'] = t
-                        st = os.stat(p)
-                        k = f"{p}|{st.st_mtime}|{st.st_size}"
-                        with _cache_lock:
-                            if k in cache and isinstance(cache[k], dict):
-                                cache[k]['time'] = t
-                except Exception:
-                    pass
-            with ThreadPoolExecutor(max_workers=24) as ex:
-                list(ex.map(_probe_dur_single, missing_unmatched_dur))
-            save_resolution_cache(cache)
-            for v in unmatched_videos:
-                v['sized'] = check_sized(v.get('resolution'), v.get('size_gb'), v.get('time'))
-                v['oversized'] = 'YES' if v['sized'] == 'NO' else ('NO' if v['sized'] == 'YES' else '-')
+    # Ensure duration health & multipart evaluated for all matched items
+    for movie_item, match_item in matched:
+        if 'dur_status' not in movie_item:
+            f_t = match_item.get('file_time', match_item.get('time', '-'))
+            d_t = movie_item.get('db_time', movie_item.get('time', '-'))
+            dur_stat, dur_diff = check_duration_health(d_t, f_t)
+            is_mp = bool(check_multipart(match_item.get('filename')))
+            movie_item['dur_status'] = dur_stat
+            match_item['dur_status'] = dur_stat
+            movie_item['dur_diff'] = dur_diff
+            match_item['dur_diff'] = dur_diff
+            movie_item['is_multipart'] = is_mp
+            match_item['is_multipart'] = is_mp
+
+    # Ensure unmatched videos have duration probed if not already present
+    missing_unmatched_dur = [v for v in unmatched_videos if v.get('time', '-') == '-']
+    if missing_unmatched_dur:
+        cache = load_resolution_cache()
+        dur_total = len(missing_unmatched_dur)
+        dur_completed = 0
+        dur_lock = threading.Lock()
+        dur_last_print = [0.0]
+        dur_has_printed = False
+
+        def _probe_dur_single(v_entry):
+            nonlocal dur_completed, dur_has_printed
+            p = v_entry['path']
+            try:
+                cmd = ["ffprobe", "-nostdin", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", p]
+                dur = subprocess.check_output(cmd, timeout=5, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL).decode().strip()
+                t = format_time_seconds(dur)
+                if t != '-':
+                    v_entry['time'] = t
+                    st = os.stat(p)
+                    k = f"{p}|{st.st_mtime}|{st.st_size}"
+                    with _cache_lock:
+                        if k in cache and isinstance(cache[k], dict):
+                            cache[k]['time'] = t
+                else:
+                    v_entry['time'] = '00:00'
+            except Exception:
+                v_entry['time'] = '00:00'
+            with dur_lock:
+                dur_completed += 1
+                if not args.quiet:
+                    now = time.time()
+                    if (now - dur_last_print[0] >= 0.25) or (dur_completed == dur_total):
+                        pct = (dur_completed / dur_total) * 100.0 if dur_total > 0 else 100.0
+                        fname = os.path.basename(p) if p else ''
+                        msg = f"  [Probing Unmatched Duration] {dur_completed:,}/{dur_total:,} ({pct:4.1f}%) | {fname}"
+                        status_msg(msg, advance=False)
+                        dur_has_printed = True
+                        dur_last_print[0] = now
+
+        with ThreadPoolExecutor(max_workers=24) as ex:
+            list(ex.map(_probe_dur_single, missing_unmatched_dur))
+        if dur_has_printed:
+            status_msg(f"  [Probing Unmatched Duration] Probed duration for {dur_total:,} unmatched video file(s) - Done!", advance=True)
+        save_resolution_cache(cache)
+        for v in unmatched_videos:
+            v['sized'] = check_sized(v.get('resolution'), v.get('size_gb'), v.get('time'))
+            v['oversized'] = 'YES' if v['sized'] == 'NO' else ('NO' if v['sized'] == 'YES' else '-')
 
     # Calculate sized totals (Sized=NO means improperly sized / oversized)
     matched_not_sized_count = sum(1 for _, match_item in matched if match_item.get('sized') == 'NO')
@@ -1449,12 +1701,23 @@ def main(*raw_args):
     total_not_sized_count = matched_not_sized_count + unmatched_not_sized_count
     total_not_sized_gb = (matched_not_sized_bytes + unmatched_not_sized_bytes) / (1024 ** 3)
 
+    # Count duration mismatches and multi-part files
+    matched_dur_mismatch_count = sum(1 for m in matched if m[0].get('dur_status') == 'MISMATCH' or m[0].get('is_multipart'))
+    matched_desync_count = sum(1 for m in matched if m[1].get('sub') == 'OVERRUN' or m[1].get('jellyfin') == 'DESYNC')
+
     # Filter for not-sized-only / oversized-only if requested
     is_filtered_not_sized = getattr(args, 'not_sized_only', False) or getattr(args, 'oversized_only', False)
     if is_filtered_not_sized:
         matched = [(mov, mat) for mov, mat in matched if mat.get('sized') == 'NO']
         missing_db = []  # Missing movies have no file on disk, so they cannot be improperly sized
         unmatched_videos = [v for v in unmatched_videos if v.get('sized') == 'NO']
+
+    # Filter for mismatched-only if requested
+    is_filtered_mismatched = getattr(args, 'mismatched_only', False)
+    if is_filtered_mismatched:
+        matched = [(mov, mat) for mov, mat in matched if mov.get('dur_status') == 'MISMATCH' or mov.get('is_multipart') or mat.get('sub') == 'OVERRUN' or mat.get('jellyfin') == 'DESYNC']
+        missing_db = []
+        unmatched_videos = [v for v in unmatched_videos if check_multipart(v.get('filename'))]
 
     # Determine output format for primary output file
     fmt = args.format
@@ -1512,7 +1775,10 @@ def main(*raw_args):
                     fmt_str = match_item.get('format', '-')
                     sz_str = f"{format_size_gb(match_item.get('size_gb'))}GB"
                     fps_str = f"{match_item.get('fps', '-')}fps"
-                    time_str = movie_item.get('time', '-')
+                    raw_time = movie_item.get('file_time', movie_item.get('time', '-'))
+                    dur_stat = movie_item.get('dur_status', 'OK')
+                    is_mp = movie_item.get('is_multipart', False)
+                    time_str = f"{raw_time}*" if ((dur_stat == 'MISMATCH' or is_mp) and raw_time != '-') else raw_time
                     sub_str = match_item.get('sub', '-')
                     jf_str = match_item.get('jellyfin', '-')
                     sized_str = match_item.get('sized', '-')
@@ -1563,6 +1829,8 @@ def main(*raw_args):
             print(f"  Sort Order:               {sort_desc}")
             print(f"  Total Video Library Size: {total_library_gb:,.2f} GB")
             print(f"  Improperly Sized Files:   {total_not_sized_count:,} files  ({total_not_sized_gb:,.2f} GB)")
+            print(f"  Duration Mismatches:      {matched_dur_mismatch_count:,} files  (split rips / runtime mismatches)")
+            print(f"  Subtitle Desync/Overrun:  {matched_desync_count:,} files  (subtitles extend past video end)")
             print(f"  DB Titles Total:          {len(db_movies):,}")
             print(f"  Video Files Total:        {len(video_entries):,}  ({total_library_gb:,.2f} GB)")
             bak_limit_notice = f" [EXCEEDS LIMIT: {len(bak_entries)} > {args.max_backups}]" if len(bak_entries) > args.max_backups else f" [<= {args.max_backups} limit]"
@@ -1578,12 +1846,14 @@ def main(*raw_args):
             print("    4. Resample:  Running resample_library is time-consuming.")
             print("    5. Subtitles: Running fetch_subtitles is not time-consuming.")
             print("    6. Backups:   Keep <= 50 .bak files; resample_library or check_database_health --prune-backups deletes older ones.")
+            print("    7. Duration:  Red duration with asterisk (*) indicates split rip (Part 1/Disc 1) or runtime discrepancy with DB.")
+            print("    8. DESYNC:    OVERRUN / DESYNC indicates subtitle timestamps extend far past video end (e.g. 24fps vs 25fps PAL mismatch or wrong cut; fix: retime or re-fetch SRT).")
             print("-" * banner_len)
             print("  Color Key:")
-            print(f"    {c_green}● Green:{c_reset}   Clean (Sized=YES & Jellyfin DIRECT text subtitles)")
+            print(f"    {c_green}● Green:{c_reset}   Clean (Sized=YES, matched duration & Jellyfin DIRECT text subtitles)")
             print(f"    {c_yellow}● Yellow:{c_reset}  Heavy Jellyfin load (TRANSCODE for bitmap subs; fix: run resample_library or fetch_subtitles)")
             print(f"    {c_orange}● Orange:{c_reset}  Improperly Sized (Sized=NO; fix: run resample_library)")
-            print(f"    {c_red}● Red:{c_reset}     No subtitles (no English subs in Jellyfin; fix: run resample_library or fetch_subtitles)")
+            print(f"    {c_red}● Red:{c_reset}     Fails health check (no subtitles, desynced/overrun subs, or duration mismatch/split rip)")
             print("=" * banner_len)
 
             # Section 1: Matched Titles (Output before Missing Titles)
@@ -1604,20 +1874,28 @@ def main(*raw_args):
                     res_display = match_item.get('resolution', '-')
                     fps_display = match_item.get('fps', '-')
                     sz_display = format_size_gb(match_item.get('size_gb'))
-                    time_display = movie_item.get('time', '-')
+                    raw_time = movie_item.get('file_time', movie_item.get('time', '-'))
+                    dur_stat = movie_item.get('dur_status', 'OK')
+                    is_mp = movie_item.get('is_multipart', False)
+                    time_display = f"{raw_time}*" if ((dur_stat == 'MISMATCH' or is_mp) and raw_time != '-') else raw_time
                     sub_display = match_item.get('sub', '-')
                     jf_display = match_item.get('jellyfin', '-')
                     sized_display = match_item.get('sized', '-')
                     title_display = movie_item.get('display_title_year', movie_item['title'])
-                    r_c, s_c, j_c, sz_c, rst = get_entry_colors(sub_display, jf_display, sized_display, True, use_color)
+                    r_c, s_c, j_c, sz_c, t_c, rst = get_entry_colors(
+                        sub_display, jf_display, sized_display,
+                        dur_status=dur_stat, is_multipart=is_mp,
+                        has_video=True, use_color=use_color
+                    )
+                    time_p = f"{t_c}{time_display:<6}{r_c}" if use_color else f"{time_display:<6}"
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
                     sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
                     if sort_by_mtime:
                         mod_display = match_item.get('modified', '-')
-                        print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {title_display}{rst}")
+                        print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {mod_display:<17} {title_display}{rst}")
                     else:
-                        print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
+                        print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
 
             # Section 2: Missing DB Titles
             if args.show_only in ('all', 'missing', 'both') and not is_filtered_not_sized:
@@ -1637,7 +1915,7 @@ def main(*raw_args):
                     jf_display = m.get('jellyfin', '-')
                     sized_display = m.get('sized', '-')
                     title_display = m.get('display_title_year', m['title'])
-                    r_c, s_c, j_c, sz_c, rst = get_entry_colors('-', '-', '-', False, use_color)
+                    r_c, s_c, j_c, sz_c, t_c, rst = get_entry_colors('-', '-', '-', has_video=False, use_color=use_color)
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
                     sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
@@ -1665,15 +1943,20 @@ def main(*raw_args):
                     jf_display = v.get('jellyfin', '-')
                     sized_display = v.get('sized', '-')
                     fn_display = v.get('display_filename', v['filename'])
-                    r_c, s_c, j_c, sz_c, rst = get_entry_colors(sub_display, jf_display, sized_display, True, use_color)
+                    is_mp_unmatched = bool(check_multipart(v.get('filename')))
+                    r_c, s_c, j_c, sz_c, t_c, rst = get_entry_colors(
+                        sub_display, jf_display, sized_display,
+                        is_multipart=is_mp_unmatched, has_video=True, use_color=use_color
+                    )
+                    time_p = f"{t_c}{time_display:<6}{r_c}" if use_color else f"{time_display:<6}"
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
                     sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
                     if sort_by_mtime:
                         mod_display = v.get('modified', '-')
-                        print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {fn_display}{rst}")
+                        print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {mod_display:<17} {fn_display}{rst}")
                     else:
-                        print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {fn_display}{rst}")
+                        print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {fn_display}{rst}")
 
             if args.output_matched:
                 print(f"\n[+] Matched list saved to: {os.path.abspath(args.output_matched)}")

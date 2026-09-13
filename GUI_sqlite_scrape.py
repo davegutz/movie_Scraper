@@ -1494,6 +1494,9 @@ class IMDBdataBase:
 
         def append_text(line):
             txt.config(state='normal')
+            if line.startswith('\r'):
+                txt.delete("end-1c linestart", "end-1c")
+                line = line.lstrip('\r')
             for seg_text, tag in parse_ansi(line):
                 if tag:
                     txt.insert(tk.END, seg_text, (tag,))
