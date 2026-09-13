@@ -706,6 +706,7 @@ def status_msg(msg, advance=False):
     Print status message using \r without advancing the line if advance=False.
     If advance=True, print the message and advance to the next line.
     Automatically clips and pads to terminal width to prevent line wrapping.
+    Always flushes stdout so status messages appear immediately without buffering delay.
     """
     cols = shutil.get_terminal_size((80, 24)).columns
     max_len = max(10, cols - 1)
@@ -720,7 +721,8 @@ def status_msg(msg, advance=False):
 def batch_probe_metadata(items, path_getter, max_workers=12, verbose=False, label="Probing"):
     """
     Batch probe video format/codec, resolution, frame rate, duration, and subtitles using ThreadPoolExecutor and disk cache.
-    Reports real-time periodic status with \r overwriting the current line.
+    Announces what it is doing, reports real-time periodic status with \r overwriting the current line,
+    and advances the screen line when complete.
     """
     cache = load_resolution_cache()
     paths = [path_getter(item) for item in items]
@@ -728,32 +730,26 @@ def batch_probe_metadata(items, path_getter, max_workers=12, verbose=False, labe
     if total == 0:
         return []
 
-    needed = 0
-    for p in paths:
-        if p and os.path.isfile(p):
-            try:
-                st = os.stat(p)
-                k = f"{p}|{st.st_mtime}|{st.st_size}"
-                cached = cache.get(k)
-                if not (isinstance(cached, dict) and 'res' in cached and 'fps' in cached and 'format' in cached and 'sub' in cached and 'bmp' in cached):
-                    needed += 1
-            except Exception:
-                pass
+    if verbose:
+        first_fn = os.path.basename(paths[0]) if paths and paths[0] else ""
+        init_detail = f" | {first_fn}" if first_fn else ""
+        status_msg(f"  [{label}] 0/{total:,} (0.0%){init_detail}", advance=False)
+        sys.stdout.flush()
 
     lock = threading.Lock()
     completed = 0
     newly_saved = 0
     last_print = [0.0]
-    has_printed = False
+    has_printed = True
 
     def _probe_item(p):
         nonlocal completed, newly_saved, has_printed
         res = get_video_metadata(p, cache)
         with lock:
             completed += 1
-            if verbose and needed > 0:
+            if verbose:
                 now = time.time()
-                if (now - last_print[0] >= 0.25) or (completed == total):
+                if (now - last_print[0] >= 0.2) or (completed == total):
                     pct = (completed / total) * 100.0 if total > 0 else 100.0
                     fname = os.path.basename(p) if p else ''
                     msg = f"  [{label}] {completed:,}/{total:,} ({pct:4.1f}%) | {fname}"
@@ -768,8 +764,8 @@ def batch_probe_metadata(items, path_getter, max_workers=12, verbose=False, labe
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         meta_results = list(executor.map(_probe_item, paths))
 
-    if verbose and needed > 0:
-        status_msg(f"  [{label}] Probed {total:,} file(s) ({needed:,} new, {total - needed:,} cached) - Done!", advance=True)
+    if verbose:
+        status_msg(f"  [{label}] {total:,}/{total:,} (100.0%) - Done!", advance=True)
 
     save_resolution_cache(cache)
     return meta_results
@@ -1680,6 +1676,10 @@ def main(*raw_args):
                         dur_has_printed = True
                         dur_last_print[0] = now
 
+        if not args.quiet:
+            first_dur_fn = os.path.basename(missing_unmatched_dur[0]['path']) if missing_unmatched_dur else ""
+            status_msg(f"  [Probing Unmatched Duration] 0/{dur_total:,} (0.0%) | {first_dur_fn}", advance=False)
+            sys.stdout.flush()
         with ThreadPoolExecutor(max_workers=24) as ex:
             list(ex.map(_probe_dur_single, missing_unmatched_dur))
         if dur_has_printed:
