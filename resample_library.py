@@ -322,6 +322,25 @@ def parse_duration_minutes(val):
     return None
 
 
+def parse_fps(val_str):
+    """Parse fractional or float frame rate string into clean FPS representation."""
+    try:
+        if not val_str or val_str == '-':
+            return '-'
+        if '/' in val_str:
+            num, den = val_str.split('/')
+            val = float(num) / float(den)
+        else:
+            val = float(val_str)
+        if val <= 0 or val > 240:
+            return '-'
+        if abs(val - round(val)) < 0.01:
+            return f"{int(round(val))}"
+        return f"{val:.2f}"
+    except Exception:
+        return '-'
+
+
 def is_oversized(res_str, size_gb, duration=None):
     """Check if file exceeds target bitrate/size threshold, scaled by duration."""
     if not isinstance(size_gb, (int, float)):
@@ -498,7 +517,7 @@ def probe_file_meta(file_path, cache):
                 c = parts[0].upper()
                 codec_str = 'H264' if c in ('AVC', 'AVC1') else c
                 res_str = f"{parts[1]}p" if (len(parts) >= 2 and parts[1].isdigit()) else "-"
-                fps_str = parts[2] if len(parts) >= 3 else "-"
+                fps_str = parse_fps(parts[2]) if len(parts) >= 3 else "-"
             elif len(parts) == 1:
                 time_str = format_duration_hr_min(parts[0])
         sub_type, jf_status, r_sub, r_bmp, r_srt = check_subtitles_info(file_path)
@@ -1693,4 +1712,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        main("--max-files 50 --sort-by size_desc")
+        main("--max-files 5 --sort-by size_desc")

@@ -576,10 +576,13 @@ def get_video_metadata(file_path, cache=None):
                                 cached_val['sub'] = 'SRT'
                                 cached_val['jellyfin'] = 'DIRECT'
 
+                        fps_clean = parse_fps(cached_val.get('fps', '-'))
+                        if cached_val.get('fps') != fps_clean:
+                            cached_val['fps'] = fps_clean
                         return (
                             cached_val['format'],
                             cached_val['res'],
-                            cached_val['fps'],
+                            fps_clean,
                             format_time_minutes(cached_val.get('time', '-')),
                             cached_val['sub'],
                             cached_val['jellyfin']
@@ -1872,7 +1875,7 @@ def main(*raw_args):
                     ext_display = match_item.get('ext', '-')
                     fmt_display = match_item.get('format', '-')
                     res_display = match_item.get('resolution', '-')
-                    fps_display = match_item.get('fps', '-')
+                    fps_display = parse_fps(match_item.get('fps', '-'))
                     sz_display = format_size_gb(match_item.get('size_gb'))
                     raw_time = movie_item.get('file_time', movie_item.get('time', '-'))
                     dur_stat = movie_item.get('dur_status', 'OK')
@@ -1908,7 +1911,7 @@ def main(*raw_args):
                     ext_display = m.get('ext', '-')
                     fmt_display = m.get('format', '-')
                     res_display = m.get('resolution', '-')
-                    fps_display = m.get('fps', '-')
+                    fps_display = parse_fps(m.get('fps', '-'))
                     sz_display = format_size_gb(m.get('size_gb'))
                     time_display = m.get('time', '-')
                     sub_display = m.get('sub', '-')
@@ -1936,7 +1939,7 @@ def main(*raw_args):
                 for v in unmatched_videos:
                     subfolder_display = v['rel_dir'] if v['rel_dir'] else "-"
                     fmt_display = v.get('format', '-')
-                    fps_display = v.get('fps', '-')
+                    fps_display = parse_fps(v.get('fps', '-'))
                     sz_display = format_size_gb(v.get('size_gb'))
                     time_display = v.get('time', '-')
                     sub_display = v.get('sub', '-')
