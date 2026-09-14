@@ -55,6 +55,7 @@ from time import sleep
 import subprocess
 import threading
 from tkinter import scrolledtext
+from GitHub_util import check_newer_git_database
 
 if sys.platform == 'darwin':
     # noinspection PyUnresolvedReferences
@@ -375,8 +376,12 @@ class IMDBdataBase:
         self.check_db_health_btn = tk.Button(self.bot_frame_right, text="Check Database Health", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                              width=25, command=self.run_check_database_health)
         self.check_db_health_btn.pack(side='top')
+        self.check_git_db_btn = tk.Button(self.bot_frame_right, text="Check Git DB Version", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+                                          width=25, command=lambda: self.check_git_newer_version(verbose=True))
+        self.check_git_db_btn.pack(side='top')
 
         self.root.title(f"Features ({len(self.tree.get_children())})")
+        self.root.after(200, self.check_git_newer_version)
         self.root.mainloop()
         self.conn.close()
 
@@ -1533,6 +1538,51 @@ class IMDBdataBase:
                 txt.after(0, on_done, -1)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def check_git_newer_version(self, verbose=False):
+        """Check if a newer version of the database exists in git repository (e.g. myComputer)."""
+        try:
+            db_name = os.path.basename(self.db_path) if self.db_path else "IMDB_Films.db"
+            print(Colors.fg.cyan, f"\n--- Checking git version for database '{db_name}' ({self.db_path}) ---", Colors.reset)
+            is_newer, info = check_newer_git_database(self.db_path, print_status=True)
+            if is_newer:
+                rem_date = info.get('remote_date', 'Unknown')
+                rem_msg = info.get('remote_msg', '')
+                rem_sha = info.get('remote_sha', '')
+                behind = info.get('behind_count')
+
+                msg_lines = [
+                    f"A newer version of {db_name} is available in git (myComputer)!\n",
+                    f"Remote commit date:    {rem_date}",
+                ]
+                if rem_msg:
+                    msg_lines.append(f"Remote commit message: {rem_msg}")
+                if rem_sha:
+                    msg_lines.append(f"Remote commit SHA:     {rem_sha}")
+                if behind:
+                    msg_lines.append(f"Commits behind:        {behind}")
+                if 'local_date' in info and info['local_date']:
+                    msg_lines.append(f"Local commit date:     {info['local_date']}")
+                elif 'local_mtime' in info:
+                    msg_lines.append(f"Local file date:       {info['local_mtime']}")
+                msg_lines.append("\nPlease update your local repository ('git pull') before modifying the database.")
+                msg = "\n".join(msg_lines)
+                print(Colors.fg.yellow, f"\n[WARNING] Newer database version found on git!\n{msg}\n", Colors.reset)
+                tk.messagebox.showwarning(title="Warning: Newer Database on Git", message=msg, parent=self.root)
+            else:
+                if 'error' in info:
+                    print(Colors.fg.orange, f"[Git Check] Status: {info.get('error')}\n", Colors.reset)
+                    if verbose:
+                        tk.messagebox.showerror(title="Git Check Error", message=f"Could not check git status:\n{info['error']}", parent=self.root)
+                else:
+                    method = info.get('method', 'git')
+                    print(Colors.fg.green, f"[Git Check] Status: '{db_name}' is up to date with {method}.\n", Colors.reset)
+                    if verbose:
+                        tk.messagebox.showinfo(title="Git Status", message=f"{db_name} is up to date with git.", parent=self.root)
+        except Exception as e:
+            print(Colors.fg.red, f"[Git Check] Error checking git version: {e}\n", Colors.reset)
+            if verbose:
+                tk.messagebox.showerror(title="Git Check Error", message=f"Error checking git version:\n{e}", parent=self.root)
 
 
 def get_bigrams(string):
