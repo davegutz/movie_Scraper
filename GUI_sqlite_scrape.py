@@ -55,7 +55,7 @@ from time import sleep
 import subprocess
 import threading
 from tkinter import scrolledtext
-from GitHub_util import check_newer_git_database
+from GitHub_util import check_newer_git_database, check_newer_git_repo
 
 if sys.platform == 'darwin':
     # noinspection PyUnresolvedReferences
@@ -376,7 +376,7 @@ class IMDBdataBase:
         self.check_db_health_btn = tk.Button(self.bot_frame_right, text="Check Database Health", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                              width=25, command=self.run_check_database_health)
         self.check_db_health_btn.pack(side='top')
-        self.check_git_db_btn = tk.Button(self.bot_frame_right, text="Check Git DB Version", font=('LilyUPC', 13, 'bold'), bg=light_purple,
+        self.check_git_db_btn = tk.Button(self.bot_frame_right, text="Check Git Versions", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                           width=25, command=lambda: self.check_git_newer_version(verbose=True))
         self.check_git_db_btn.pack(side='top')
 
@@ -1540,16 +1540,59 @@ class IMDBdataBase:
         threading.Thread(target=worker, daemon=True).start()
 
     def check_git_newer_version(self, verbose=False):
-        """Check if a newer version of the database exists in git repository (e.g. myComputer)."""
+        """Check if a newer version of movie_Scraper or the database exists in git repository."""
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        app_name = os.path.basename(app_dir)
+        db_name = os.path.basename(self.db_path) if self.db_path else "IMDB_Films.db"
+
+        # 1. Check application repository (movie_Scraper)
+        is_newer_app = False
+        info_app = {}
         try:
-            db_name = os.path.basename(self.db_path) if self.db_path else "IMDB_Films.db"
-            print(Colors.fg.cyan, f"\n--- Checking git version for database '{db_name}' ({self.db_path}) ---", Colors.reset)
-            is_newer, info = check_newer_git_database(self.db_path, print_status=True)
-            if is_newer:
-                rem_date = info.get('remote_date', 'Unknown')
-                rem_msg = info.get('remote_msg', '')
-                rem_sha = info.get('remote_sha', '')
-                behind = info.get('behind_count')
+            print(Colors.fg.cyan, f"\n--- Checking git version for application '{app_name}' ({app_dir}) ---", Colors.reset)
+            is_newer_app, info_app = check_newer_git_repo(repo_dir=app_dir, print_status=True)
+            if is_newer_app:
+                rem_date = info_app.get('remote_date', 'Unknown')
+                rem_msg = info_app.get('remote_msg', '')
+                rem_sha = info_app.get('remote_sha', '')
+                behind = info_app.get('behind_count')
+
+                msg_lines = [
+                    f"A newer version of '{app_name}' is available on git!\n",
+                    f"Remote commit date:    {rem_date}",
+                ]
+                if rem_msg:
+                    msg_lines.append(f"Remote commit message: {rem_msg}")
+                if rem_sha:
+                    msg_lines.append(f"Remote commit SHA:     {rem_sha}")
+                if behind:
+                    msg_lines.append(f"Commits behind:        {behind}")
+                if 'local_date' in info_app and info_app['local_date']:
+                    msg_lines.append(f"Local commit date:     {info_app['local_date']}")
+                msg_lines.append(f"\nPlease update your '{app_name}' repository ('git pull') to get the latest updates.")
+                msg = "\n".join(msg_lines)
+                print(Colors.fg.yellow, f"\n[WARNING] Newer application version found on git!\n{msg}\n", Colors.reset)
+                tk.messagebox.showwarning(title=f"Warning: Newer {app_name} on Git", message=msg, parent=self.root)
+            else:
+                if 'error' in info_app:
+                    print(Colors.fg.orange, f"[Git Check] Application status: {info_app.get('error')}\n", Colors.reset)
+                else:
+                    method = info_app.get('method', 'git')
+                    print(Colors.fg.green, f"[Git Check] Status: Application '{app_name}' is up to date with {method}.\n", Colors.reset)
+        except Exception as e:
+            print(Colors.fg.red, f"[Git Check] Error checking application git version: {e}\n", Colors.reset)
+
+        # 2. Check database file (e.g. myComputer/IMDB_Films.db)
+        is_newer_db = False
+        info_db = {}
+        try:
+            print(Colors.fg.cyan, f"--- Checking git version for database '{db_name}' ({self.db_path}) ---", Colors.reset)
+            is_newer_db, info_db = check_newer_git_database(self.db_path, print_status=True)
+            if is_newer_db:
+                rem_date = info_db.get('remote_date', 'Unknown')
+                rem_msg = info_db.get('remote_msg', '')
+                rem_sha = info_db.get('remote_sha', '')
+                behind = info_db.get('behind_count')
 
                 msg_lines = [
                     f"A newer version of {db_name} is available in git (myComputer)!\n",
@@ -1561,29 +1604,34 @@ class IMDBdataBase:
                     msg_lines.append(f"Remote commit SHA:     {rem_sha}")
                 if behind:
                     msg_lines.append(f"Commits behind:        {behind}")
-                if 'local_date' in info and info['local_date']:
-                    msg_lines.append(f"Local commit date:     {info['local_date']}")
-                elif 'local_mtime' in info:
-                    msg_lines.append(f"Local file date:       {info['local_mtime']}")
+                if 'local_date' in info_db and info_db['local_date']:
+                    msg_lines.append(f"Local commit date:     {info_db['local_date']}")
+                elif 'local_mtime' in info_db:
+                    msg_lines.append(f"Local file date:       {info_db['local_mtime']}")
                 msg_lines.append("\nPlease update your local repository ('git pull') before modifying the database.")
                 msg = "\n".join(msg_lines)
                 print(Colors.fg.yellow, f"\n[WARNING] Newer database version found on git!\n{msg}\n", Colors.reset)
                 tk.messagebox.showwarning(title="Warning: Newer Database on Git", message=msg, parent=self.root)
             else:
-                if 'error' in info:
-                    print(Colors.fg.orange, f"[Git Check] Status: {info.get('error')}\n", Colors.reset)
-                    if verbose:
-                        tk.messagebox.showerror(title="Git Check Error", message=f"Could not check git status:\n{info['error']}", parent=self.root)
+                if 'error' in info_db:
+                    print(Colors.fg.orange, f"[Git Check] Database status: {info_db.get('error')}\n", Colors.reset)
                 else:
-                    method = info.get('method', 'git')
-                    print(Colors.fg.green, f"[Git Check] Status: '{db_name}' is up to date with {method}.\n", Colors.reset)
-                    if verbose:
-                        tk.messagebox.showinfo(title="Git Status", message=f"{db_name} is up to date with git.", parent=self.root)
+                    method = info_db.get('method', 'git')
+                    print(Colors.fg.green, f"[Git Check] Status: Database '{db_name}' is up to date with {method}.\n", Colors.reset)
         except Exception as e:
-            print(Colors.fg.red, f"[Git Check] Error checking git version: {e}\n", Colors.reset)
-            if verbose:
-                tk.messagebox.showerror(title="Git Check Error", message=f"Error checking git version:\n{e}", parent=self.root)
+            print(Colors.fg.red, f"[Git Check] Error checking database git version: {e}\n", Colors.reset)
 
+        if verbose:
+            if not is_newer_app and not is_newer_db:
+                if 'error' in info_app or 'error' in info_db:
+                    errs = []
+                    if 'error' in info_app:
+                        errs.append(f"Application: {info_app['error']}")
+                    if 'error' in info_db:
+                        errs.append(f"Database: {info_db['error']}")
+                    tk.messagebox.showwarning(title="Git Check Notice", message="\n".join(errs), parent=self.root)
+                else:
+                    tk.messagebox.showinfo(title="Git Status", message=f"Both '{app_name}' and '{db_name}' are up to date with git.", parent=self.root)
 
 def get_bigrams(string):
     """Take a string and return a list of bigrams"""

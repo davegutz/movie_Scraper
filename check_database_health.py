@@ -682,15 +682,15 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
         sized_c = ''
 
     # Time column
-    if dur_status == 'MISMATCH' or is_multipart:
+    if dur_status == 'MISMATCH' or (dur_status != 'OK' and is_multipart):
         time_c = c_red
     elif dur_status == 'OK':
         time_c = c_green
     else:
         time_c = ''
 
-    # Overall row color (priority: Red (Fail: No subs / Overrun / Dur Mismatch / Multi-part) > Orange (Improperly sized) > Yellow (Transcode) > Green (Clean))
-    if sub_val in ('None', '-', 'OVERRUN', 'DESYNC') or jf_val in ('-', 'DESYNC') or dur_status == 'MISMATCH' or is_multipart:
+    # Overall row color (priority: Red (Fail: No subs / Overrun / Dur Mismatch) > Orange (Improperly sized) > Yellow (Transcode) > Green (Clean))
+    if sub_val in ('None', '-', 'OVERRUN', 'DESYNC') or jf_val in ('-', 'DESYNC') or dur_status == 'MISMATCH' or (dur_status != 'OK' and is_multipart):
         row_c = c_red
     elif sized_val == 'NO':
         row_c = c_orange
@@ -1082,16 +1082,20 @@ def compare_db_and_videos(db_movies, video_entries):
                         match = ve
                         break
 
-        # Tier 5: Exact normalized title without year requirement
+        # Tier 5: Exact normalized title without year requirement (only if release year not conflicting)
         if not match:
             for ve in video_entries:
+                if db_y and ve['year'] and abs(db_y - ve['year']) > 1:
+                    continue
                 if ve['norm_title'] == norm_t or ve['full_norm_title'] == norm_t:
                     match = ve
                     break
 
-        # Tier 6: Match against full base filename
+        # Tier 6: Match against full base filename (only if release year not conflicting)
         if not match:
             for ve in video_entries:
+                if db_y and ve['year'] and abs(db_y - ve['year']) > 1:
+                    continue
                 if ve['norm_base'] == norm_t or ve['compact_base'] == comp_t:
                     match = ve
                     break
@@ -1195,7 +1199,7 @@ def write_matched_file(output_path, matched_records, output_format):
                 fps_str = f"[{match_item.get('fps', '-')} fps]"
                 sz_str = f"[{format_size_gb(match_item.get('size_gb'))} GB]"
                 raw_t = movie_item.get('file_time', movie_item.get('time', '-'))
-                if (movie_item.get('dur_status') == 'MISMATCH' or movie_item.get('is_multipart')) and raw_t != '-':
+                if movie_item.get('dur_status') == 'MISMATCH' and raw_t != '-':
                     raw_t = f"{raw_t}*"
                 time_str = f"[{raw_t}]" 
                 sub_str = f"[{match_item.get('sub', '-')}]"
@@ -1705,7 +1709,7 @@ def main(*raw_args):
     total_not_sized_gb = (matched_not_sized_bytes + unmatched_not_sized_bytes) / (1024 ** 3)
 
     # Count duration mismatches and multi-part files
-    matched_dur_mismatch_count = sum(1 for m in matched if m[0].get('dur_status') == 'MISMATCH' or m[0].get('is_multipart'))
+    matched_dur_mismatch_count = sum(1 for m in matched if m[0].get('dur_status') == 'MISMATCH')
     matched_desync_count = sum(1 for m in matched if m[1].get('sub') == 'OVERRUN' or m[1].get('jellyfin') == 'DESYNC')
 
     # Filter for not-sized-only / oversized-only if requested
@@ -1718,7 +1722,7 @@ def main(*raw_args):
     # Filter for mismatched-only if requested
     is_filtered_mismatched = getattr(args, 'mismatched_only', False)
     if is_filtered_mismatched:
-        matched = [(mov, mat) for mov, mat in matched if mov.get('dur_status') == 'MISMATCH' or mov.get('is_multipart') or mat.get('sub') == 'OVERRUN' or mat.get('jellyfin') == 'DESYNC']
+        matched = [(mov, mat) for mov, mat in matched if mov.get('dur_status') == 'MISMATCH' or mat.get('sub') == 'OVERRUN' or mat.get('jellyfin') == 'DESYNC']
         missing_db = []
         unmatched_videos = [v for v in unmatched_videos if check_multipart(v.get('filename'))]
 
@@ -1781,7 +1785,7 @@ def main(*raw_args):
                     raw_time = movie_item.get('file_time', movie_item.get('time', '-'))
                     dur_stat = movie_item.get('dur_status', 'OK')
                     is_mp = movie_item.get('is_multipart', False)
-                    time_str = f"{raw_time}*" if ((dur_stat == 'MISMATCH' or is_mp) and raw_time != '-') else raw_time
+                    time_str = f"{raw_time}*" if (dur_stat == 'MISMATCH' and raw_time != '-') else raw_time
                     sub_str = match_item.get('sub', '-')
                     jf_str = match_item.get('jellyfin', '-')
                     sized_str = match_item.get('sized', '-')
@@ -1880,7 +1884,7 @@ def main(*raw_args):
                     raw_time = movie_item.get('file_time', movie_item.get('time', '-'))
                     dur_stat = movie_item.get('dur_status', 'OK')
                     is_mp = movie_item.get('is_multipart', False)
-                    time_display = f"{raw_time}*" if ((dur_stat == 'MISMATCH' or is_mp) and raw_time != '-') else raw_time
+                    time_display = f"{raw_time}*" if (dur_stat == 'MISMATCH' and raw_time != '-') else raw_time
                     sub_display = match_item.get('sub', '-')
                     jf_display = match_item.get('jellyfin', '-')
                     sized_display = match_item.get('sized', '-')

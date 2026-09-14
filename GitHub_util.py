@@ -18,9 +18,20 @@ import os
 import re
 import sys
 import time
-import requests
 import datetime
 import subprocess
+import json
+
+try:
+    import urllib.request
+    import urllib.error
+except ImportError:
+    pass
+
+try:
+    import requests
+except ImportError:
+    requests = None
 
 try:
     from Colors import Colors
@@ -35,6 +46,50 @@ except ImportError:
             orange = ''
             cyan = ''
             blue = ''
+
+
+def _http_get(url, headers=None, params=None, timeout=5):
+    """
+    HTTP GET helper returning (status_code, json_data, headers_dict).
+    Uses requests if installed, otherwise falls back to urllib.request.
+    """
+    if params:
+        query = '&'.join([f"{k}={v}" for k, v in params.items()])
+        sep = '&' if '?' in url else '?'
+        url = f"{url}{sep}{query}"
+
+    req_headers = dict(headers or {})
+    if 'User-Agent' not in req_headers:
+        req_headers['User-Agent'] = 'Python-git-check'
+
+    if requests is not None:
+        r = requests.get(url, headers=req_headers, timeout=timeout)
+        try:
+            data = r.json()
+        except Exception:
+            data = None
+        return r.status_code, data, r.headers
+
+    # Fallback to urllib.request
+    req = urllib.request.Request(url, headers=req_headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            status = response.getcode()
+            body = response.read().decode('utf-8')
+            try:
+                data = json.loads(body) if body else None
+            except Exception:
+                data = None
+            return status, data, dict(response.headers)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8') if hasattr(e, 'read') else ''
+        try:
+            data = json.loads(body) if body else None
+        except Exception:
+            data = None
+        return e.code, data, dict(e.headers)
+    except Exception as e:
+        raise e
 
 
 def get_file_timestamps(file_path):
@@ -100,15 +155,13 @@ def get_file_timestamp_from_github(repo_owner, repo_name, file_path, github_toke
         headers['Authorization'] = f"token {github_token}"
 
     try:
-        response = requests.get(api_url, headers=headers, params=params, timeout=timeout)
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-
-        if response.status_code == 200 and response.headers.get('Last-Modified'):
-            return response.headers['Last-Modified']
+        status_code, _, resp_headers = _http_get(api_url, headers=headers, params=params, timeout=timeout)
+        if status_code == 200 and resp_headers.get('Last-Modified'):
+            return resp_headers['Last-Modified']
         else:
             return None
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"An error occurred: {e}")
         return None
 
@@ -133,10 +186,9 @@ def get_github_file_timestamp(repo_owner, repo_name, file_path, github_token=Non
         headers['Authorization'] = f"token {github_token}"
 
     try:
-        response = requests.get(api_url, headers=headers, timeout=timeout)
+        status_code, commits, _ = _http_get(api_url, headers=headers, timeout=timeout)
 
-        if response.status_code == 200:
-            commits = response.json()
+        if status_code == 200:
             if commits:
                 date_str = commits[0]['commit']['author']['date']
                 datetime_obj = datetime.datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
@@ -146,27 +198,292 @@ def get_github_file_timestamp(repo_owner, repo_name, file_path, github_token=Non
                 # Try alternate case if file_path case differed
                 alt_path = 'IMDB_Films.db' if file_path == 'IMDB_films.db' else 'IMDB_films.db'
                 alt_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits?path={alt_path}&per_page=1"
-                alt_resp = requests.get(alt_url, headers=headers, timeout=timeout)
-                if alt_resp.status_code == 200:
-                    commits = alt_resp.json()
-                    if commits:
-                        date_str = commits[0]['commit']['author']['date']
-                        datetime_obj = datetime.datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
-                        return int(datetime_obj.timestamp())
+                alt_status, alt_commits, _ = _http_get(alt_url, headers=headers, timeout=timeout)
+                if alt_status == 200 and alt_commits:
+                    date_str = alt_commits[0]['commit']['author']['date']
+                    datetime_obj = datetime.datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+                    return int(datetime_obj.timestamp())
 
                 print(f"No commits found for file '{file_path}'.")
                 return None
         else:
-            print(f"Error: {response.status_code} - {response.text}")
+            print(f"Error: HTTP {status_code}")
             return None
     except Exception as e:
         print(f"An error occurred: {e}")
         return None
 
 
+def check_newer_git_repo(repo_dir=None, repo_owner=None, repo_name=None, file_path=None, github_token=None, timeout=5, print_status=True):
+    """
+    Checks if a newer version of a repository (or a specific file within it) exists in git.
+    Uses git CLI with fetch if local directory is a git repository, and falls back to GitHub REST API.
+
+    Args:
+        repo_dir (str, optional): Path to local repository directory or file. Defaults to current directory.
+        repo_owner (str, optional): GitHub repository owner. If None, auto-detected from origin remote.
+        repo_name (str, optional): GitHub repository name. If None, auto-detected from origin remote.
+        file_path (str, optional): Path or filename within repository to check. If None, checks entire repository.
+        github_token (str, optional): GitHub personal access token (or env GITHUB_TOKEN).
+        timeout (int): Timeout in seconds for git and network requests (default: 5).
+        print_status (bool): If True, print status updates to the screen (default: True).
+
+    Returns:
+        tuple (bool, dict):
+            bool: True if remote git has a newer version than local, False otherwise.
+            dict: Info dictionary containing commit information, dates, and check details.
+    """
+    if repo_dir:
+        repo_dir = os.path.abspath(repo_dir)
+        if os.path.isfile(repo_dir):
+            file_path = file_path or os.path.basename(repo_dir)
+            repo_dir = os.path.dirname(repo_dir)
+    else:
+        repo_dir = os.path.abspath('.')
+
+    # Handle case-insensitivity on local filesystem if file_path specified
+    if file_path:
+        full_file_path = os.path.join(repo_dir, file_path)
+        if not os.path.exists(full_file_path) and os.path.isdir(repo_dir):
+            target = file_path.lower()
+            for f in os.listdir(repo_dir):
+                if f.lower() == target:
+                    file_path = f
+                    full_file_path = os.path.join(repo_dir, f)
+                    break
+
+        if not os.path.exists(full_file_path):
+            err = f"Local file does not exist: {full_file_path}"
+            if print_status:
+                print(Colors.fg.red, f"[Git Check] {err}", Colors.reset)
+            return False, {'error': err}
+
+    # 1. Check if repo_dir is inside a git repository
+    is_git_repo = False
+    try:
+        r = subprocess.run(
+            ['git', '-C', repo_dir, 'rev-parse', '--is-inside-work-tree'],
+            capture_output=True, text=True, timeout=timeout
+        )
+        is_git_repo = (r.returncode == 0 and r.stdout.strip() == 'true')
+    except Exception:
+        pass
+
+    # Extract repository owner/name from origin remote if available
+    if is_git_repo:
+        try:
+            r = subprocess.run(
+                ['git', '-C', repo_dir, 'remote', 'get-url', 'origin'],
+                capture_output=True, text=True, timeout=timeout
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                url = r.stdout.strip()
+                match = re.search(r'github\.com[:/]([^/]+)/([^/.]+)', url)
+                if match:
+                    if not repo_owner:
+                        repo_owner = match.group(1)
+                    if not repo_name:
+                        repo_name = match.group(2)
+        except Exception:
+            pass
+
+    repo_name = repo_name or os.path.basename(repo_dir)
+    repo_owner = repo_owner or "davegutz"
+
+    target_desc = f"'{repo_name}/{file_path}'" if file_path else f"repository '{repo_name}'"
+
+    if print_status:
+        print(f"[Git Check] Evaluating {target_desc} in '{repo_dir}'...")
+
+    # 2. Try git CLI fetch & rev-list if local folder is a git repo
+    git_fetch_success = False
+    if is_git_repo:
+        if print_status:
+            print(f"[Git Check] Local git repository detected for {target_desc}.")
+            print(f"[Git Check] Fetching updates from remote 'origin' (timeout {timeout}s)...")
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
+        try:
+            r = subprocess.run(
+                ['git', '-C', repo_dir, 'fetch', 'origin'],
+                capture_output=True, text=True, timeout=timeout, env=env
+            )
+            if r.returncode == 0:
+                git_fetch_success = True
+                if print_status:
+                    print(f"[Git Check] Git fetch completed successfully.")
+            else:
+                if print_status:
+                    print(f"[Git Check] Git fetch returned code {r.returncode}. Falling back to cached/GitHub API.")
+        except subprocess.TimeoutExpired:
+            if print_status:
+                print(f"[Git Check] Git fetch timed out after {timeout}s.")
+        except Exception as e:
+            if print_status:
+                print(f"[Git Check] Git fetch exception: {e}")
+
+        if git_fetch_success:
+            upstream = None
+            for ref in ['@{u}', 'origin/main', 'origin/master']:
+                r = subprocess.run(
+                    ['git', '-C', repo_dir, 'rev-parse', '--verify', ref],
+                    capture_output=True, text=True, timeout=timeout
+                )
+                if r.returncode == 0:
+                    upstream = ref
+                    break
+
+            if upstream:
+                if print_status:
+                    print(f"[Git Check] Comparing HEAD against upstream '{upstream}' for {target_desc}...")
+                rev_cmd = ['git', '-C', repo_dir, 'rev-list', '--count', f'HEAD..{upstream}']
+                if file_path:
+                    rev_cmd.extend(['--', file_path])
+
+                r = subprocess.run(rev_cmd, capture_output=True, text=True, timeout=timeout)
+                if r.returncode == 0:
+                    count = int(r.stdout.strip())
+                    if count > 0:
+                        rem_cmd = ['git', '-C', repo_dir, 'log', '-1', '--format=%H%x00%ci%x00%s', upstream]
+                        loc_cmd = ['git', '-C', repo_dir, 'log', '-1', '--format=%H%x00%ci%x00%s', 'HEAD']
+                        if file_path:
+                            rem_cmd.extend(['--', file_path])
+                            loc_cmd.extend(['--', file_path])
+
+                        r_log = subprocess.run(rem_cmd, capture_output=True, text=True, timeout=timeout)
+                        rem_sha, rem_date, rem_msg = r_log.stdout.strip().split('\x00') if r_log.returncode == 0 and r_log.stdout.strip() else ('', '', '')
+
+                        l_log = subprocess.run(loc_cmd, capture_output=True, text=True, timeout=timeout)
+                        loc_sha, loc_date, loc_msg = l_log.stdout.strip().split('\x00') if l_log.returncode == 0 and l_log.stdout.strip() else ('', '', '')
+
+                        if print_status:
+                            print(Colors.fg.yellow, f"[Git Check] Remote '{upstream}' is ahead by {count} commit(s) for {target_desc}!", Colors.reset)
+                            print(f"[Git Check]   Remote commit: {rem_sha[:7]} ({rem_date}) - {rem_msg}")
+                            print(f"[Git Check]   Local commit:  {loc_sha[:7]} ({loc_date})")
+
+                        return True, {
+                            'method': 'git',
+                            'repo_name': repo_name,
+                            'remote_sha': rem_sha[:7],
+                            'remote_date': rem_date,
+                            'remote_msg': rem_msg,
+                            'local_sha': loc_sha[:7] if loc_sha else 'None',
+                            'local_date': loc_date if loc_date else 'None',
+                            'behind_count': count,
+                        }
+                    else:
+                        if print_status:
+                            print(Colors.fg.green, f"[Git Check] Local repository is up to date with '{upstream}' for {target_desc}.", Colors.reset)
+                        return False, {'method': 'git', 'repo_name': repo_name, 'status': 'up-to-date'}
+
+    # 3. Fallback to GitHub REST API (if git fetch failed, upstream not found, or not a git repo)
+    if print_status:
+        print(f"[Git Check] Querying GitHub REST API for '{repo_owner}/{repo_name}'...")
+    try:
+        if not github_token:
+            github_token = os.environ.get("GITHUB_TOKEN")
+        headers = {}
+        if github_token:
+            headers['Authorization'] = f"token {github_token}"
+
+        api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits"
+        params = {'per_page': 1}
+        if file_path:
+            params['path'] = file_path
+
+        status_code, commits, _ = _http_get(api_url, headers=headers, params=params, timeout=timeout)
+
+        # If no commits found with given filename case, try alternate case
+        if not commits and file_path and status_code == 200:
+            alt_filename = 'IMDB_Films.db' if file_path == 'IMDB_films.db' else 'IMDB_films.db'
+            params['path'] = alt_filename
+            alt_status, alt_commits, _ = _http_get(api_url, headers=headers, params=params, timeout=timeout)
+            if alt_status == 200:
+                commits = alt_commits
+
+        if commits:
+            rem_sha = commits[0]['sha']
+            rem_date = commits[0]['commit']['author']['date']
+            rem_msg = commits[0]['commit']['message']
+            rem_dt = datetime.datetime.strptime(rem_date, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+            rem_ts = rem_dt.timestamp()
+
+            if is_git_repo:
+                loc_cmd = ['git', '-C', repo_dir, 'log', '-1', '--format=%H%x00%ct%x00%ci']
+                if file_path:
+                    loc_cmd.extend(['--', file_path])
+                loc_log = subprocess.run(loc_cmd, capture_output=True, text=True, timeout=timeout)
+                if loc_log.returncode == 0 and loc_log.stdout.strip():
+                    parts = loc_log.stdout.strip().split('\x00')
+                    loc_sha = parts[0]
+                    loc_ts = parts[1]
+                    loc_date = parts[2] if len(parts) > 2 else ''
+
+                    if loc_sha == rem_sha:
+                        if print_status:
+                            print(Colors.fg.green, f"[Git Check] Local commit ({loc_sha[:7]}) matches GitHub commit for {target_desc}. Up to date.", Colors.reset)
+                        return False, {'method': 'github_api', 'repo_name': repo_name, 'status': 'up-to-date'}
+
+                    if rem_ts > float(loc_ts):
+                        if print_status:
+                            print(Colors.fg.yellow, f"[Git Check] GitHub has newer commit ({rem_sha[:7]} at {rem_date}) than local ({loc_sha[:7]}) for {target_desc}.", Colors.reset)
+                        return True, {
+                            'method': 'github_api',
+                            'repo_name': repo_name,
+                            'remote_sha': rem_sha[:7],
+                            'remote_date': rem_date,
+                            'remote_msg': rem_msg,
+                            'local_sha': loc_sha[:7],
+                            'local_date': loc_date,
+                        }
+                    else:
+                        if print_status:
+                            print(Colors.fg.green, f"[Git Check] Local commit ({loc_sha[:7]}) is equal or newer than GitHub ({rem_sha[:7]}) for {target_desc}.", Colors.reset)
+                        return False, {'method': 'github_api', 'repo_name': repo_name, 'status': 'up-to-date'}
+
+            # Non-git folder with file_path
+            if file_path:
+                full_file_path = os.path.join(repo_dir, file_path)
+                local_mtime = os.path.getmtime(full_file_path)
+                if rem_ts > local_mtime + 60:
+                    loc_time_str = datetime.datetime.fromtimestamp(local_mtime, tz=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    if print_status:
+                        print(Colors.fg.yellow, f"[Git Check] GitHub commit ({rem_date}) is newer than local file ({loc_time_str}).", Colors.reset)
+                    return True, {
+                        'method': 'github_api',
+                        'repo_name': repo_name,
+                        'remote_sha': rem_sha[:7],
+                        'remote_date': rem_date,
+                        'remote_msg': rem_msg,
+                        'local_mtime': loc_time_str,
+                    }
+                else:
+                    if print_status:
+                        print(Colors.fg.green, f"[Git Check] Local file modification time is up to date with GitHub commit.", Colors.reset)
+                    return False, {'method': 'github_api', 'repo_name': repo_name, 'status': 'up-to-date'}
+
+        elif status_code == 403:
+            msg = "GitHub API rate limit exceeded"
+            if print_status:
+                print(Colors.fg.orange, f"[Git Check] {msg}", Colors.reset)
+            return False, {'method': 'github_api', 'repo_name': repo_name, 'status': 'rate-limited', 'error': msg}
+        elif status_code != 200:
+            msg = f"HTTP {status_code} from GitHub API"
+            if print_status:
+                print(Colors.fg.orange, f"[Git Check] {msg}", Colors.reset)
+            return False, {'method': 'github_api', 'repo_name': repo_name, 'status': msg}
+
+    except Exception as e:
+        if print_status:
+            print(Colors.fg.orange, f"[Git Check] Error querying GitHub API: {e}", Colors.reset)
+        return False, {'status': 'error', 'repo_name': repo_name, 'error': str(e)}
+
+    return False, {'status': 'up-to-date', 'repo_name': repo_name}
+
+
 def check_newer_git_database(local_db_path=None, repo_owner="davegutz", repo_name="myComputer", file_path="IMDB_Films.db", github_token=None, timeout=5, print_status=True):
     """
-    Checks if a newer version of the database exists in the git repository.
+    Checks if a newer version of the database exists in the git repository (e.g. myComputer).
     Uses git CLI with fetch if local directory is a git repository, and falls back to GitHub REST API.
 
     Args:
@@ -190,233 +507,16 @@ def check_newer_git_database(local_db_path=None, repo_owner="davegutz", repo_nam
     else:
         db_folder = os.path.abspath('.')
         db_filename = file_path
-        local_db_path = os.path.join(db_folder, db_filename)
 
-    # Handle case-insensitivity on local filesystem if file not found
-    if not os.path.exists(local_db_path) and os.path.isdir(db_folder):
-        target = db_filename.lower()
-        for f in os.listdir(db_folder):
-            if f.lower() == target:
-                local_db_path = os.path.join(db_folder, f)
-                db_filename = f
-                break
-
-    if print_status:
-        print(f"[Git Check] Evaluating database file: {local_db_path}")
-
-    if not os.path.exists(local_db_path):
-        err = f"Local file does not exist: {local_db_path}"
-        if print_status:
-            print(Colors.fg.red, f"[Git Check] {err}", Colors.reset)
-        return False, {'error': err}
-
-    # 1. Check if db_folder is inside a git repository
-    is_git_repo = False
-    try:
-        r = subprocess.run(
-            ['git', '-C', db_folder, 'rev-parse', '--is-inside-work-tree'],
-            capture_output=True, text=True, timeout=timeout
-        )
-        is_git_repo = (r.returncode == 0 and r.stdout.strip() == 'true')
-    except Exception:
-        pass
-
-    # Extract repository owner/name from origin remote if available
-    if is_git_repo:
-        try:
-            r = subprocess.run(
-                ['git', '-C', db_folder, 'remote', 'get-url', 'origin'],
-                capture_output=True, text=True, timeout=timeout
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                url = r.stdout.strip()
-                match = re.search(r'github\.com[:/]([^/]+)/([^/.]+)', url)
-                if match:
-                    repo_owner = match.group(1)
-                    repo_name = match.group(2)
-        except Exception:
-            pass
-
-    # 2. Try git CLI fetch & rev-list if local folder is a git repo
-    git_fetch_success = False
-    if is_git_repo:
-        if print_status:
-            print(f"[Git Check] Local git repository detected in '{db_folder}'.")
-            print(f"[Git Check] Fetching updates from remote 'origin' (timeout {timeout}s)...")
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        try:
-            r = subprocess.run(
-                ['git', '-C', db_folder, 'fetch', 'origin'],
-                capture_output=True, text=True, timeout=timeout, env=env
-            )
-            if r.returncode == 0:
-                git_fetch_success = True
-                if print_status:
-                    print(f"[Git Check] Git fetch completed successfully.")
-            else:
-                if print_status:
-                    print(f"[Git Check] Git fetch returned code {r.returncode}. Falling back to cached/GitHub API.")
-        except subprocess.TimeoutExpired:
-            if print_status:
-                print(f"[Git Check] Git fetch timed out after {timeout}s.")
-        except Exception as e:
-            if print_status:
-                print(f"[Git Check] Git fetch exception: {e}")
-
-        if git_fetch_success:
-            upstream = None
-            for ref in ['@{u}', 'origin/main', 'origin/master']:
-                r = subprocess.run(
-                    ['git', '-C', db_folder, 'rev-parse', '--verify', ref],
-                    capture_output=True, text=True, timeout=timeout
-                )
-                if r.returncode == 0:
-                    upstream = ref
-                    break
-
-            if upstream:
-                if print_status:
-                    print(f"[Git Check] Comparing HEAD against upstream '{upstream}' for '{db_filename}'...")
-                # Check if upstream branch has commits ahead of HEAD for db_filename
-                r = subprocess.run(
-                    ['git', '-C', db_folder, 'rev-list', '--count', f'HEAD..{upstream}', '--', db_filename],
-                    capture_output=True, text=True, timeout=timeout
-                )
-                if r.returncode == 0:
-                    count = int(r.stdout.strip())
-                    if count > 0:
-                        r_log = subprocess.run(
-                            ['git', '-C', db_folder, 'log', '-1', '--format=%H%x00%ci%x00%s', upstream, '--', db_filename],
-                            capture_output=True, text=True, timeout=timeout
-                        )
-                        rem_sha, rem_date, rem_msg = r_log.stdout.strip().split('\x00') if r_log.returncode == 0 and r_log.stdout.strip() else ('', '', '')
-
-                        l_log = subprocess.run(
-                            ['git', '-C', db_folder, 'log', '-1', '--format=%H%x00%ci%x00%s', 'HEAD', '--', db_filename],
-                            capture_output=True, text=True, timeout=timeout
-                        )
-                        loc_sha, loc_date, loc_msg = l_log.stdout.strip().split('\x00') if l_log.returncode == 0 and l_log.stdout.strip() else ('', '', '')
-
-                        if print_status:
-                            print(Colors.fg.yellow, f"[Git Check] Remote '{upstream}' is ahead by {count} commit(s) for '{db_filename}'!", Colors.reset)
-                            print(f"[Git Check]   Remote commit: {rem_sha[:7]} ({rem_date}) - {rem_msg}")
-                            print(f"[Git Check]   Local commit:  {loc_sha[:7]} ({loc_date})")
-
-                        return True, {
-                            'method': 'git',
-                            'remote_sha': rem_sha[:7],
-                            'remote_date': rem_date,
-                            'remote_msg': rem_msg,
-                            'local_sha': loc_sha[:7] if loc_sha else 'None',
-                            'local_date': loc_date if loc_date else 'None',
-                            'behind_count': count,
-                        }
-                    else:
-                        if print_status:
-                            print(Colors.fg.green, f"[Git Check] Local repository is up to date with '{upstream}' for '{db_filename}'.", Colors.reset)
-                        return False, {'method': 'git', 'status': 'up-to-date'}
-
-    # 3. Fallback to GitHub REST API (if git fetch failed, upstream not found, or not a git repo)
-    if print_status:
-        print(f"[Git Check] Querying GitHub REST API for '{repo_owner}/{repo_name}' path '{db_filename}'...")
-    try:
-        if not github_token:
-            github_token = os.environ.get("GITHUB_TOKEN")
-        headers = {}
-        if github_token:
-            headers['Authorization'] = f"token {github_token}"
-
-        api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits"
-        params = {'path': db_filename, 'per_page': 1}
-        resp = requests.get(api_url, headers=headers, params=params, timeout=timeout)
-
-        commits = []
-        if resp.status_code == 200:
-            commits = resp.json()
-
-        # If no commits found with given filename case, try alternate case
-        if not commits and resp.status_code == 200:
-            alt_filename = 'IMDB_Films.db' if db_filename == 'IMDB_films.db' else 'IMDB_films.db'
-            params = {'path': alt_filename, 'per_page': 1}
-            alt_resp = requests.get(api_url, headers=headers, params=params, timeout=timeout)
-            if alt_resp.status_code == 200:
-                commits = alt_resp.json()
-
-        if commits:
-            rem_sha = commits[0]['sha']
-            rem_date = commits[0]['commit']['author']['date']
-            rem_msg = commits[0]['commit']['message']
-            rem_dt = datetime.datetime.strptime(rem_date, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
-            rem_ts = rem_dt.timestamp()
-
-            if is_git_repo:
-                loc_log = subprocess.run(
-                    ['git', '-C', db_folder, 'log', '-1', '--format=%H%x00%ct%x00%ci', '--', db_filename],
-                    capture_output=True, text=True, timeout=timeout
-                )
-                if loc_log.returncode == 0 and loc_log.stdout.strip():
-                    parts = loc_log.stdout.strip().split('\x00')
-                    loc_sha = parts[0]
-                    loc_ts = parts[1]
-                    loc_date = parts[2] if len(parts) > 2 else ''
-
-                    if loc_sha == rem_sha:
-                        if print_status:
-                            print(Colors.fg.green, f"[Git Check] Local commit ({loc_sha[:7]}) matches GitHub commit. Up to date.", Colors.reset)
-                        return False, {'method': 'github_api', 'status': 'up-to-date'}
-
-                    if rem_ts > float(loc_ts):
-                        if print_status:
-                            print(Colors.fg.yellow, f"[Git Check] GitHub has newer commit ({rem_sha[:7]} at {rem_date}) than local ({loc_sha[:7]}).", Colors.reset)
-                        return True, {
-                            'method': 'github_api',
-                            'remote_sha': rem_sha[:7],
-                            'remote_date': rem_date,
-                            'remote_msg': rem_msg,
-                            'local_sha': loc_sha[:7],
-                            'local_date': loc_date,
-                        }
-                    else:
-                        if print_status:
-                            print(Colors.fg.green, f"[Git Check] Local commit ({loc_sha[:7]}) is equal or newer than GitHub ({rem_sha[:7]}).", Colors.reset)
-                        return False, {'method': 'github_api', 'status': 'up-to-date'}
-
-            # Non-git folder: compare with local file mtime
-            local_mtime = os.path.getmtime(local_db_path)
-            if rem_ts > local_mtime + 60:
-                loc_time_str = datetime.datetime.fromtimestamp(local_mtime, tz=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                if print_status:
-                    print(Colors.fg.yellow, f"[Git Check] GitHub commit ({rem_date}) is newer than local file ({loc_time_str}).", Colors.reset)
-                return True, {
-                    'method': 'github_api',
-                    'remote_sha': rem_sha[:7],
-                    'remote_date': rem_date,
-                    'remote_msg': rem_msg,
-                    'local_mtime': loc_time_str,
-                }
-            else:
-                if print_status:
-                    print(Colors.fg.green, f"[Git Check] Local file modification time is up to date with GitHub commit.", Colors.reset)
-                return False, {'method': 'github_api', 'status': 'up-to-date'}
-
-        elif resp.status_code == 403:
-            msg = "GitHub API rate limit exceeded"
-            if print_status:
-                print(Colors.fg.orange, f"[Git Check] {msg}", Colors.reset)
-            return False, {'method': 'github_api', 'status': 'rate-limited', 'error': msg}
-        elif resp.status_code != 200:
-            msg = f"HTTP {resp.status_code} from GitHub API"
-            if print_status:
-                print(Colors.fg.orange, f"[Git Check] {msg}", Colors.reset)
-            return False, {'method': 'github_api', 'status': msg}
-
-    except Exception as e:
-        if print_status:
-            print(Colors.fg.orange, f"[Git Check] Error querying GitHub API: {e}", Colors.reset)
-        return False, {'status': 'error', 'error': str(e)}
-
-    return False, {'status': 'up-to-date'}
+    return check_newer_git_repo(
+        repo_dir=db_folder,
+        repo_owner=repo_owner,
+        repo_name=repo_name,
+        file_path=db_filename,
+        github_token=github_token,
+        timeout=timeout,
+        print_status=print_status
+    )
 
 
 def main():
@@ -455,10 +555,16 @@ def main():
         time_diff = gethub_timestamp - local_timestamp
         print(f"Time difference = {time_diff}")
 
-    print("\nChecking for newer git database version:")
-    is_newer, info = check_newer_git_database(local_path, repo_owner=repo_owner, repo_name=repo_name, file_path=file_path)
-    print(f"Newer version available: {is_newer}")
-    print(f"Details: {info}")
+    print("\n--- Checking for newer application repository (movie_Scraper) ---")
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    is_newer_app, info_app = check_newer_git_repo(repo_dir=app_dir)
+    print(f"Application update available: {is_newer_app}")
+    print(f"Details: {info_app}")
+
+    print("\n--- Checking for newer database file (IMDB_Films.db) ---")
+    is_newer_db, info_db = check_newer_git_database(local_path, repo_owner=repo_owner, repo_name=repo_name, file_path=file_path)
+    print(f"Database update available: {is_newer_db}")
+    print(f"Details: {info_db}")
 
 
 if __name__ == "__main__":

@@ -57,6 +57,7 @@ Usage Examples:
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import atexit
 import json
 import os
 import re
@@ -75,6 +76,36 @@ DEFAULT_VIDEO_EXTS = {
 
 CACHE_DIR = os.path.expanduser("~/.cache/movie_scraper")
 CACHE_FILE = os.path.join(CACHE_DIR, "video_res_cache.json")
+
+# Global tracking of active FFmpeg process and temporary output file for safe emergency cleanup
+_active_ffmpeg_proc = None
+_active_temp_path = None
+
+
+def _emergency_cleanup(signum=None, frame=None):
+    global _active_ffmpeg_proc, _active_temp_path
+    if _active_ffmpeg_proc and _active_ffmpeg_proc.poll() is None:
+        try:
+            _active_ffmpeg_proc.kill()
+            _active_ffmpeg_proc.wait(timeout=2.0)
+        except Exception:
+            pass
+    if _active_temp_path and os.path.exists(_active_temp_path):
+        try:
+            os.remove(_active_temp_path)
+            print(f"\n[!] Cleaned up partial temporary file: {os.path.basename(_active_temp_path)}", file=sys.stderr)
+        except Exception:
+            pass
+    if signum is not None:
+        raise KeyboardInterrupt
+
+
+try:
+    signal.signal(signal.SIGTERM, _emergency_cleanup)
+except (ValueError, AttributeError):
+    pass
+atexit.register(_emergency_cleanup)
+
 
 # Import fetch_subtitles module for automatic subtitle downloads
 try:
@@ -903,6 +934,7 @@ def run_ffmpeg_with_progress(cmd, total_duration_sec=None, throttle_sec=0.5):
     Returns:
         (retcode, stderr_output)
     """
+    global _active_ffmpeg_proc
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -910,6 +942,7 @@ def run_ffmpeg_with_progress(cmd, total_duration_sec=None, throttle_sec=0.5):
         text=True,
         bufsize=1
     )
+    _active_ffmpeg_proc = proc
     cur_stats = {}
     last_print = 0.0
     has_printed = False
@@ -964,6 +997,7 @@ def run_ffmpeg_with_progress(cmd, total_duration_sec=None, throttle_sec=0.5):
         if has_printed:
             sys.stdout.write("\n")
             sys.stdout.flush()
+        _active_ffmpeg_proc = None
         return proc.returncode, (stderr_text or '')
     except KeyboardInterrupt:
         if has_printed:
@@ -982,10 +1016,12 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
     Returns:
         dict with success status, old_bytes, new_bytes, elapsed time.
     """
+    global _active_temp_path
     src_path = file_info['path']
     src_dir = os.path.dirname(src_path)
     src_base, src_ext = os.path.splitext(os.path.basename(src_path))
     temp_path = os.path.join(src_dir, f".{src_base}.resampled_tmp{src_ext}")
+    _active_temp_path = temp_path
 
     cmd = build_ffmpeg_cmd(src_path, temp_path, crf=crf, preset=preset)
 
@@ -1083,6 +1119,7 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
         if cache is not None:
             update_cache_entry(cache, src_path)
 
+        _active_temp_path = None
         return {
             'success': True,
             'old_bytes': old_bytes,
@@ -1093,8 +1130,6 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
         }
 
     except KeyboardInterrupt:
-        if proc and proc.poll() is None:
-            proc.kill()
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
@@ -1108,6 +1143,24 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
             except Exception:
                 pass
         return {'success': False, 'error': str(e)}
+
+
+def cleanup_stale_temp_files(movies_dir):
+    """Scan movies_dir for leftover .*.resampled_tmp.* files and remove them."""
+    if not movies_dir or not os.path.isdir(movies_dir):
+        return []
+    cleaned = []
+    for root, dirs, files in os.walk(movies_dir):
+        for f in files:
+            if '.resampled_tmp' in f:
+                p = os.path.join(root, f)
+                try:
+                    os.remove(p)
+                    cleaned.append(p)
+                    print(f"  [+] Cleaned up leftover temp file: {f}")
+                except Exception as e:
+                    print(f"  [!] Failed to remove leftover temp file {f}: {e}", file=sys.stderr)
+    return cleaned
 
 
 def prune_backups(movies_dir, max_backups=50):
@@ -1455,6 +1508,7 @@ def main(*raw_args):
             print(f"Error: Movies directory not found: {args.movies_dir}", file=sys.stderr)
             sys.exit(1)
 
+        cleanup_stale_temp_files(args.movies_dir)
         print(f"Scanning {args.movies_dir} for video files...")
         candidates = scan_candidates(
             args.movies_dir,
