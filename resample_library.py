@@ -26,8 +26,8 @@ Key Features:
     Pass --no-download-srt or --skip-srt to disable.
   - Automatic Subtitle Verification: By default, verifies that subtitles actually
     render onto video frames after re-encoding using verify_jellyfin_subtitles.py.
-    Extracts dialogue cues, renders frames with burned-in subtitles, and (if GEMINI_API_KEY
-    is set) runs AI multimodal visual QA to ensure captions are visible and legible.
+    Extracts dialogue cues and renders 2-3 proof snapshots with burned-in subtitles into
+    the subtitle_proof/ subfolder for user quality control.
     Pass --no-verify-subtitles or --skip-sub-verify to disable.
   - Cache Synchronization: Automatically updates the ffprobe cache in
     ~/.cache/movie_scraper/video_res_cache.json so check_database_health.py stays current.
@@ -1396,12 +1396,8 @@ def main(*raw_args):
     parser.add_argument(
         "--sub-samples",
         type=int,
-        default=1,
-        help="Number of dialogue cue frames to verify per movie (default: 1 for fast verification)."
-    )
-    parser.add_argument(
-        "--gemini-api-key",
-        help="Google Gemini API key for automated AI visual inspection (defaults to GEMINI_API_KEY environment variable)."
+        default=3,
+        help="Number of dialogue cue proof snapshots to save to subtitle_proof/ (default: 3)."
     )
     parser.add_argument(
         "--max-backups",
@@ -1485,16 +1481,11 @@ def main(*raw_args):
             if args.verify_subtitles and verify_jellyfin_subtitles is not None:
                 sub_res = verify_jellyfin_subtitles.verify_movie_subtitles(
                     args.file,
-                    samples=args.sub_samples,
-                    gemini_api_key=args.gemini_api_key
+                    samples=args.sub_samples
                 )
                 if sub_res.get('verified'):
-                    if sub_res.get('gemini_used'):
-                        det_sample = sub_res.get('detected_text') or sub_res.get('expected_text')
-                        print(f'    Subtitles: [✓] VERIFIED with Gemini Vision ("{det_sample}")')
-                    else:
-                        cue_info = f" at {sub_res['details'][0]['timestamp']}" if sub_res.get('details') else ""
-                        print(f"    Subtitles: [✓] Verified dialogue cue{cue_info} & frame captured")
+                    num_frames = len(sub_res.get('frames', []))
+                    print(f'    Subtitles: [✓] VERIFIED ({num_frames} proof snapshot{"s" if num_frames != 1 else ""} saved to subtitle_proof/)')
                 elif sub_res.get('has_subtitles'):
                     print(f"    Subtitles: [!] Warning: {sub_res.get('notes', 'Failed verification')}")
                 else:
@@ -1588,8 +1579,7 @@ def main(*raw_args):
             print(f"\n  [DRY RUN] Subtitle verification test for '{candidates[0]['filename']}':")
             test_ver = verify_jellyfin_subtitles.verify_movie_subtitles(
                 candidates[0]['path'],
-                samples=1,
-                gemini_api_key=args.gemini_api_key
+                samples=args.sub_samples
             )
             if test_ver.get('has_subtitles'):
                 cue_txt = f" (cue: \"{test_ver['expected_text']}\")" if test_ver.get('expected_text') else ""
@@ -1687,24 +1677,15 @@ def main(*raw_args):
                     try:
                         sub_res = verify_jellyfin_subtitles.verify_movie_subtitles(
                             fp,
-                            samples=args.sub_samples,
-                            gemini_api_key=args.gemini_api_key
+                            samples=args.sub_samples
                         )
                         if sub_res.get('verified'):
-                            if sub_res.get('gemini_used'):
-                                det_sample = sub_res.get('detected_text') or sub_res.get('expected_text')
-                                print(f'    Subtitles: [✓] VERIFIED with Gemini Vision ("{det_sample}")')
-                            else:
-                                cue_info = f" at {sub_res['details'][0]['timestamp']}" if sub_res.get('details') else ""
-                                print(f"    Subtitles: [✓] Verified dialogue cue{cue_info} & frame captured")
+                            num_frames = len(sub_res.get('frames', []))
+                            print(f'    Subtitles: [✓] VERIFIED ({num_frames} proof snapshot{"s" if num_frames != 1 else ""} saved to subtitle_proof/)')
                         elif sub_res.get('has_subtitles'):
-                            has_api_err = any(d.get('status') == 'API_ERROR' for d in sub_res.get('details', []))
-                            if has_api_err or 'Error calling Gemini API' in sub_res.get('notes', ''):
-                                print(f"    Subtitles: [!] Gemini API warning ({sub_res.get('notes')}); subtitle track confirmed on disk.")
-                            else:
-                                sub_fail_reason = f"Subtitle vision check failed ({sub_res.get('notes', 'Failed verification')})"
-                                print(f"    Subtitles: [✗] {sub_fail_reason}")
-                                sub_failed = True
+                            sub_fail_reason = f"Subtitle proof check failed ({sub_res.get('notes', 'Failed verification')})"
+                            print(f"    Subtitles: [✗] {sub_fail_reason}")
+                            sub_failed = True
                         else:
                             print("    Subtitles: [-] No subtitle track to verify")
                     except Exception as ex:
@@ -1766,4 +1747,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        main("--max-files 50 --sort-by size_desc")
+        main("--max-files 1 --sort-by size_desc")

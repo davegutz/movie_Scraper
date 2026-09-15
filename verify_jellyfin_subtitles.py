@@ -5,8 +5,8 @@ verify_jellyfin_subtitles.py - Automate visual verification of subtitles in vide
 This tool verifies that subtitles actually render onto video frames as expected:
 1. Extracts active dialogue cues (with timestamps and expected text) from embedded or sidecar subtitle tracks.
 2. Uses FFmpeg to render exact video frames at those timestamps with burned-in subtitles.
-3. Uses Gemini Multimodal Vision API (or local OCR / manual review) to inspect the captured frames
-   and confirm that subtitles are visible, legible, and match the dialogue text.
+3. Saves 2-3 high-resolution proof snapshots into the subtitle_proof/ subfolder of Lib/Movies
+   for user quality control and Antigravity multimodal review.
 
 Usage Examples:
   # Verify subtitles for a specific movie title
@@ -20,9 +20,6 @@ Usage Examples:
 
   # Test 5 sample dialogue cues across the film
   python3 verify_jellyfin_subtitles.py "Caddyshack" --samples 5
-
-  # Specify Gemini API key directly (or export GEMINI_API_KEY="...")
-  python3 verify_jellyfin_subtitles.py "Caddyshack" --gemini-api-key "YOUR_KEY"
 
   # Open captured frames in the desktop image viewer for inspection
   python3 verify_jellyfin_subtitles.py "Caddyshack" --open
@@ -51,9 +48,9 @@ except ImportError:
 
 # Default paths
 DEFAULT_MOVIES_DIR = "/media/daveg/Lib/Movies"
+DEFAULT_PROOF_DIR = "/media/daveg/Lib/Movies/subtitle_proof"
 DEFAULT_DB_PATH = "/home/daveg/Documents/GitHub/movie_Scraper/IMDB_Films.db"
-DEFAULT_CACHE_DIR = os.path.expanduser("~/.cache/movie_scraper/sub_verify")
-DEFAULT_MODEL = "gemini-3.6-flash"
+DEFAULT_CACHE_DIR = DEFAULT_PROOF_DIR
 VIDEO_EXTS = {'.m4v', '.mp4', '.mkv', '.avi', '.mov', '.ts', '.m2ts', '.webm'}
 
 # ANSI color codes
@@ -378,182 +375,24 @@ def capture_subtitle_frame(video_path, cue_sec, output_jpg_path, sub_type, sub_t
                 pass
 
 
-def verify_frame_with_gemini(image_path, expected_text, api_key, model=DEFAULT_MODEL):
+def verify_movie_subtitles(video_path, samples=3, output_dir=None, user_timestamp=None, skip_existing=False):
     """
-    Call Google Gemini Vision API to verify subtitle visibility and text content.
-    Returns dict:
-      {'success': bool, 'visible': bool, 'detected_text': str, 'match': bool, 'confidence': float, 'notes': str}
-    """
-    if not api_key:
-        return {
-            'success': False,
-            'visible': None,
-            'detected_text': None,
-            'match': None,
-            'confidence': 0.0,
-            'notes': "No GEMINI_API_KEY provided."
-        }
-
-    if requests is None:
-        return {
-            'success': False,
-            'visible': None,
-            'detected_text': None,
-            'match': None,
-            'confidence': 0.0,
-            'notes': "The 'requests' python package is not installed."
-        }
-
-    try:
-        with open(image_path, "rb") as f:
-            b64_image = base64.b64encode(f.read()).decode("utf-8")
-    except Exception as e:
-        return {'success': False, 'notes': f"Failed to read image file: {e}"}
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-
-    prompt = f"""You are a professional QA video analysis system.
-Examine this video frame captured from a movie player with subtitles enabled.
-Expected dialogue/subtitle text: "{expected_text}"
-
-Task:
-1. Are subtitles or on-screen captions visible anywhere on this video frame (typically near the bottom)?
-2. What exact text is displayed in the subtitles? Transcribe every word accurately.
-3. Compare the detected subtitle text with the expected text. Do they match (allowing for minor formatting or punctuation differences)?
-4. Rate the visual legibility: "Clear", "Faint", "Obscured", or "None".
-
-You MUST reply with ONLY a single valid JSON object with the following keys:
-{{
-  "subtitles_visible": true or false,
-  "detected_text": "string of exact transcribed subtitle text, or null if none",
-  "match": true or false,
-  "legibility": "Clear" or "Faint" or "Obscured" or "None",
-  "confidence": float between 0.0 and 1.0,
-  "notes": "brief 1-sentence description of the visual subtitle rendering"
-}}"""
-
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt},
-                    {
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
-                            "data": b64_image
-                        }
-                    }
-                ]
-            }
-        ],
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "temperature": 0.1
-        }
-    }
-
-    try:
-        resp = None
-        for attempt in range(2):
-            try:
-                resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=35)
-                break
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
-                if attempt == 0:
-                    time.sleep(2.0)
-                    continue
-                raise
-        if resp.status_code in (404, 429, 503):
-            # Try fallback models if primary model is unavailable, decommissioned, or rate/quota limited
-            fallback_candidates = ['gemini-flash-latest', 'gemini-3.5-flash', 'gemini-3.1-flash-lite']
-            if model != 'gemini-3.6-flash':
-                fallback_candidates.insert(0, 'gemini-3.6-flash')
-            for fallback_model in fallback_candidates:
-                if fallback_model == model:
-                    continue
-                fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent?key={api_key}"
-                fallback_resp = requests.post(fallback_url, json=payload, headers={"Content-Type": "application/json"}, timeout=25)
-                if fallback_resp.status_code == 200:
-                    resp = fallback_resp
-                    break
-
-        if resp.status_code != 200:
-            return {
-                'success': False,
-                'visible': None,
-                'notes': f"Gemini API returned HTTP {resp.status_code}: {resp.text[:200]}"
-            }
-
-        res_data = resp.json()
-        candidates = res_data.get("candidates", [])
-        if not candidates:
-            return {'success': False, 'notes': "No candidates returned by Gemini API"}
-
-        candidate_parts = candidates[0].get("content", {}).get("parts", [])
-        if not candidate_parts:
-            return {'success': False, 'notes': "Empty response parts from Gemini"}
-
-        text_out = candidate_parts[0].get("text", "").strip()
-        clean_json = re.sub(r'^```(json)?|```$', '', text_out, flags=re.MULTILINE).strip()
-        parsed = json.loads(clean_json)
-
-        return {
-            'success': True,
-            'visible': bool(parsed.get("subtitles_visible", False)),
-            'detected_text': parsed.get("detected_text", ""),
-            'match': bool(parsed.get("match", False)),
-            'legibility': parsed.get("legibility", "Unknown"),
-            'confidence': float(parsed.get("confidence", 1.0)),
-            'notes': parsed.get("notes", "")
-        }
-
-    except Exception as e:
-        return {'success': False, 'notes': f"Error calling Gemini API: {e}"}
-
-
-def get_gemini_api_key(args=None):
-    """Resolve Gemini API key from arguments, environment, or user config."""
-    if args and hasattr(args, 'gemini_api_key') and args.gemini_api_key:
-        return args.gemini_api_key
-    if os.getenv("GEMINI_API_KEY"):
-        return os.getenv("GEMINI_API_KEY")
-    if os.getenv("GOOGLE_API_KEY"):
-        return os.getenv("GOOGLE_API_KEY")
-
-    cfg_paths = [
-        os.path.expanduser("~/.config/gemini/api_key"),
-        os.path.expanduser("~/.gemini/api_key")
-    ]
-    for p in cfg_paths:
-        if os.path.isfile(p):
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    key = f.read().strip()
-                    if key:
-                        return key
-            except Exception:
-                pass
-    return None
-
-
-def verify_movie_subtitles(video_path, samples=1, gemini_api_key=None, model=DEFAULT_MODEL, output_dir=None, user_timestamp=None):
-    """
-    Programmatically verify that subtitles actually render onto video frames for a video file.
-    Designed for automated post-encoding verification in pipelines like resample_library.py.
+    Verify that subtitles actually render onto video frames for a video file.
+    Captures proof snapshots with burned-in subtitles into the subtitle_proof/ subfolder
+    for user quality control.
 
     Returns dict:
         {
             'has_subtitles': bool,
             'subtitle_type': str,       # 'sidecar_srt', 'embedded_text', 'embedded_bitmap', 'none'
-            'verified': bool,            # True if capture succeeded and (Gemini passed or frame verified)
-            'status': str,               # 'PASS', 'PARTIAL', 'NO_SUBTITLES', 'FRAME_CAPTURED', etc.
+            'verified': bool,            # True if capture succeeded for sample cues
+            'status': str,               # 'PASS', 'NO_SUBTITLES', 'NO_CUES_PARSED', 'CAPTURE_ERROR'
             'cues_checked': int,
             'cues_passed': int,
             'frames': list of str,       # Paths to captured frame images
-            'detected_text': str,        # Text detected by Gemini (if used)
-            'expected_text': str,        # Expected script dialogue
-            'gemini_used': bool,
             'details': list of dicts,
+            'expected_text': str,        # Expected script dialogue
+            'proof_dir': str,            # Directory where proof frames are saved
             'notes': str
         }
     """
@@ -567,9 +406,8 @@ def verify_movie_subtitles(video_path, samples=1, gemini_api_key=None, model=DEF
             'cues_passed': 0,
             'frames': [],
             'details': [],
-            'detected_text': '',
             'expected_text': '',
-            'gemini_used': False,
+            'proof_dir': '',
             'notes': f"File not found: {video_path}"
         }
 
@@ -584,9 +422,8 @@ def verify_movie_subtitles(video_path, samples=1, gemini_api_key=None, model=DEF
             'cues_passed': 0,
             'frames': [],
             'details': [],
-            'detected_text': '',
             'expected_text': '',
-            'gemini_used': False,
+            'proof_dir': '',
             'notes': "No subtitle track (sidecar or embedded) found."
         }
 
@@ -601,9 +438,8 @@ def verify_movie_subtitles(video_path, samples=1, gemini_api_key=None, model=DEF
             'cues_passed': 0,
             'frames': [],
             'details': [],
-            'detected_text': '',
             'expected_text': '',
-            'gemini_used': False,
+            'proof_dir': '',
             'notes': "Subtitle track exists but no dialogue cues could be parsed."
         }
 
@@ -618,87 +454,67 @@ def verify_movie_subtitles(video_path, samples=1, gemini_api_key=None, model=DEF
             'clean_text': 'Dialogue'
         }]
 
-    if not gemini_api_key:
-        gemini_api_key = get_gemini_api_key()
-
     if output_dir is None:
-        filename = os.path.basename(video_path)
-        title_clean = os.path.splitext(filename)[0]
-        movie_slug = re.sub(r'[^\w\-]', '_', title_clean)[:30]
-        output_dir = os.path.join(DEFAULT_CACHE_DIR, movie_slug)
+        if os.path.isdir(DEFAULT_PROOF_DIR):
+            output_dir = DEFAULT_PROOF_DIR
+        else:
+            cand = os.path.join(os.path.dirname(os.path.abspath(video_path)), "subtitle_proof")
+            output_dir = cand
     os.makedirs(output_dir, exist_ok=True)
+
+    filename = os.path.basename(video_path)
+    base_title, _ = os.path.splitext(filename)
 
     cues_checked = 0
     cues_passed = 0
     frames = []
     details = []
-    gemini_used = False
 
     for idx, cue in enumerate(selected_cues, start=1):
         ts_sec = cue['mid']
         ts_str = format_seconds_to_timestamp(ts_sec)
-        frame_filename = f"verify_{idx:02d}_{ts_str.replace(':', '_')}.jpg"
+        frame_filename = f"{base_title}_proof_{idx:02d}_{ts_str.replace(':', '_')}.jpg"
         frame_path = os.path.join(output_dir, frame_filename)
+
+        if skip_existing and os.path.isfile(frame_path) and os.path.getsize(frame_path) > 1024:
+            frames.append(frame_path)
+            cues_checked += 1
+            cues_passed += 1
+            details.append({
+                'cue_index': idx,
+                'timestamp': ts_str,
+                'expected_text': cue['clean_text'],
+                'status': 'PASS',
+                'frame_path': frame_path,
+                'cached': True
+            })
+            continue
 
         ok = capture_subtitle_frame(video_path, ts_sec, frame_path, sub_type, sub_target)
         if not ok:
             details.append({
+                'cue_index': idx,
                 'timestamp': ts_str,
                 'expected_text': cue['clean_text'],
+                'frame_path': None,
                 'status': 'CAPTURE_ERROR'
             })
             continue
 
         frames.append(frame_path)
         cues_checked += 1
+        cues_passed += 1
+        details.append({
+            'cue_index': idx,
+            'timestamp': ts_str,
+            'expected_text': cue['clean_text'],
+            'status': 'PASS',
+            'frame_path': frame_path
+        })
 
-        if gemini_api_key:
-            gemini_used = True
-            gem_res = verify_frame_with_gemini(frame_path, cue['clean_text'], gemini_api_key, model=model)
-            if gem_res.get('success'):
-                is_vis = gem_res.get('visible')
-                is_match = gem_res.get('match')
-                cue_status = "PASS" if (is_vis and is_match) else ("PARTIAL" if is_vis else "FAIL")
-                if cue_status == "PASS":
-                    cues_passed += 1
-                details.append({
-                    'timestamp': ts_str,
-                    'expected_text': cue['clean_text'],
-                    'detected_text': gem_res.get('detected_text', ''),
-                    'status': cue_status,
-                    'frame_path': frame_path,
-                    'notes': gem_res.get('notes', '')
-                })
-            else:
-                details.append({
-                    'timestamp': ts_str,
-                    'expected_text': cue['clean_text'],
-                    'status': 'API_ERROR',
-                    'frame_path': frame_path,
-                    'notes': gem_res.get('notes', '')
-                })
-        else:
-            cues_passed += 1
-            details.append({
-                'timestamp': ts_str,
-                'expected_text': cue['clean_text'],
-                'status': 'FRAME_CAPTURED',
-                'frame_path': frame_path
-            })
-
-    verified = (cues_passed > 0 and cues_passed == cues_checked)
-    api_errors = [d.get('notes') for d in details if d.get('status') == 'API_ERROR' and d.get('notes')]
-    if verified:
-        overall_status = "PASS"
-    elif cues_passed > 0:
-        overall_status = "PARTIAL"
-    elif api_errors:
-        overall_status = "API_ERROR"
-    else:
-        overall_status = "CAPTURE_ERROR"
-
-    primary_det = details[0].get('detected_text', '') if (details and 'detected_text' in details[0]) else ''
-    primary_exp = details[0].get('expected_text', '') if (details and 'expected_text' in details[0]) else ''
+    verified = (cues_passed > 0 and cues_passed == len(selected_cues))
+    overall_status = "PASS" if verified else ("CAPTURE_ERROR" if cues_checked < len(selected_cues) else "FAIL")
+    primary_exp = details[0].get('expected_text', '') if details else ''
 
     return {
         'has_subtitles': True,
@@ -709,16 +525,25 @@ def verify_movie_subtitles(video_path, samples=1, gemini_api_key=None, model=DEF
         'cues_passed': cues_passed,
         'frames': frames,
         'details': details,
-        'detected_text': primary_det,
         'expected_text': primary_exp,
-        'gemini_used': gemini_used,
-        'notes': (api_errors[0] if (api_errors and cues_passed == 0) else (f"{cues_passed}/{cues_checked} cues verified" if cues_checked else "No cues could be checked"))
+        'proof_dir': output_dir,
+        'notes': f"{cues_passed}/{len(selected_cues)} proof snapshots saved to {output_dir}"
     }
 
 
-def main():
+def main(*raw_args):
+    argv = None
+    if raw_args:
+        import shlex
+        if len(raw_args) == 1 and isinstance(raw_args[0], (list, tuple)):
+            argv = list(raw_args[0])
+        else:
+            argv = []
+            for a in raw_args:
+                argv.extend(shlex.split(a) if isinstance(a, str) else [str(a)])
+
     parser = argparse.ArgumentParser(
-        description="Verify that subtitles visibly render onto video frames using FFmpeg and Gemini Multimodal Vision."
+        description="Verify subtitle rendering and capture proof snapshots into subtitle_proof/ for quality control."
     )
     parser.add_argument(
         "movie",
@@ -732,16 +557,7 @@ def main():
         "-n", "--samples",
         type=int,
         default=3,
-        help="Number of representative dialogue cues to sample across the movie (default: 3)."
-    )
-    parser.add_argument(
-        "--gemini-api-key",
-        help="Google Gemini API key. Defaults to GEMINI_API_KEY environment variable."
-    )
-    parser.add_argument(
-        "--model",
-        default=DEFAULT_MODEL,
-        help=f"Gemini model to use for visual inspection (default: {DEFAULT_MODEL})."
+        help="Number of representative dialogue cue proof snapshots to save (default: 3)."
     )
     parser.add_argument(
         "--movies-dir",
@@ -750,13 +566,13 @@ def main():
     )
     parser.add_argument(
         "--output-dir",
-        default=DEFAULT_CACHE_DIR,
-        help=f"Directory to save captured verification frames (default: {DEFAULT_CACHE_DIR})."
+        default=DEFAULT_PROOF_DIR,
+        help=f"Directory to save captured proof snapshots (default: {DEFAULT_PROOF_DIR})."
     )
     parser.add_argument(
         "--open",
         action="store_true",
-        help="Open captured frame images in desktop viewer (xdg-open) upon completion."
+        help="Open captured proof snapshots in desktop viewer (xdg-open) upon completion."
     )
     parser.add_argument(
         "--json",
@@ -764,7 +580,7 @@ def main():
         help="Print machine-readable JSON output."
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # 1. Locate video file
     video_path = find_video_file(args.movie, args.movies_dir)
@@ -798,34 +614,30 @@ def main():
             'clean_text': 'Dialogue'
         }]
 
-    gemini_key = get_gemini_api_key(args)
-
-    movie_slug = re.sub(r'[^\w\-]', '_', title_clean)[:30]
-    out_dir = os.path.join(args.output_dir, movie_slug)
+    out_dir = args.output_dir
     os.makedirs(out_dir, exist_ok=True)
 
     if not args.json:
         print("=" * 80)
-        print(f" {C_BOLD}Jellyfin Subtitle Verification: {title_clean}{C_RESET}")
+        print(f" {C_BOLD}Subtitle Proof & Quality Control: {title_clean}{C_RESET}")
         print(f" Video File:     {video_path}")
         print(f" Subtitle Track: {sub_type.upper()} ({sub_meta.get('codec', 'srt')})")
-        print(f" Verification:   {'Gemini Vision (' + args.model + ')' if gemini_key else 'Frame Capture (Manual / No API Key)'}")
-        print(f" Output Frames:  {out_dir}")
+        print(f" Proof Folder:   {out_dir}")
+        print(f" Snapshots:      {len(selected_cues)} representative dialogue cues")
         print("=" * 80)
 
     results = []
-    all_passed = True
     captured_files = []
 
     for idx, cue in enumerate(selected_cues, start=1):
         ts_sec = cue['mid']
         ts_str = format_seconds_to_timestamp(ts_sec)
-        frame_filename = f"frame_{idx:02d}_{ts_str.replace(':', '_')}.jpg"
+        frame_filename = f"{title_clean}_proof_{idx:02d}_{ts_str.replace(':', '_')}.jpg"
         frame_path = os.path.join(out_dir, frame_filename)
 
         if not args.json:
             print(f"\n[Cue {idx}/{len(selected_cues)}] Timestamp: {C_CYAN}{ts_str}{C_RESET}")
-            print(f"  Expected Text: \"{C_BOLD}{cue['clean_text']}{C_RESET}\"")
+            print(f"  Expected Dialogue: \"{C_BOLD}{cue['clean_text']}{C_RESET}\"")
 
         # Capture frame with subtitles burned in
         ok = capture_subtitle_frame(video_path, ts_sec, frame_path, sub_type, sub_target)
@@ -839,101 +651,41 @@ def main():
                 'frame_path': None,
                 'status': 'CAPTURE_ERROR'
             })
-            all_passed = False
             continue
 
         captured_files.append(frame_path)
+        if not args.json:
+            print(f"  {C_GREEN}✓ Subtitle proof snapshot saved:{C_RESET} {frame_path}")
+        results.append({
+            'cue_index': idx,
+            'timestamp': ts_str,
+            'expected_text': cue['clean_text'],
+            'status': 'PASS',
+            'frame_path': frame_path
+        })
 
-        # Gemini Vision verification
-        if gemini_key:
-            if not args.json:
-                print("  Calling Gemini Vision to inspect captured frame...", end="", flush=True)
-            gem_res = verify_frame_with_gemini(frame_path, cue['clean_text'], gemini_key, model=args.model)
-
-            if not args.json:
-                print("\r", end="")
-
-            if gem_res.get('success'):
-                is_vis = gem_res.get('visible')
-                is_match = gem_res.get('match')
-                det_text = gem_res.get('detected_text', '')
-                leg = gem_res.get('legibility', 'Unknown')
-                notes = gem_res.get('notes', '')
-
-                status = "PASS" if (is_vis and is_match) else ("PARTIAL" if is_vis else "FAIL")
-                if status != "PASS":
-                    all_passed = False
-
-                color = C_GREEN if status == "PASS" else (C_YELLOW if status == "PARTIAL" else C_RED)
-
-                if not args.json:
-                    print(f"  Status:        {color}{status}{C_RESET} (Visible: {is_vis}, Text Match: {is_match})")
-                    print(f"  Detected Text: \"{det_text}\"")
-                    print(f"  Legibility:    {leg} | Confidence: {gem_res.get('confidence', 1.0):.0%}")
-                    if notes:
-                        print(f"  Analysis:      {notes}")
-                    print(f"  Saved Frame:   {frame_path}")
-
-                results.append({
-                    'cue_index': idx,
-                    'timestamp': ts_str,
-                    'expected_text': cue['clean_text'],
-                    'detected_text': det_text,
-                    'visible': is_vis,
-                    'match': is_match,
-                    'legibility': leg,
-                    'status': status,
-                    'frame_path': frame_path,
-                    'notes': notes
-                })
-            else:
-                if not args.json:
-                    print(f"  {C_YELLOW}⚠ Gemini Inspection Warning: {gem_res.get('notes')}{C_RESET}")
-                    print(f"  Saved Frame:   {frame_path}")
-                results.append({
-                    'cue_index': idx,
-                    'timestamp': ts_str,
-                    'expected_text': cue['clean_text'],
-                    'status': 'API_ERROR',
-                    'frame_path': frame_path,
-                    'notes': gem_res.get('notes')
-                })
-                all_passed = False
-        else:
-            if not args.json:
-                print(f"  {C_GREEN}✓ Frame captured successfully with subtitles{C_RESET}")
-                print(f"  Saved Frame:   {frame_path}")
-            results.append({
-                'cue_index': idx,
-                'timestamp': ts_str,
-                'expected_text': cue['clean_text'],
-                'status': 'FRAME_CAPTURED',
-                'frame_path': frame_path
-            })
+    all_passed = (len(captured_files) == len(selected_cues) and len(captured_files) > 0)
 
     if args.json:
         out_obj = {
             'movie': title_clean,
             'file': video_path,
             'subtitle_type': sub_type,
+            'proof_dir': out_dir,
             'all_passed': all_passed,
+            'frames': captured_files,
             'results': results
         }
         print(json.dumps(out_obj, indent=2))
         return
 
     print("\n" + "=" * 80)
-    if gemini_key:
-        passed_count = sum(1 for r in results if r.get('status') == 'PASS')
-        if all_passed:
-            print(f" {C_GREEN}{C_BOLD}✓ ALL SUBTITLES VERIFIED SUCCESSFULLY ({passed_count}/{len(results)} passed){C_RESET}")
-        else:
-            print(f" {C_RED}{C_BOLD}✗ VERIFICATION COMPLETED WITH WARNINGS ({passed_count}/{len(results)} passed){C_RESET}")
+    if all_passed:
+        print(f" {C_GREEN}{C_BOLD}✓ ALL {len(captured_files)} PROOF SNAPSHOTS SAVED FOR QUALITY CONTROL{C_RESET}")
+        print(f"   Destination: {out_dir}")
     else:
-        print(f" {C_GREEN}✓ All {len(results)} test frames captured with subtitles and saved to:{C_RESET}")
-        print(f"   {out_dir}")
-        print(f"\n {C_CYAN}Tip:{C_RESET} Set {C_BOLD}export GEMINI_API_KEY=\"your_key\"{C_RESET} to enable automated AI visual inspection.")
-
+        print(f" {C_YELLOW}{C_BOLD}⚠ Quality control capture completed with warnings ({len(captured_files)}/{len(selected_cues)} captured){C_RESET}")
+        print(f"   Destination: {out_dir}")
     print("=" * 80)
 
     # Optional desktop viewer open

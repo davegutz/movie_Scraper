@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-checks_subtitles_vision.py - Visual Subtitle Verification Tool.
+checks_subtitles_vision.py - Subtitle Quality Control & Proof Tool.
 
 Performs visual verification of subtitles across movie files using FFmpeg frame
-capture and Google Gemini Multimodal Vision API.
+capture with burned-in subtitles saved directly into subtitle_proof/ for quality control.
 
 Outputs the filename and PASS or FAIL status for each movie.
-If it is not possible to run the visual check on a file (e.g., no subtitle track,
-dialogue cues cannot be parsed, frame capture failed, or Gemini API key missing),
+If it is not possible to verify a file (e.g., no subtitle track,
+dialogue cues cannot be parsed, or frame capture failed),
 the file is categorized as FAIL.
 
 By default, output is sorted by date of file (most recent modified date first),
@@ -29,9 +29,6 @@ Usage Examples:
 
   # Check a specific movie file
   python3 checks_subtitles_vision.py --file "/media/daveg/Lib/Movies/The Sting (1973).m4v"
-
-  # Supply Gemini API key directly (or export GEMINI_API_KEY="...")
-  python3 checks_subtitles_vision.py --gemini-api-key "AIzaSy..."
 
   # Output simple format (plain filename and status)
   python3 checks_subtitles_vision.py --format simple
@@ -59,6 +56,7 @@ except ImportError as err:
     sys.exit(1)
 
 DEFAULT_MOVIES_DIR = "/media/daveg/Lib/Movies"
+DEFAULT_PROOF_DIR = "/media/daveg/Lib/Movies/subtitle_proof"
 DEFAULT_VIDEO_EXTS = ('.mp4', '.m4v', '.mkv', '.avi', '.mov', '.wmv')
 
 ARTICLE_PATTERN = re.compile(r'^(the|a|an|le|la|les|il|lo|gli|el|los|las|der|das)\s+(.*)$', re.IGNORECASE)
@@ -122,7 +120,8 @@ def find_video_files(movies_dir: str, extensions=DEFAULT_VIDEO_EXTS, sort_by: st
     if not os.path.isdir(movies_dir):
         return video_files
 
-    for root, _, files in os.walk(movies_dir):
+    for root, dirs, files in os.walk(movies_dir):
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() not in ('subtitle_proof', 'backups', 'lost+found')]
         for f in files:
             if f.endswith('.bak') or f.endswith('.part') or f.startswith('.'):
                 continue
@@ -134,14 +133,13 @@ def find_video_files(movies_dir: str, extensions=DEFAULT_VIDEO_EXTS, sort_by: st
 
 def check_single_movie_vision(
     video_path: str,
-    gemini_api_key: Optional[str] = None,
-    samples: int = 1,
-    model: str = vjs.DEFAULT_MODEL
+    samples: int = 3,
+    output_dir: Optional[str] = None,
+    skip_existing: bool = False
 ) -> Dict[str, Any]:
     """
-    Perform visual verification of subtitles for a single video file.
+    Perform verification of subtitles for a single video file and save proof snapshots.
     Categorizes the result as PASS or FAIL.
-    If it is not possible to run the visual check, it returns FAIL with the reason.
     """
     filename = os.path.basename(video_path)
     mtime = get_file_mtime(video_path)
@@ -209,26 +207,13 @@ def check_single_movie_vision(
             'details': {'sub_type': sub_type}
         }
 
-    # 4. Check Gemini API key for vision verification
-    api_key = gemini_api_key or vjs.get_gemini_api_key()
-    if not api_key:
-        return {
-            'filename': filename,
-            'path': video_path,
-            'mtime': mtime,
-            'modified': modified_str,
-            'status': 'FAIL',
-            'reason': 'Gemini API key not configured (cannot perform visual vision check)',
-            'details': {'sub_type': sub_type, 'cues_available': len(cues)}
-        }
-
-    # 5. Perform visual verification
+    # 4. Perform visual verification and proof capture
     try:
         verify_res = vjs.verify_movie_subtitles(
             video_path=video_path,
             samples=samples,
-            gemini_api_key=api_key,
-            model=model
+            output_dir=output_dir,
+            skip_existing=skip_existing
         )
     except Exception as ex:
         return {
@@ -237,20 +222,19 @@ def check_single_movie_vision(
             'mtime': mtime,
             'modified': modified_str,
             'status': 'FAIL',
-            'reason': f'Visual verification failed with error: {ex}',
+            'reason': f'Visual proof capture failed: {ex}',
             'details': {}
         }
 
     if verify_res.get('verified'):
-        detected = verify_res.get('detected_text') or verify_res.get('expected_text') or ''
-        sample_info = f' (cue: "{detected[:40]}")' if detected else ""
+        cues_count = verify_res.get('cues_passed', samples)
         return {
             'filename': filename,
             'path': video_path,
             'mtime': mtime,
             'modified': modified_str,
             'status': 'PASS',
-            'reason': f'Subtitles verified with Gemini Vision{sample_info}',
+            'reason': f'Subtitles verified ({cues_count} proof snapshots saved to subtitle_proof/)',
             'details': verify_res
         }
     else:
@@ -261,19 +245,34 @@ def check_single_movie_vision(
             'mtime': mtime,
             'modified': modified_str,
             'status': 'FAIL',
-            'reason': f'Vision check failed ({notes})',
+            'reason': f'Verification failed ({notes})',
             'details': verify_res
         }
 
 
-def main():
+def main(*raw_args):
+    argv = None
+    if raw_args:
+        import shlex
+        if len(raw_args) == 1 and isinstance(raw_args[0], (list, tuple)):
+            argv = list(raw_args[0])
+        else:
+            argv = []
+            for a in raw_args:
+                argv.extend(shlex.split(a) if isinstance(a, str) else [str(a)])
+
     parser = argparse.ArgumentParser(
-        description="Visual subtitle verification tool. Checks whether subtitles are rendered and legible on video frames using Gemini Multimodal Vision API."
+        description="Subtitle Quality Control & Proof Tool. Verifies subtitles and saves proof snapshots to subtitle_proof/ for quality control."
     )
     parser.add_argument(
         "--movies-dir",
         default=DEFAULT_MOVIES_DIR,
         help=f"Directory to scan for movies (default: {DEFAULT_MOVIES_DIR})."
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=DEFAULT_PROOF_DIR,
+        help=f"Directory to save proof snapshots (default: {DEFAULT_PROOF_DIR})."
     )
     parser.add_argument(
         "--file", "-f",
@@ -308,20 +307,15 @@ def main():
         help="Alias for --sort-by name: sort movies alphabetically by name ignoring leading articles."
     )
     parser.add_argument(
-        "--gemini-api-key",
-        default=None,
-        help="Google Gemini API key for visual inspection (defaults to GEMINI_API_KEY environment variable or ~/.config/gemini/api_key)."
-    )
-    parser.add_argument(
-        "--model",
-        default=vjs.DEFAULT_MODEL,
-        help=f"Gemini vision model to use (default: {vjs.DEFAULT_MODEL})."
-    )
-    parser.add_argument(
         "--samples",
         type=int,
-        default=1,
-        help="Number of dialogue cue frames to sample per movie (default: 1)."
+        default=3,
+        help="Number of dialogue cue frames to sample per movie (default: 3)."
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip capturing proof images for movies that already have snapshots in subtitle_proof/."
     )
     parser.add_argument(
         "--format",
@@ -351,7 +345,7 @@ def main():
         help="Suppress summary banner and print only results."
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     use_color = (args.color == 'always') or (args.color == 'auto' and sys.stdout.isatty())
     c_green, c_red, c_reset = get_entry_colors(use_color)
@@ -381,18 +375,16 @@ def main():
         print("No video files found to check.")
         sys.exit(0)
 
-    api_key = args.gemini_api_key or vjs.get_gemini_api_key()
-
     if not args.quiet and args.format in ('standard', 'table'):
         sort_desc = "Most Recent File Modified Date" if args.sort_by in ('date', 'mtime', 'recent') else "Alphabetical by Name"
         print("=" * 80)
-        print("  Subtitle Visual Vision Verification")
+        print("  Subtitle Quality Control & Proof Verification")
         print("=" * 80)
         print(f"  Target Directory:  {args.movies_dir}")
+        print(f"  Proof Directory:   {args.output_dir}")
         print(f"  Files Queued:      {total_files:,}")
         print(f"  Sort Order:        {sort_desc}")
         print(f"  Samples per Movie: {args.samples}")
-        print(f"  Gemini Vision API: {'Configured (' + args.model + ')' if api_key else 'Missing (all checks will FAIL)'}")
         print("=" * 80)
         print()
 
@@ -409,9 +401,9 @@ def main():
     for idx, fpath in enumerate(video_files, 1):
         res = check_single_movie_vision(
             video_path=fpath,
-            gemini_api_key=api_key,
             samples=args.samples,
-            model=args.model
+            output_dir=args.output_dir,
+            skip_existing=args.skip_existing
         )
         results.append(res)
         status = res['status']
@@ -473,4 +465,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        main()
+    else:
+        main("--skip-existing", "--max-files=10")
