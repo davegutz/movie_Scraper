@@ -198,6 +198,23 @@ class IMDBdataBase:
     https://gist.github.com/VictorLG98/30410204f175c278018a97dc5efbfe05
     https://www.youtube.com/watch?v=8PB3oFRkSeI
     """
+    DB_FIELDS = [
+        ('IMDB_ID',       'IMDB ID',              'integer'),
+        ('title',         'Title',                 'text'),
+        ('year',          'Year',                  'integer'),
+        ('rating',        'Rating (IMDB)',         'real'),
+        ('my_rating',     'My Rating',             'real'),
+        ('director',      'Director',              'text'),
+        ('actors',        'Actors',                'text'),
+        ('generes',       'Genres',                'text'),
+        ('summary',       'Summary',               'text'),
+        ('cover',         'Cover URL',             'text'),
+        ('WATCHED',       'Watched (YYYY-MM-DD)',  'text'),
+        ('DVD',           'DVD',                   'text'),
+        ('runtime',       'Runtime',               'text'),
+        ('certification', 'Certification',         'text'),
+        ('ADDED',         'Added (YYYY-MM-DD)',    'text'),
+    ]
 
     def __init__(self, cf_):
         self.cf = cf_
@@ -283,6 +300,12 @@ class IMDBdataBase:
         self.del_btn = tk.Button(self.del_btn_frame, text="Delete selection", font=('LilyUPC', 9, 'bold'), bg=light_purple,
                                  width=25, command=self.delete_film)
         self.del_btn.pack(side='left')
+
+        self.edit_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.edit_btn_frame.pack(side='top', fill='both')
+        self.edit_btn = tk.Button(self.edit_btn_frame, text="Edit Selection", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                  width=25, command=self.edit_selection)
+        self.edit_btn.pack(side='left')
 
         self.working_label = tk.Label(self.bot_frame_left, text="DB location =", bg=bg_color)
         self.destination_folder_butt = myButton(self.bot_frame_left, text=self.db_folder,
@@ -514,24 +537,6 @@ class IMDBdataBase:
         win.config(bg=bg_color, padx=20, pady=20)
         win.grab_set()
 
-        fields = [
-            ('IMDB_ID',      'IMDB ID',              'integer'),
-            ('title',        'Title',                 'text'),
-            ('year',         'Year',                  'integer'),
-            ('rating',       'Rating (IMDB)',         'real'),
-            ('my_rating',    'My Rating',             'real'),
-            ('director',     'Director',              'text'),
-            ('actors',       'Actors',                'text'),
-            ('generes',      'Genres',                'text'),
-            ('summary',      'Summary',               'text'),
-            ('cover',        'Cover URL',             'text'),
-            ('WATCHED',      'Watched (YYYY-MM-DD)',  'text'),
-            ('ADDED',        'Added (YYYY-MM-DD)',    'text'),
-            ('DVD',          'DVD',                   'text'),
-            ('runtime',      'Runtime',               'text'),
-            ('certification','Certification',         'text'),
-        ]
-
         entries = {}
         today = str(datetime.today().strftime('%Y-%m-%d'))
 
@@ -539,7 +544,7 @@ class IMDBdataBase:
                           bg='white', fg='black')
         header.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 10))
 
-        for i, (col, label, _typ) in enumerate(fields):
+        for i, (col, label, _typ) in enumerate(self.DB_FIELDS):
             tk.Label(win, text=label + ':', font=label_font, bg=bg_color, anchor='w').grid(
                 row=i + 1, column=0, sticky='w', pady=3, padx=(0, 10))
             ent = tk.Entry(win, width=50, font=('LilyUPC', 11, 'bold'), fg='black', bg='white')
@@ -550,7 +555,7 @@ class IMDBdataBase:
 
         def save_entry():
             values = {}
-            for col, label, typ in fields:
+            for col, label, typ in self.DB_FIELDS:
                 raw = entries[col].get().strip()
                 if typ == 'integer':
                     try:
@@ -566,27 +571,24 @@ class IMDBdataBase:
                         return
                 else:
                     values[col] = raw
-            if not entries['IMDB_ID'].get().strip():
+            if not str(values['IMDB_ID']).strip():
                 tk.messagebox.showerror(title="Error", message="IMDB ID is required", parent=win)
                 return
             try:
-                self.c.execute("""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
-                                director, actors, generes, summary, cover, WATCHED, ADDED, DVD,
-                                runtime, certification) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);""",
-                               (values['IMDB_ID'], values['title'], values['year'],
-                                values['rating'], values['my_rating'], values['director'],
-                                values['actors'], values['generes'], values['summary'],
-                                values['cover'], values['WATCHED'], values['ADDED'],
-                                values['DVD'], values['runtime'], values['certification']))
+                cols = [c[0] for c in self.DB_FIELDS]
+                placeholders = ', '.join(['?'] * len(cols))
+                self.c.execute(f"""INSERT INTO My_Films({', '.join(cols)}) VALUES({placeholders});""",
+                               tuple(values[c] for c in cols))
                 self.conn.commit()
                 self.fill_tree_view()
                 self.root.title(f"Features ({len(self.tree.get_children())})")
+                self.highlight_film((str(values['title']).lower(), int(values['year'])))
                 win.destroy()
             except sqlite3.IntegrityError as e:
                 tk.messagebox.showerror(title="Error", message=f"Database error: {e}", parent=win)
 
         btn_frame = tk.Frame(win, bg=bg_color)
-        btn_frame.grid(row=len(fields) + 1, column=0, columnspan=2, pady=(10, 0))
+        btn_frame.grid(row=len(self.DB_FIELDS) + 1, column=0, columnspan=2, pady=(10, 0))
         tk.Button(btn_frame, text="Save Entry", font=('LilyUPC', 9, 'bold'), bg=light_purple,
                   width=20, command=save_entry).pack(side='left', padx=5)
         tk.Button(btn_frame, text="Cancel", font=('LilyUPC', 9, 'bold'), bg=light_purple,
@@ -599,46 +601,14 @@ class IMDBdataBase:
         win.config(bg=bg_color, padx=20, pady=20)
         win.grab_set()
 
-        fields = [
-            ('IMDB_ID',       'IMDB ID',              'integer'),
-            ('title',         'Title',                 'text'),
-            ('year',          'Year',                  'integer'),
-            ('rating',        'Rating (IMDB)',         'real'),
-            ('my_rating',     'My Rating',             'real'),
-            ('director',      'Director',              'text'),
-            ('actors',        'Actors',                'text'),
-            ('generes',       'Genres',                'text'),
-            ('summary',       'Summary',               'text'),
-            ('cover',         'Cover URL',             'text'),
-            ('WATCHED',       'Watched (YYYY-MM-DD)',  'text'),
-            ('ADDED',         'Added (YYYY-MM-DD)',    'text'),
-            ('DVD',           'DVD',                   'text'),
-            ('runtime',       'Runtime',               'text'),
-            ('certification', 'Certification',         'text'),
-        ]
-
-        # SELECT order: IMDB_ID[0] title[1] year[2] rating[3] my_rating[4] director[5]
-        #               actors[6] generes[7] summary[8] cover[9] WATCHED[10] ADDED[11]
-        #               DVD[12] runtime[13] certification[14]
-        existing = {
-            'IMDB_ID':       str(item['values'][0]),
-            'title':         str(item['values'][1]),
-            'year':          str(item['values'][2]),
-            'rating':        str(item['values'][3]),
-            'my_rating':     str(item['values'][4]),
-            'director':      str(item['values'][5]),
-            'actors':        str(item['values'][6]),
-            'generes':       str(item['values'][7]),
-            'summary':       str(item['values'][8]),
-            'cover':         str(item['values'][9]),
-            'WATCHED':       str(item['values'][10]),
-            'ADDED':         str(item['values'][11]),
-            'DVD':           str(item['values'][12]),
-            'runtime':       str(item['values'][13]),
-            'certification': str(item['values'][14]),
-        }
-
         original_imdb_id = item['values'][0]
+        cols = [col for col, _, _ in self.DB_FIELDS]
+        self.c.execute(f"SELECT {', '.join(cols)} FROM My_Films WHERE IMDB_ID = ?", (original_imdb_id,))
+        row = self.c.fetchone()
+        if row:
+            existing = {col: ('' if val is None else str(val)) for col, val in zip(cols, row)}
+        else:
+            existing = {}
 
         entries = {}
 
@@ -646,7 +616,7 @@ class IMDBdataBase:
                           bg='white', fg='black')
         header.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 10))
 
-        for i, (col, label, _typ) in enumerate(fields):
+        for i, (col, label, _typ) in enumerate(self.DB_FIELDS):
             tk.Label(win, text=label + ':', font=label_font, bg=bg_color, anchor='w').grid(
                 row=i + 1, column=0, sticky='w', pady=3, padx=(0, 10))
             ent = tk.Entry(win, width=50, font=('LilyUPC', 11, 'bold'), fg='black', bg='white')
@@ -656,7 +626,7 @@ class IMDBdataBase:
 
         def save_entry():
             values = {}
-            for col, label, typ in fields:
+            for col, label, typ in self.DB_FIELDS:
                 raw = entries[col].get().strip()
                 if typ == 'integer':
                     try:
@@ -672,16 +642,13 @@ class IMDBdataBase:
                         return
                 else:
                     values[col] = raw
+            if not str(values['IMDB_ID']).strip():
+                tk.messagebox.showerror(title="Error", message="IMDB ID is required", parent=win)
+                return
             try:
-                self.c.execute("""UPDATE My_Films SET IMDB_ID=?, title=?, year=?, rating=?, my_rating=?,
-                                director=?, actors=?, generes=?, summary=?, cover=?, WATCHED=?, ADDED=?,
-                                DVD=?, runtime=?, certification=? WHERE IMDB_ID=?""",
-                               (values['IMDB_ID'], values['title'], values['year'],
-                                values['rating'], values['my_rating'], values['director'],
-                                values['actors'], values['generes'], values['summary'],
-                                values['cover'], values['WATCHED'], values['ADDED'],
-                                values['DVD'], values['runtime'], values['certification'],
-                                original_imdb_id))
+                set_str = ', '.join([f"{c}=?" for c in cols])
+                self.c.execute(f"""UPDATE My_Films SET {set_str} WHERE IMDB_ID=?""",
+                               tuple(values[c] for c in cols) + (original_imdb_id,))
                 self.conn.commit()
                 self.fill_tree_view()
                 self.root.title(f"Features ({len(self.tree.get_children())})")
@@ -691,8 +658,8 @@ class IMDBdataBase:
                 tk.messagebox.showerror(title="Error", message=f"Database error: {e}", parent=win)
 
         btn_frame = tk.Frame(win, bg=bg_color)
-        btn_frame.grid(row=len(fields) + 1, column=0, columnspan=2, pady=(10, 0))
-        tk.Button(btn_frame, text="Save Changes", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+        btn_frame.grid(row=len(self.DB_FIELDS) + 1, column=0, columnspan=2, pady=(10, 0))
+        tk.Button(btn_frame, text="Update", font=('LilyUPC', 9, 'bold'), bg=light_purple,
                   width=20, command=save_entry).pack(side='left', padx=5)
         tk.Button(btn_frame, text="Cancel", font=('LilyUPC', 9, 'bold'), bg=light_purple,
                   width=20, command=win.destroy).pack(side='left', padx=5)
@@ -1073,6 +1040,27 @@ class IMDBdataBase:
         self.fill_tree_view()
         self.root.title(f"Features ({len(self.tree.get_children())})")
 
+    def edit_selection(self):
+        """Open edit window for currently selected film"""
+        curItem = self.tree.focus()
+        if not curItem:
+            selection = self.tree.selection()
+            if selection:
+                curItem = selection[0]
+            elif self.picked and self.picked != '<search and select something above>':
+                curItem = self.picked
+
+        if not curItem:
+            tk.messagebox.showinfo(title="Info", message="choose entry to edit", parent=self.root)
+            return
+
+        item = self.tree.item(curItem)
+        if not item or not item.get('values') or len(item['values']) == 0:
+            tk.messagebox.showinfo(title="Info", message="choose entry to edit", parent=self.root)
+            return
+
+        self.open_edit_entry_window(item)
+
     def enter_db(self):
         answer = tk.simpledialog.askstring(title=__file__, prompt="enter db name", initialvalue=self.db_name)
         if answer is not None:
@@ -1280,6 +1268,23 @@ class IMDBdataBase:
                 pass
         return result, np.array(searchable_result), np.array(titles, dtype='<U78'), np.array(years, dtype='<U78')
 
+    @staticmethod
+    def fetch_image_from_url(url, timeout=5):
+        """Safely fetch and return PIL Image from URL, or None if failed."""
+        if not url or not str(url).strip().startswith(('http://', 'https://')):
+            return None
+        try:
+            req = urllib.request.Request(
+                str(url).strip(),
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'}
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as u:
+                raw_data = u.read()
+            return Image.open(io.BytesIO(raw_data))
+        except Exception:
+            return None
+
+
     def OnDoubleClick(self, _event):
         """Called when user double clicks element from TreeView"""
         curItem = self.tree.focus()
@@ -1287,12 +1292,13 @@ class IMDBdataBase:
         self.renew()
         pic = None
         try:
-            with urllib.request.urlopen(item['values'][9]) as u:
-                raw_data = u.read()
-            image = Image.open(io.BytesIO(raw_data))
-            my_img = ImageTk.PhotoImage(image)
-            pic = tk.Label(self.root, image=my_img)
-            pic.pack(side='left')
+            values = item.get('values', []) if isinstance(item, dict) else []
+            cover_url = str(values[9]).strip() if len(values) > 9 and values[9] else ''
+            image = self.fetch_image_from_url(cover_url, timeout=5)
+            if image is not None:
+                my_img = ImageTk.PhotoImage(image)
+                pic = tk.Label(self.root, image=my_img)
+                pic.pack(side='left')
         except Exception as e:
             print(f"OnDoubleClick: could not load image: {e}")
 
@@ -1361,14 +1367,26 @@ class IMDBdataBase:
         """Called when user focuses element from TreeView"""
         self.renew()
         try:
-            with urllib.request.urlopen(item['values'][9]) as u:
-                raw_data = u.read()
-            image = Image.open(io.BytesIO(raw_data))
-            my_img = ImageTk.PhotoImage(image)
-            self.poster.configure(image=my_img)
-            self.poster.image = my_img
-        except (IndexError, ValueError):
-            print(f"Invalid values for raise_it {item['values'][1]}")
+            values = item.get('values', []) if isinstance(item, dict) else []
+            cover_url = str(values[9]).strip() if len(values) > 9 and values[9] else ''
+            image = self.fetch_image_from_url(cover_url, timeout=5)
+            if image is not None:
+                my_img = ImageTk.PhotoImage(image)
+                self.poster.configure(image=my_img)
+                self.poster.image = my_img
+            else:
+                blank_img = ImageTk.PhotoImage(Image.open("blank.png"))
+                self.poster.configure(image=blank_img)
+                self.poster.image = blank_img
+        except Exception as e:
+            try:
+                blank_img = ImageTk.PhotoImage(Image.open("blank.png"))
+                self.poster.configure(image=blank_img)
+                self.poster.image = blank_img
+            except Exception:
+                pass
+            title = item.get('values', [''])[1] if isinstance(item, dict) and len(item.get('values', [])) > 1 else 'unknown'
+            print(f"Could not load poster for '{title}': {e}")
 
     def renew(self):
         curItem = self.tree.focus()

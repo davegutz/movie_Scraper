@@ -1766,4 +1766,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        main("--max-files 10 --sort-by size_desc")
+        main("--max-files 50 --sort-by size_desc")
