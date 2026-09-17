@@ -468,4 +468,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        main("--skip-existing", "--max-files=10")
+        main("--skip-existing", "--max-files=100")

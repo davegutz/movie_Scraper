@@ -21,6 +21,7 @@ All output lists:
   - Include video resolution in 'p' form (e.g. 1080p, 720p, 480p)
   - Include video frame rate in frames per second (FPS, e.g. 23.98, 29.97, 24)
   - Include video file size in decimal GB (e.g. 3.61 GB)
+  - Include user rating in a column called 'Rate' (e.g. 8.5, 10.0, -) in column 2
   - Include duration of the title / video in a column called 'Time' in hr:min format (e.g. 02:00)
   - Include subtitle type indicator in a column called 'Sub' (SRT / Text / Bitmap / None / -)
   - Include Jellyfin compatibility indicator in a column called 'Jellyfin' (DIRECT / TRANSCODE / -)
@@ -1013,6 +1014,7 @@ def load_db_movies(db_path):
             'dvd': dvd,
             'watched': watched or '',
             'my_rating': my_rating,
+            'rate': format_rate(my_rating),
             'certification': cert or '',
             'runtime': runtime,
             'time': time_str,
@@ -1135,16 +1137,31 @@ def format_size_gb(val):
         return f"{val:.2f}"
     return "-"
 
+def format_rate(val):
+    """Format user rating (my_rating) as 1-decimal string (e.g. '8.5', '10.0') if valid, else '-'."""
+    if val is None:
+        return "-"
+    if isinstance(val, (int, float)):
+        return f"{float(val):.1f}"
+    s = str(val).strip()
+    if not s or s == "-":
+        return "-"
+    try:
+        return f"{float(s):.1f}"
+    except ValueError:
+        return s
+
 
 def write_matched_file(output_path, matched_records, output_format):
     """Write the matched database movies to the specified file."""
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'DB_Time', 'Dur_Status', 'Sub', 'Jellyfin', 'Sized', 'Modified', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
+            writer.writerow(['IMDB_ID', 'Rate', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'DB_Time', 'Dur_Status', 'Sub', 'Jellyfin', 'Sized', 'Modified', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification', 'Filename', 'FullPath'])
             for movie_item, match_item in matched_records:
                 writer.writerow([
                     movie_item['imdb_id'],
+                    format_rate(movie_item.get('my_rating')),
                     movie_item['dvd'] if movie_item['dvd'] is not None else '',
                     match_item.get('ext', '-'),
                     match_item.get('format', '-'),
@@ -1170,6 +1187,7 @@ def write_matched_file(output_path, matched_records, output_format):
         export_data = []
         for movie_item, match_item in matched_records:
             item = dict(movie_item)
+            item['rate'] = format_rate(movie_item.get('my_rating'))
             item['ext'] = match_item.get('ext', '-')
             item['format'] = match_item.get('format', '-')
             item['codec'] = match_item.get('format', '-')
@@ -1194,6 +1212,7 @@ def write_matched_file(output_path, matched_records, output_format):
         with open(output_path, 'w', encoding='utf-8') as f:
             for movie_item, match_item in matched_records:
                 ext_str = f"[{match_item.get('ext', '-')}]"
+                rate_str = f"[{format_rate(movie_item.get('my_rating'))}]"
                 fmt_str = f"[{match_item.get('format', '-')}]"
                 res_str = f"[{match_item.get('resolution', '-')}]"
                 fps_str = f"[{match_item.get('fps', '-')} fps]"
@@ -1207,7 +1226,7 @@ def write_matched_file(output_path, matched_records, output_format):
                 srt_str = f"[{match_item.get('srt', '-')}]"
                 sized_str = f"[{match_item.get('sized', '-')}]"
                 title_str = movie_item.get('display_title_year', movie_item['title'])
-                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {sized_str} {title_str}\n")
+                f.write(f"{ext_str} {rate_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {sized_str} {title_str}\n")
 
 
 def write_missing_file(output_path, missing_movies, output_format):
@@ -1215,10 +1234,11 @@ def write_missing_file(output_path, missing_movies, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['IMDB_ID', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification'])
+            writer.writerow(['IMDB_ID', 'Rate', 'DVD', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Title', 'Original_Title', 'Watched', 'Rating', 'Certification'])
             for m in missing_movies:
                 writer.writerow([
                     m['imdb_id'],
+                    format_rate(m.get('my_rating')),
                     m['dvd'] if m['dvd'] is not None else '',
                     m.get('ext', '-'),
                     m.get('format', '-'),
@@ -1239,6 +1259,7 @@ def write_missing_file(output_path, missing_movies, output_format):
         export_data = []
         for m in missing_movies:
             item = dict(m)
+            item['rate'] = format_rate(m.get('my_rating'))
             item['codec'] = '-'
             item['time'] = m.get('time', '-')
             item['sub'] = m.get('sub', '-')
@@ -1251,6 +1272,7 @@ def write_missing_file(output_path, missing_movies, output_format):
         with open(output_path, 'w', encoding='utf-8') as f:
             for m in missing_movies:
                 ext_str = f"[{m.get('ext', '-')}]"
+                rate_str = f"[{format_rate(m.get('my_rating'))}]"
                 fmt_str = f"[{m.get('format', '-')}]"
                 res_str = f"[{m.get('resolution', '-')}]"
                 fps_str = f"[{m.get('fps', '-')}]"
@@ -1261,7 +1283,7 @@ def write_missing_file(output_path, missing_movies, output_format):
                 srt_str = f"[{m.get('srt', '-')}]"
                 sized_str = f"[{m.get('sized', '-')}]"
                 title_str = m.get('display_title_year', m['title'])
-                f.write(f"{ext_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {sized_str} {title_str}\n")
+                f.write(f"{ext_str} {rate_str} {fmt_str} {res_str} {fps_str} {sz_str} {time_str} {sub_str} {bmp_str} {srt_str} {sized_str} {title_str}\n")
 
 
 def write_unmatched_file(output_path, unmatched_videos, output_format):
@@ -1269,10 +1291,11 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
     if output_format == 'csv':
         with open(output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['Subfolder', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Filename', 'Original_Filename', 'FullPath'])
+            writer.writerow(['Subfolder', 'Rate', 'Ext', 'Fmt', 'Resolution', 'FPS', 'Size', 'Time', 'Sub', 'Jellyfin', 'Sized', 'Filename', 'Original_Filename', 'FullPath'])
             for v in unmatched_videos:
                 writer.writerow([
                     v['rel_dir'],
+                    '-',
                     v['ext'],
                     v.get('format', '-'),
                     v['resolution'],
@@ -1290,6 +1313,7 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
         export_data = []
         for v in unmatched_videos:
             item = dict(v)
+            item['rate'] = '-'
             item['codec'] = v.get('format', '-')
             item['time'] = v.get('time', '-')
             item['sub'] = v.get('sub', '-')
@@ -1311,7 +1335,7 @@ def write_unmatched_file(output_path, unmatched_videos, output_format):
                 srt_flag_str = f"[{v.get('srt', '-')}]"
                 sized_str = f"[{v.get('sized', '-')}]"
                 fn_str = v.get('display_filename', v['filename'])
-                f.write(f"[{v['ext']}] {fmt_str} [{v['resolution']}] {fps_str} {sz_str} {time_str} {sub_flag_str} {bmp_flag_str} {srt_flag_str} {sized_str} {sub}{fn_str}\n")
+                f.write(f"[{v['ext']}] [-] {fmt_str} [{v['resolution']}] {fps_str} {sz_str} {time_str} {sub_flag_str} {bmp_flag_str} {srt_flag_str} {sized_str} {sub}{fn_str}\n")
 
 
 def main(*raw_args):
@@ -1790,18 +1814,20 @@ def main(*raw_args):
                     jf_str = match_item.get('jellyfin', '-')
                     sized_str = match_item.get('sized', '-')
                     disp_title = movie_item.get('display_title_year', movie_item['title'])
+                    rate_str = format_rate(movie_item.get('my_rating'))
                     if sort_by_mtime:
                         mod_str = match_item.get('modified', '-')
-                        print(f"{match_item.get('ext', '-'):<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {mod_str:<17} {disp_title}")
+                        print(f"{match_item.get('ext', '-'):<5} {rate_str:<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {mod_str:<17} {disp_title}")
                     else:
-                        print(f"{match_item.get('ext', '-'):<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_title}")
+                        print(f"{match_item.get('ext', '-'):<5} {rate_str:<5} {fmt_str:<6} {match_item.get('resolution', '-'):<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_title}")
             if args.show_only in ('all', 'missing', 'both') and not is_filtered_not_sized:
                 if args.show_only in ('all', 'both'):
                     print("\n=== MISSING TITLES (IN DB, NO VIDEO FILE) ===")
                 for m in missing_db:
                     time_str = m.get('time', '-')
+                    rate_str = format_rate(m.get('my_rating'))
                     disp_title = m.get('display_title_year', m['title'])
-                    print(f"{m.get('ext', '-'):<5} {'-':<6} {m.get('resolution', '-'):<7} {'-':<9} {'-':<9} {time_str:<9} {'-':<8} {'-':<11} {'-':<6} {disp_title}")
+                    print(f"{m.get('ext', '-'):<5} {rate_str:<5} {'-':<6} {m.get('resolution', '-'):<7} {'-':<9} {'-':<9} {time_str:<9} {'-':<8} {'-':<11} {'-':<6} {disp_title}")
             if args.show_only in ('all', 'unmatched', 'both'):
                 if args.show_only in ('all', 'both'):
                     print("\n=== UNMATCHED TITLES (VIDEO FILE ON DISK, NOT IN DB) ===")
@@ -1817,11 +1843,11 @@ def main(*raw_args):
                     disp_fn = f"{sub}{v.get('display_filename', v['filename'])}"
                     if sort_by_mtime:
                         mod_str = v.get('modified', '-')
-                        print(f"{v['ext']:<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {mod_str:<17} {disp_fn}")
+                        print(f"{v['ext']:<5} {'-':<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {mod_str:<17} {disp_fn}")
                     else:
-                        print(f"{v['ext']:<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_fn}")
+                        print(f"{v['ext']:<5} {'-':<5} {fmt_str:<6} {v['resolution']:<7} {fps_str:<9} {sz_str:<9} {time_str:<9} {sub_str:<8} {jf_str:<11} {sized_str:<6} {disp_fn}")
         else:
-            banner_len = 134
+            banner_len = 140
             print("=" * banner_len)
             print("  IMDB_Films.db vs Video Library Comparison")
             print("=" * banner_len)
@@ -1869,11 +1895,11 @@ def main(*raw_args):
                 sort_suffix = f", sorted by {sort_desc}" if (sort_by_mtime or sort_by_size) else ""
                 print(f"\n[1] Matched Titles in Video Library ({len(matched):,} items, {matched_gb:,.2f} GB{sized_label}{sort_suffix}):\n")
                 if sort_by_mtime:
-                    print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Title'}")
-                    print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*15:<17} {'-'*46}")
+                    print(f"  {'IMDB ID':<10} {'Rate':<5} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Title'}")
+                    print(f"  {'-'*8:<10} {'-'*4:<5} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*15:<17} {'-'*46}")
                 else:
-                    print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Title'}")
-                    print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
+                    print(f"  {'IMDB ID':<10} {'Rate':<5} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Title'}")
+                    print(f"  {'-'*8:<10} {'-'*4:<5} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
                 for movie_item, match_item in matched:
                     dvd_display = str(movie_item['dvd']) if movie_item['dvd'] is not None else "-"
                     ext_display = match_item.get('ext', '-')
@@ -1898,18 +1924,19 @@ def main(*raw_args):
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
                     sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
+                    rate_display = format_rate(movie_item.get('my_rating'))
                     if sort_by_mtime:
                         mod_display = match_item.get('modified', '-')
-                        print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {mod_display:<17} {title_display}{rst}")
+                        print(f"{r_c}  {movie_item['imdb_id']:<10} {rate_display:<5} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {mod_display:<17} {title_display}{rst}")
                     else:
-                        print(f"{r_c}  {movie_item['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
+                        print(f"{r_c}  {movie_item['imdb_id']:<10} {rate_display:<5} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
 
             # Section 2: Missing DB Titles
             if args.show_only in ('all', 'missing', 'both') and not is_filtered_not_sized:
                 sec_num = 2 if args.show_only == 'all' else 1
                 print(f"\n[{sec_num}] Missing Titles in Video Library ({len(missing_db):,} items in DB without video):\n")
-                print(f"  {'IMDB ID':<10} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Title'}")
-                print(f"  {'-'*8:<10} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
+                print(f"  {'IMDB ID':<10} {'Rate':<5} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Title'}")
+                print(f"  {'-'*8:<10} {'-'*4:<5} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
                 for m in missing_db:
                     dvd_display = str(m['dvd']) if m['dvd'] is not None else "-"
                     ext_display = m.get('ext', '-')
@@ -1926,7 +1953,8 @@ def main(*raw_args):
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
                     sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
-                    print(f"{r_c}  {m['imdb_id']:<10} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
+                    rate_display = format_rate(m.get('my_rating'))
+                    print(f"{r_c}  {m['imdb_id']:<10} {rate_display:<5} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_display:<6} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
 
             # Section 3: Unmatched Library Video Files
             if args.show_only in ('all', 'unmatched', 'both'):
@@ -1935,11 +1963,11 @@ def main(*raw_args):
                 sort_suffix = f", sorted by {sort_desc}" if (sort_by_mtime or sort_by_size) else ""
                 print(f"\n[{sec_num}] Unmatched Titles in Video Library ({len(unmatched_videos):,} video files not in DB, {unmatched_gb:,.2f} GB{sized_label}{sort_suffix}):\n")
                 if sort_by_mtime:
-                    print(f"  {'Subfolder':<16} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Filename'}")
-                    print(f"  {'-'*14:<16} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*15:<17} {'-'*46}")
+                    print(f"  {'Subfolder':<16} {'Rate':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Filename'}")
+                    print(f"  {'-'*14:<16} {'-'*4:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*15:<17} {'-'*46}")
                 else:
-                    print(f"  {'Subfolder':<16} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Filename'}")
-                    print(f"  {'-'*14:<16} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
+                    print(f"  {'Subfolder':<16} {'Rate':<5} {'Ext':<6} {'Fmt':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Filename'}")
+                    print(f"  {'-'*14:<16} {'-'*4:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
                 for v in unmatched_videos:
                     subfolder_display = v['rel_dir'] if v['rel_dir'] else "-"
                     fmt_display = v.get('format', '-')
@@ -1959,11 +1987,12 @@ def main(*raw_args):
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
                     jf_p = f"{j_c}{jf_display:<11}{r_c}" if use_color else f"{jf_display:<11}"
                     sized_p = f"{sz_c}{sized_display:<7}{r_c}" if use_color else f"{sized_display:<7}"
+                    rate_display = "-"
                     if sort_by_mtime:
                         mod_display = v.get('modified', '-')
-                        print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {mod_display:<17} {fn_display}{rst}")
+                        print(f"{r_c}  {subfolder_display:<16} {rate_display:<5} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {mod_display:<17} {fn_display}{rst}")
                     else:
-                        print(f"{r_c}  {subfolder_display:<16} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {fn_display}{rst}")
+                        print(f"{r_c}  {subfolder_display:<16} {rate_display:<5} {v['ext']:<6} {fmt_display:<6} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {sub_p} {jf_p} {sized_p} {fn_display}{rst}")
 
             if args.output_matched:
                 print(f"\n[+] Matched list saved to: {os.path.abspath(args.output_matched)}")
@@ -1980,4 +2009,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        main("--recent", "--show-only matched")
+        # main("--recent", "--show-only matched")
+        # orphans
+        main("--show-only", "missing", "--dvd-filter", "dvd_only", "--skip-resolution")

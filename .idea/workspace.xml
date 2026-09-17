@@ -7,6 +7,7 @@
     <list default="true" id="0cae84e8-8944-4574-befa-511288ccf470" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/check_database_health.py" beforeDir="false" afterPath="$PROJECT_DIR$/check_database_health.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/checks_subtitles_vision.py" beforeDir="false" afterPath="$PROJECT_DIR$/checks_subtitles_vision.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/resample_library.py" beforeDir="false" afterPath="$PROJECT_DIR$/resample_library.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -23,23 +24,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.3152293813114113" />
-      <entry key="MS500" value="4.086899862860546" />
-      <entry key="S2" value="11.331175226414945" />
-      <entry key="S5" value="19.702569829781435" />
-      <entry key="S10" value="29.66193880022165" />
-      <entry key="S30" value="46.928928558716436" />
-      <entry key="S60" value="54.40024504395851" />
-      <entry key="M2" value="58.894616319446264" />
-      <entry key="M5" value="62.09117232029305" />
-      <entry key="M10" value="71.28878673999561" />
-      <entry key="M15" value="97.0249665371997" />
-      <entry key="M30" value="229.58749064111572" />
-      <entry key="H1" value="477.1127378388035" />
-      <entry key="H2" value="743.6542311774498" />
-      <entry key="H4" value="975.7524664994253" />
-      <entry key="D1" value="2338.8238553431393" />
-      <entry key="W1" value="5762.301997054193" />
+      <entry key="MS100" value="1.465603799181161" />
+      <entry key="MS500" value="4.549265237442629" />
+      <entry key="S2" value="12.223370884326265" />
+      <entry key="S5" value="17.755550189702973" />
+      <entry key="S10" value="20.529168604953263" />
+      <entry key="S30" value="23.176504837688242" />
+      <entry key="S60" value="27.162213617730696" />
+      <entry key="M2" value="42.04224715625608" />
+      <entry key="M5" value="92.23914851003296" />
+      <entry key="M10" value="147.10253463949604" />
+      <entry key="M15" value="184.72244916781105" />
+      <entry key="M30" value="254.00761761994175" />
+      <entry key="H1" value="319.4460934002055" />
+      <entry key="H2" value="371.32690831791604" />
+      <entry key="H4" value="416.1498709685733" />
+      <entry key="D1" value="1335.077027206701" />
+      <entry key="W1" value="6329.612927588118" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -61,23 +62,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.2903098038487315" />
-      <entry key="MS500" value="4.07400243866149" />
-      <entry key="S2" value="11.32220472600825" />
-      <entry key="S5" value="19.69619711213125" />
-      <entry key="S10" value="29.65707222814188" />
-      <entry key="S30" value="46.926332972377054" />
-      <entry key="S60" value="54.398736611096716" />
-      <entry key="M2" value="58.89379874798483" />
-      <entry key="M5" value="62.090826934160496" />
-      <entry key="M10" value="71.28857004821555" />
-      <entry key="M15" value="97.02472338587829" />
-      <entry key="M30" value="229.58710910785547" />
-      <entry key="H1" value="477.11231683117285" />
-      <entry key="H2" value="743.6539008273213" />
-      <entry key="H4" value="975.7522435193002" />
-      <entry key="D1" value="2338.8237555071955" />
-      <entry key="W1" value="5762.3019628082875" />
+      <entry key="MS100" value="1.4286669488857144" />
+      <entry key="MS500" value="4.528541200120546" />
+      <entry key="S2" value="12.209673794634991" />
+      <entry key="S5" value="17.747578417381874" />
+      <entry key="S10" value="20.524553275456974" />
+      <entry key="S30" value="23.174764153928315" />
+      <entry key="S60" value="27.161189281561715" />
+      <entry key="M2" value="42.041436963422264" />
+      <entry key="M5" value="92.23839717983128" />
+      <entry key="M10" value="147.1018890423609" />
+      <entry key="M15" value="184.7218739530193" />
+      <entry key="M30" value="254.00718118515863" />
+      <entry key="H1" value="319.44580124955667" />
+      <entry key="H2" value="371.3267324000024" />
+      <entry key="H4" value="416.1497701885288" />
+      <entry key="D1" value="1335.0769727447887" />
+      <entry key="W1" value="6329.612890546396" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -89,37 +90,38 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "KEY_CHAT_IN_TOOLWINDOW": "false",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.GUI_sqlite_scrape.executor": "Run",
-    "Python.check_database_health.executor": "Run",
-    "Python.find_missing_videos.executor": "Run",
-    "Python.install.executor": "Run",
-    "Python.resample_library.executor": "Run",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "ai.playground.ignore.import.keys.banner.in.settings": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "main",
-    "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "/home/daveg/Documents/GitHub/mySOC/SOC_Particle/pyStateOfCharge",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "python.packages.toolwindow.project.migrated.to.right.top.v2": "true",
-    "settings.editor.selected.configurable": "configurable.group.tools",
-    "to.speed.mode.migration.done": "true",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;KEY_CHAT_IN_TOOLWINDOW&quot;: &quot;false&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.GUI_sqlite_scrape.executor&quot;: &quot;Run&quot;,
+    &quot;Python.check_database_health.executor&quot;: &quot;Run&quot;,
+    &quot;Python.checks_subtitles_vision.executor&quot;: &quot;Run&quot;,
+    &quot;Python.find_missing_videos.executor&quot;: &quot;Run&quot;,
+    &quot;Python.install.executor&quot;: &quot;Run&quot;,
+    &quot;Python.resample_library.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;ai.playground.ignore.import.keys.banner.in.settings&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/daveg/Documents/GitHub/mySOC/SOC_Particle/pyStateOfCharge&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;python.packages.toolwindow.project.migrated.to.right.top.v2&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;configurable.group.tools&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RunManager" selected="Python.check_database_health">
     <configuration name="GUI_sqlite_scrape" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="movie_Scraper" />
@@ -138,6 +140,30 @@
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/GUI_sqlite_scrape.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="checks_subtitles_vision" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="movie_Scraper" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/checks_subtitles_vision.py" />
       <option name="PARAMETERS" value="" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
@@ -198,15 +224,16 @@
     <list>
       <item itemvalue="Python.check_database_health" />
       <item itemvalue="Python.resample_library" />
+      <item itemvalue="Python.checks_subtitles_vision" />
       <item itemvalue="Python.find_missing_videos" />
       <item itemvalue="Python.GUI_sqlite_scrape" />
       <item itemvalue="Python.install" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Python.checks_subtitles_vision" />
         <item itemvalue="Python.GUI_sqlite_scrape" />
         <item itemvalue="Python.install" />
-        <item itemvalue="Python.resample_library" />
         <item itemvalue="Python.find_missing_videos" />
       </list>
     </recent_temporary>
