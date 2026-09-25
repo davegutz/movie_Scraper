@@ -7,8 +7,9 @@ or movies missing subtitles completely, making them fully compatible with Jellyf
 and web clients without requiring server transcoding.
 
 Usage:
-  python3 fetch_subtitles.py "Fitzcarraldo"
-  python3 fetch_subtitles.py "/media/daveg/Lib/Movies/Fitzcarraldo (1982).m4v"
+  python3 fetch_subtitles.py "Scent of a Woman"
+  python3 fetch_subtitles.py "A Scent of a Woman"
+  python3 fetch_subtitles.py "/media/daveg/Lib/Movies/Scent of a Woman (1992).m4v"
   python3 fetch_subtitles.py --all-bmp              # Fetch .en.srt for all movies that only have bitmap subtitles
   python3 fetch_subtitles.py --all-bmp --dry-run    # Preview matches without downloading
   python3 fetch_subtitles.py --all-missing          # Fetch .en.srt for all movies missing subtitles
@@ -23,6 +24,7 @@ import re
 import sqlite3
 import sys
 import time
+import unicodedata
 import zipfile
 
 try:
@@ -60,10 +62,15 @@ def get_http(url, timeout=12):
 def normalize_title(title):
     if not title:
         return ""
-    import unicodedata
     title = unicodedata.normalize('NFKD', title).encode('ASCII', 'ignore').decode('utf-8')
     title = re.sub(r'[^\w\s]', ' ', title)
     return ' '.join(title.lower().split())
+
+
+def strip_article(title):
+    if not title:
+        return ""
+    return re.sub(r'^(the|a|an|le|la|les|el|il)\s+', '', title.strip(), flags=re.IGNORECASE).strip()
 
 
 def get_imdb_mapping(db_path):
@@ -87,10 +94,15 @@ def get_imdb_mapping(db_path):
             clean_t = title.strip()
             norm_t = normalize_title(clean_t)
             mapping[norm_t] = imdb_id
+            no_art = strip_article(norm_t)
+            if no_art:
+                mapping[no_art] = imdb_id
             if year:
                 mapping[f"{norm_t} {year}"] = imdb_id
                 mapping[f"{norm_t} ({year})"] = imdb_id
                 mapping[normalize_title(f"{clean_t} {year}")] = imdb_id
+                if no_art:
+                    mapping[f"{no_art} {year}"] = imdb_id
         conn.close()
     except Exception as e:
         print(f"Warning: Could not read DB '{db_path}': {e}", file=sys.stderr)
@@ -106,23 +118,34 @@ def match_movie_imdb(file_path, imdb_mapping):
     norm_base = normalize_title(cleaned)
     if norm_base in imdb_mapping:
         return imdb_mapping[norm_base], cleaned
+    no_art_base = strip_article(norm_base)
+    if no_art_base in imdb_mapping:
+        return imdb_mapping[no_art_base], cleaned
 
     # Try extracting title and year: "Title (YYYY)"
-    m = re.match(r"^(.*?)\s*\((\d{4})\)", cleaned)
+    m = re.match(r"^(.*?)\s*\(\s*(\d{4})\s*\)", cleaned)
     if m:
         raw_t = m.group(1).strip()
         yr = m.group(2)
         norm_t = normalize_title(raw_t)
+        no_art_t = strip_article(norm_t)
         if f"{norm_t} {yr}" in imdb_mapping:
             return imdb_mapping[f"{norm_t} {yr}"], cleaned
+        if f"{no_art_t} {yr}" in imdb_mapping:
+            return imdb_mapping[f"{no_art_t} {yr}"], cleaned
         if norm_t in imdb_mapping:
             return imdb_mapping[norm_t], cleaned
+        if no_art_t in imdb_mapping:
+            return imdb_mapping[no_art_t], cleaned
 
     # Clean disc/part notations
     no_part = re.sub(r"\s*(?:part|pt|disc|side|cd)\s*\d+.*$", "", cleaned, flags=re.IGNORECASE).strip()
     norm_no_part = normalize_title(no_part)
     if norm_no_part in imdb_mapping:
         return imdb_mapping[norm_no_part], no_part
+    no_art_no_part = strip_article(norm_no_part)
+    if no_art_no_part in imdb_mapping:
+        return imdb_mapping[no_art_no_part], no_part
 
     return None, cleaned
 
@@ -151,7 +174,8 @@ def search_yts_subs_by_imdb(imdb_id):
 def search_yts_subs_by_title(title):
     """Search yts-subs.com by movie title."""
     import urllib.parse
-    query = urllib.parse.quote_plus(title)
+    clean_search = strip_article(title) or title
+    query = urllib.parse.quote_plus(clean_search)
     url = f"https://yts-subs.com/search?q={query}"
     html_bytes = get_http(url)
     if not html_bytes:
@@ -250,7 +274,7 @@ def fetch_english_srt(imdb_id=None, title=None):
 
 
 def update_cache_for_file(file_path):
-    """Update cache entry for file_path so sub='YES' and bmp='NO'."""
+    """Update cache entry for file_path so sub='SRT', bmp='NO', srt='YES', and jellyfin='DIRECT'."""
     if not os.path.isfile(CACHE_PATH):
         return
     try:
@@ -259,9 +283,10 @@ def update_cache_for_file(file_path):
         with open(CACHE_PATH, "r", encoding="utf-8") as f:
             cache = json.load(f)
         if cache_key in cache:
-            cache[cache_key]["sub"] = "YES"
+            cache[cache_key]["sub"] = "SRT"
             cache[cache_key]["bmp"] = "NO"
             cache[cache_key]["srt"] = "YES"
+            cache[cache_key]["jellyfin"] = "DIRECT"
             with open(CACHE_PATH, "w", encoding="utf-8") as f:
                 json.dump(cache, f, indent=2)
     except Exception:
@@ -345,6 +370,35 @@ def process_single_movie(file_path, imdb_mapping, dry_run=False, force=False):
         return False
 
 
+def find_movie_file_by_query(query, movies_dir):
+    """Locate matching movie video file with resilient matching."""
+    if os.path.isfile(query):
+        return os.path.abspath(query)
+
+    q_lower = query.strip().lower()
+    q_norm = normalize_title(query)
+    q_no_art = strip_article(q_norm)
+
+    # 1. Exact substring check
+    for root, _, files in os.walk(movies_dir):
+        for f in files:
+            _, ext = os.path.splitext(f)
+            if ext.lower() in VIDEO_EXTENSIONS:
+                if q_lower in f.lower():
+                    return os.path.join(root, f)
+
+    # 2. Stripped-article substring check
+    if q_no_art:
+        for root, _, files in os.walk(movies_dir):
+            for f in files:
+                _, ext = os.path.splitext(f)
+                if ext.lower() in VIDEO_EXTENSIONS:
+                    if q_no_art in normalize_title(f):
+                        return os.path.join(root, f)
+
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Fetch external English .srt subtitles for movies with bitmap-only DVD subtitles or missing subtitles."
@@ -353,7 +407,7 @@ def main():
         "query",
         nargs="?",
         default=None,
-        help="Movie title, filename, or file path (e.g. 'Fitzcarraldo' or '/media/daveg/Lib/Movies/Fitzcarraldo (1982).m4v')"
+        help="Movie title, filename, or file path (e.g. 'Scent of a Woman' or '/media/daveg/Lib/Movies/Scent of a Woman (1992).m4v')"
     )
     parser.add_argument(
         "--all-bmp",
@@ -404,20 +458,7 @@ def main():
 
     if args.query:
         # Single movie lookup
-        target_path = None
-        if os.path.isfile(args.query):
-            target_path = os.path.abspath(args.query)
-        else:
-            # Search in movies_dir
-            for root, _, files in os.walk(args.movies_dir):
-                for f in files:
-                    if args.query.lower() in f.lower():
-                        _, ext = os.path.splitext(f)
-                        if ext.lower() in VIDEO_EXTENSIONS:
-                            target_path = os.path.join(root, f)
-                            break
-                if target_path:
-                    break
+        target_path = find_movie_file_by_query(args.query, args.movies_dir)
 
         if not target_path:
             print(f"Error: Could not locate movie file matching '{args.query}' in '{args.movies_dir}'", file=sys.stderr)

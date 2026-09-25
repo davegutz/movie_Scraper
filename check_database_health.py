@@ -16,16 +16,23 @@ All output lists:
     moving the article to the end after a comma (e.g. "Godfather, The", "Beautiful Mind, A").
   - Have the release year appended in parentheses to the end of the Title (e.g. "West Side Story (1961)").
   - For unmatched library items, Filename is kept clean without appending extra year information.
-  - Include video file extension (e.g. .mp4, .m4v)
-  - Include video codec / format (e.g. H264, H265, MPEG4)
-  - Include video resolution in 'p' form (e.g. 1080p, 720p, 480p)
-  - Include video frame rate in frames per second (FPS, e.g. 23.98, 29.97, 24)
-  - Include video file size in decimal GB (e.g. 3.61 GB)
-  - Include user rating in a column called 'Rate' (e.g. 8.5, 10.0, -) in column 2
-  - Include duration of the title / video in a column called 'Time' in hr:min format (e.g. 02:00)
-  - Include subtitle type indicator in a column called 'Sub' (SRT / Text / Bitmap / None / -)
-  - Include Jellyfin compatibility indicator in a column called 'Jellyfin' (DIRECT / TRANSCODE / -)
-  - Include oversized flag (YES / NO / -) in a column called 'Oversized' based on resolution vs file size
+  - Include IMDb ID in a column called 'IMDB ID' (e.g. tt0068646, -)
+  - Include user rating in a column called 'Rate' (e.g. 8.5, 10.0, -)
+  - Include physical DVD disc/box ID in a column called 'DVD' (e.g. 1, 4, -)
+  - Include subfolder path in a column called 'Subfolder' for unmatched files
+  - Include video file extension in a column called 'Ext' (e.g. .mp4, .m4v, .mkv, .avi)
+  - Include video codec / format in a column called 'Fmt' (e.g. H264, H265, MPEG4)
+  - Include video resolution in 'p' form in a column called 'Res' (e.g. 1080p, 720p, 480p)
+  - Include video frame rate in FPS in a column called 'FPS' (e.g. 23.98, 29.97, 24)
+  - Include video file size in decimal GB in a column called 'Size' (e.g. 3.61 GB)
+  - Include duration in hr:min format in a column called 'Time' (e.g. 02:00; '*' if duration mismatch)
+  - Include subtitle type indicator in a column called 'Sub' (Text / SRT / Bitmap / None / OVERRUN)
+  - Include Jellyfin compatibility indicator in a column called 'Jellyfin':
+    * DIRECT: Direct Play with 0% server CPU transcode. Uses external sidecar .srt files or embedded text tracks.
+    * TRANSCODE: Server CPU video transcoding required to burn bitmap (DVD/PGS) subtitles into video frames. Fix by adding an .srt file via fetch_subtitles or OCR in resample_library.
+    * DESYNC: External subtitles overrun video duration; replace with synced .srt.
+  - Include file size compliance indicator in a column called 'Sized' (YES / NO / -) based on resolution vs size
+  - Include last modified date in a column called 'Modified' (YYYY-MM-DD HH:MM) when sorting by mtime
 Columns are placed directly before the filename / title column.
 Total GB size and oversized totals are included in the summary header at the beginning.
 
@@ -305,6 +312,8 @@ def check_oversized(res_str, size_gb, duration=None):
     elif s == "NO":
         return "YES"
     return s
+
+
 def find_srt_file(file_path):
     """Find the path of the sidecar .srt file if one exists for file_path."""
     if not file_path or not os.path.isfile(file_path):
@@ -634,7 +643,6 @@ def get_video_metadata(file_path, cache=None):
         return ("-", "-", "-", "-", "-", "-")
 
 
-
 def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=False, has_video=True, use_color=True):
     """
     Determine row color and column colors:
@@ -701,6 +709,7 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
         row_c = c_green
 
     return (row_c, sub_c, jf_c, sized_c, time_c, c_reset)
+
 
 def status_msg(msg, advance=False):
     """
@@ -1488,11 +1497,11 @@ def main(*raw_args):
     elif args.color == 'auto':
         use_color = sys.stdout.isatty() or os.getenv('FORCE_COLOR') == '1'
 
-    c_red = '[91m' if use_color else ''
-    c_orange = '[38;5;208m' if use_color else ''
-    c_yellow = '[93m' if use_color else ''
-    c_green = '[92m' if use_color else ''
-    c_reset = '[0m' if use_color else ''
+    c_red = '\033[91m' if use_color else ''
+    c_orange = '\033[38;5;208m' if use_color else ''
+    c_yellow = '\033[93m' if use_color else ''
+    c_green = '\033[92m' if use_color else ''
+    c_reset = '\033[0m' if use_color else ''
 
     if not args.quiet:
         status_msg(f"Loading database records from: {args.db}...", advance=False)
@@ -1589,7 +1598,7 @@ def main(*raw_args):
 
     # Probe format/codec, resolution & fps if needed
     if not args.skip_resolution:
-                # Probe matched video files
+        # Probe matched video files
         if args.show_only in ('all', 'matched') or args.output_matched or True:
             matched_meta = batch_probe_metadata(
                 matched, lambda m: m[1]['path'], verbose=(not args.quiet), label="Probing matched"
@@ -1873,14 +1882,34 @@ def main(*raw_args):
             print(f"  Unmatched Library Videos: {len(unmatched_videos):,}  (video on disk, not in DB, {unmatched_gb:,.2f} GB, {unmatched_not_sized_count:,} improperly sized)")
             print("-" * banner_len)
             print("  Notes:")
-            print("    1. Format:    H264 is best for older hardware such as 2011 Sony Bravia.")
-            print("    2. Sized:     resample_library could be run on Sized=NO to dramatically save space.")
-            print("    3. Missing:   Missing titles could be restored by re-ripping hard DVD in storage.")
-            print("    4. Resample:  Running resample_library is time-consuming.")
-            print("    5. Subtitles: Running fetch_subtitles is not time-consuming.")
-            print("    6. Backups:   Keep <= 50 .bak files; resample_library or check_database_health --prune-backups deletes older ones.")
-            print("    7. Duration:  Red duration with asterisk (*) indicates split rip (Part 1/Disc 1) or runtime discrepancy with DB.")
-            print("    8. DESYNC:    OVERRUN / DESYNC indicates subtitle timestamps extend far past video end (e.g. 24fps vs 25fps PAL mismatch or wrong cut; fix: retime or re-fetch SRT).")
+            print("    1. Column Descriptions:")
+            print("       - IMDB ID:   IMDb unique title identifier in database (e.g. tt0068646; '-' if missing / unmatched).")
+            print("       - Rate:      User rating from database (1.0 - 10.0; '-' if unrated).")
+            print("       - DVD:       Physical DVD box/disc storage number cataloged in database ('-' if unassigned).")
+            print("       - Subfolder: Relative directory under Movies folder for unmatched files ('-' if root).")
+            print("       - Ext:       Video container file extension (.mp4, .m4v, .mkv, .avi, etc.).")
+            print("       - Fmt:       Video codec format (H264, H265, MPEG4; H264 is best for older hardware such as 2011 Sony Bravia).")
+            print("       - Res:       Vertical video resolution height (1080p, 720p, 576p, 480p, etc.).")
+            print("       - FPS:       Frame rate in frames per second (e.g. 23.98, 24, 25, 29.97, 60).")
+            print("       - Size:      Video file size on disk in decimal gigabytes (GB).")
+            print("       - Time:      Runtime in HH:MM (red with '*' indicates duration mismatch vs DB or split multi-disc rip).")
+            print("       - Sub:       Subtitle stream type (Text = embedded text subtitle track, SRT = external .srt file,")
+            print("                    Bitmap = DVD VobSub/PGS image subs, None = no subtitles, OVERRUN = desynced timestamps).")
+            print("       - Jellyfin:  Streaming playback mode & CPU workload:")
+            print("                    * DIRECT:    Direct play with 0% server CPU video transcode. Uses external sidecar .srt files")
+            print("                                 or embedded text tracks; rendered client-side on TV/device. External .srt files")
+            print("                                 are universally supported and eliminate transcoding when bitmap subs exist.")
+            print("                    * TRANSCODE: Server CPU video transcoding required to burn/stamp DVD/PGS bitmap subtitles")
+            print("                                 into video frames in real time. Fix by adding an .srt file (via fetch_subtitles")
+            print("                                 or OCR in resample_library) to switch playback mode to DIRECT.")
+            print("                    * DESYNC:    External subtitles desynced/overrun video duration; replace with synced .srt.")
+            print("       - Sized:     File size efficiency (YES = properly sized; NO = oversized rip, run resample_library to save space).")
+            print("       - Modified:  File last modified date/time (YYYY-MM-DD HH:MM; displayed with --sort-by mtime or --recent).")
+            print("       - Title/Fn:  Movie title with release year (articles sorted to end) or library filename.")
+            print("    2. Missing:   Missing DB titles could be restored by re-ripping hard DVD in storage.")
+            print("    3. Resample:  Running resample_library is time-consuming.")
+            print("    4. Subtitles: Running fetch_subtitles is not time-consuming; adding .srt files switches TRANSCODE -> DIRECT (0% CPU).")
+            print("    5. Backups:   Keep <= 50 .bak files; resample_library or check_database_health --prune-backups deletes older ones.")
             print("-" * banner_len)
             print("  Color Key:")
             print(f"    {c_green}● Green:{c_reset}   Clean (Sized=YES, matched duration & Jellyfin DIRECT text subtitles)")
@@ -2009,6 +2038,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        # main("--recent", "--show-only matched")
+        main("--recent", "--show-only matched")
         # orphans
-        main("--show-only", "missing", "--dvd-filter", "dvd_only", "--skip-resolution")
+        # main("--show-only", "missing", "--dvd-filter", "dvd_only", "--skip-resolution")
