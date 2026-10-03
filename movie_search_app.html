@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Movie Search & Library</title>
+  <style>
+    :root {
+      --bg-color: #121418;
+      --card-bg: #1c1f26;
+      --card-border: #2c323f;
+      --text-main: #f0f3f8;
+      --text-sub: #9aa5b5;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --gold: #f59e0b;
+      --badge-bg: #272d3b;
+      --badge-text: #cbd5e1;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      padding-bottom: 50px;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(18, 20, 24, 0.96);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      padding: 12px 16px;
+    }
+
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .logo {
+      font-size: 1.15rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .count-badge {
+      font-size: 0.78rem;
+      background: var(--badge-bg);
+      color: var(--text-sub);
+      padding: 3px 8px;
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
+    }
+
+    .search-box {
+      position: relative;
+      width: 100%;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 11px 40px 11px 14px;
+      background: #222733;
+      border: 1px solid #374151;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+    }
+
+    .clear-btn {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-sub);
+      font-size: 1.2rem;
+      cursor: pointer;
+      display: none;
+    }
+
+    .filters-bar {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .filter-select {
+      background: #222733;
+      color: var(--text-main);
+      border: 1px solid #374151;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      outline: none;
+    }
+
+    .source-bar {
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .source-input {
+      flex: 1;
+      background: #171a21;
+      border: 1px solid #2d3748;
+      border-radius: 6px;
+      color: var(--text-sub);
+      font-size: 0.72rem;
+      padding: 4px 8px;
+    }
+
+    .source-btn {
+      background: #2b3345;
+      color: #cbd5e1;
+      border: 1px solid #3b465d;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      padding: 4px 10px;
+      cursor: pointer;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .status-box {
+      text-align: center;
+      padding: 40px 16px;
+      color: var(--text-sub);
+    }
+
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top: 3px solid var(--accent);
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: row;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      transition: transform 0.15s, border-color 0.15s;
+    }
+
+    .card:hover {
+      border-color: #3f4758;
+      transform: translateY(-2px);
+    }
+
+    .poster {
+      width: 105px;
+      min-width: 105px;
+      background: #15181f;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .poster img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .poster-placeholder {
+      color: #4a5568;
+      font-size: 2rem;
+    }
+
+    .card-body {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.25;
+      word-wrap: break-word;
+    }
+
+    .year {
+      color: var(--text-sub);
+      font-weight: 400;
+      font-size: 0.9rem;
+    }
+
+    .ratings {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 0.8rem;
+    }
+
+    .rating-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+
+    .imdb-badge {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .my-badge {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .dvd-badge {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .meta-line {
+      font-size: 0.78rem;
+      color: var(--text-sub);
+      margin-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .meta-line strong {
+      color: #cbd5e1;
+    }
+
+    .genres {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin: 4px 0 6px 0;
+    }
+
+    .genre-tag {
+      background: var(--badge-bg);
+      color: var(--badge-text);
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .summary {
+      font-size: 0.77rem;
+      color: #94a3b8;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-top: auto;
+    }
+
+    .imdb-link {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.75rem;
+      margin-top: 6px;
+      display: inline-block;
+      align-self: flex-start;
+    }
+
+    .imdb-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-top">
+      <div class="logo">🎬 Movie Search</div>
+      <div id="countBadge" class="count-badge">Loading...</div>
+    </div>
+    
+    <div class="search-box">
+      <input 
+        type="text" 
+        id="searchInput" 
+        class="search-input" 
+        placeholder="Search title, director, actor, genre..." 
+        autocomplete="off" 
+        autofocus
+      >
+      <button id="clearBtn" class="clear-btn">✕</button>
+    </div>
+
+    <div class="filters-bar">
+      <select id="sortSelect" class="filter-select">
+        <option value="title_asc">Sort: Title (A-Z)</option>
+        <option value="title_desc">Sort: Title (Z-A)</option>
+        <option value="my_rating_desc">Sort: My Rate (High-Low)</option>
+        <option value="imdb_desc">Sort: IMDb (High-Low)</option>
+        <option value="year_desc">Sort: Year (Newest)</option>
+        <option value="year_asc">Sort: Year (Oldest)</option>
+      </select>
+
+      <select id="dvdFilter" class="filter-select">
+        <option value="all">DVD: All</option>
+        <option value="dvd_only">DVD: Owned Only</option>
+      </select>
+
+      <select id="genreFilter" class="filter-select">
+        <option value="all">Genre: All</option>
+      </select>
+    </div>
+
+    <div class="source-bar">
+      <input type="text" id="rawUrlInput" class="source-input" value="https://raw.githubusercontent.com/davegutz/movie_Scraper/master/movies.json">
+      <button id="reloadBtn" class="source-btn">Fetch Live</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <div id="statusBox" class="status-box">
+      <div class="spinner"></div>
+      <div>Fetching movies database from GitHub...</div>
+    </div>
+
+    <div id="moviesGrid" class="grid" style="display: none;"></div>
+  </div>
+
+  <script>
+    let allMovies = [];
+    let genresList = new Set();
+
+    const searchInput = document.getElementById('searchInput');
+    const clearBtn = document.getElementById('clearBtn');
+    const sortSelect = document.getElementById('sortSelect');
+    const dvdFilter = document.getElementById('dvdFilter');
+    const genreFilter = document.getElementById('genreFilter');
+    const countBadge = document.getElementById('countBadge');
+    const statusBox = document.getElementById('statusBox');
+    const moviesGrid = document.getElementById('moviesGrid');
+    const rawUrlInput = document.getElementById('rawUrlInput');
+    const reloadBtn = document.getElementById('reloadBtn');
+
+    // Fetch database JSON
+    async function loadMovies(url) {
+      statusBox.style.display = 'block';
+      statusBox.innerHTML = '<div class="spinner"></div><div>Fetching movies database from GitHub...</div>';
+      moviesGrid.style.display = 'none';
+
+      try {
+        // Try local movies.json first if opened locally, else fetch GitHub Raw URL
+        let fetchUrl = url;
+        let res;
+        try {
+          res = await fetch(fetchUrl);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        } catch (fetchErr) {
+          // If relative fetch failed, try raw URL directly
+          if (fetchUrl !== rawUrlInput.value) {
+            fetchUrl = rawUrlInput.value;
+            res = await fetch(fetchUrl);
+          } else {
+            throw fetchErr;
+          }
+        }
+
+        allMovies = await res.json();
+        
+        // Extract all unique genres
+        genresList.clear();
+        allMovies.forEach(m => {
+          if (m.genres) {
+            m.genres.split(',').forEach(g => {
+              const cleanG = g.trim();
+              if (cleanG) genresList.add(cleanG);
+            });
+          }
+        });
+
+        // Populate genre dropdown
+        genreFilter.innerHTML = '<option value="all">Genre: All</option>';
+        Array.from(genresList).sort().forEach(g => {
+          const opt = document.createElement('option');
+          opt.value = g;
+          opt.textContent = g;
+          genreFilter.appendChild(opt);
+        });
+
+        statusBox.style.display = 'none';
+        moviesGrid.style.display = 'grid';
+        applyFilters();
+
+      } catch (err) {
+        statusBox.style.display = 'block';
+        statusBox.innerHTML = `
+          <div style="color: #ef4444; font-weight: 600; margin-bottom: 8px;">Failed to load database</div>
+          <div style="font-size: 0.85rem; color: #94a3b8; max-width: 500px; margin: 0 auto;">
+            Error: ${err.message}<br><br>
+            Please check that <code>movies.json</code> is pushed to GitHub, or verify your GitHub raw URL above.
+          </div>
+        `;
+      }
+    }
+
+    function applyFilters() {
+      const query = searchInput.value.trim().toLowerCase();
+      const sortVal = sortSelect.value;
+      const dvdVal = dvdFilter.value;
+      const genreVal = genreFilter.value;
+
+      clearBtn.style.display = query ? 'block' : 'none';
+
+      let filtered = allMovies.filter(m => {
+        // DVD Filter
+        if (dvdVal === 'dvd_only' && !(m.dvd === 1 || m.dvd === 4 || m.dvd === '1' || m.dvd === '4')) {
+          return false;
+        }
+
+        // Genre Filter
+        if (genreVal !== 'all') {
+          if (!m.genres || !m.genres.toLowerCase().includes(genreVal.toLowerCase())) {
+            return false;
+          }
+        }
+
+        // Search Query (matches Title, Director, Actors, Summary, Year, Genres)
+        if (query) {
+          const title = (m.title || '').toLowerCase();
+          const director = (m.director || '').toLowerCase();
+          const actors = (m.actors || '').toLowerCase();
+          const genres = (m.genres || '').toLowerCase();
+          const summary = (m.summary || '').toLowerCase();
+          const year = String(m.year || '');
+          return title.includes(query) ||
+                 director.includes(query) ||
+                 actors.includes(query) ||
+                 genres.includes(query) ||
+                 summary.includes(query) ||
+                 year.includes(query);
+        }
+
+        return true;
+      });
+
+      // Sorting
+      filtered.sort((a, b) => {
+        if (sortVal === 'title_asc') return (a.title || '').localeCompare(b.title || '');
+        if (sortVal === 'title_desc') return (b.title || '').localeCompare(a.title || '');
+        if (sortVal === 'my_rating_desc') return (b.my_rating || 0) - (a.my_rating || 0);
+        if (sortVal === 'imdb_desc') return (b.rating || 0) - (a.rating || 0);
+        if (sortVal === 'year_desc') return (b.year || 0) - (a.year || 0);
+        if (sortVal === 'year_asc') return (a.year || 0) - (b.year || 0);
+        return 0;
+      });
+
+      renderMovies(filtered);
+    }
+
+    function renderMovies(movies) {
+      countBadge.textContent = `${movies.length.toLocaleString()} of ${allMovies.length.toLocaleString()} titles`;
+      
+      if (movies.length === 0) {
+        moviesGrid.innerHTML = `
+          <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-sub);">
+            No matching movies found.
+          </div>
+        `;
+        return;
+      }
+
+      // Render top 150 items to keep performance ultra-fast
+      const displayItems = movies.slice(0, 150);
+      
+      const html = displayItems.map(m => {
+        const title = m.title || 'Untitled';
+        const year = m.year ? `<span class="year">(${m.year})</span>` : '';
+        const imdb = m.rating ? `<span class="rating-badge imdb-badge">★ ${m.rating}</span>` : '';
+        const myRate = m.my_rating ? `<span class="rating-badge my-badge">♥ ${m.my_rating}</span>` : '';
+        const dvd = (m.dvd === 1 || m.dvd === 4 || m.dvd === '1' || m.dvd === '4') ? `<span class="rating-badge dvd-badge">DVD</span>` : '';
+        const director = m.director ? `<div class="meta-line"><strong>Dir:</strong> ${m.director}</div>` : '';
+        const actors = m.actors ? `<div class="meta-line"><strong>Cast:</strong> ${m.actors}</div>` : '';
+        
+        let genresHtml = '';
+        if (m.genres) {
+          genresHtml = '<div class="genres">' + 
+            m.genres.split(',').slice(0, 3).map(g => `<span class="genre-tag">${g.trim()}</span>`).join('') + 
+          '</div>';
+        }
+
+        const summary = m.summary ? `<div class="summary">${m.summary}</div>` : '';
+        const imdbId = m.id ? `<a class="imdb-link" href="https://www.imdb.com/title/tt${String(m.id).padStart(7, '0')}/" target="_blank" rel="noopener">IMDb Page ↗</a>` : '';
+        
+        // Poster handling
+        let posterHtml = '<div class="poster-placeholder">🎬</div>';
+        if (m.cover && m.cover.startsWith('http')) {
+          posterHtml = `<img src="${m.cover}" alt="${title}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'poster-placeholder\\'>🎬</div>'">`;
+        }
+
+        return `
+          <div class="card">
+            <div class="poster">${posterHtml}</div>
+            <div class="card-body">
+              <div class="title-row">
+                <div class="title">${title} ${year}</div>
+              </div>
+              <div class="ratings">
+                ${imdb}
+                ${myRate}
+                ${dvd}
+              </div>
+              ${director}
+              ${actors}
+              ${genresHtml}
+              ${summary}
+              ${imdbId}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      moviesGrid.innerHTML = html;
+    }
+
+    // Event Listeners
+    searchInput.addEventListener('input', applyFilters);
+    clearBtn.addEventListener('click', () => {
+      searchInput.value = '';
+      applyFilters();
+      searchInput.focus();
+    });
+    sortSelect.addEventListener('change', applyFilters);
+    dvdFilter.addEventListener('change', applyFilters);
+    genreFilter.addEventListener('change', applyFilters);
+    reloadBtn.addEventListener('click', () => loadMovies(rawUrlInput.value.trim()));
+
+    // Initial Load: try local movies.json first, fall back to GitHub raw URL
+    loadMovies('movies.json');
+  </script>
+</body>
+</html>
