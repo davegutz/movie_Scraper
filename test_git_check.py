@@ -40,6 +40,10 @@ class TestGitHubUtilCheck(unittest.TestCase):
         real_run = GitHub_util.subprocess.run
 
         def mock_run(cmd, *args, **kwargs):
+            if 'fetch' in cmd:
+                m = MagicMock()
+                m.returncode = 0
+                return m
             if 'rev-list' in cmd:
                 m = MagicMock()
                 m.returncode = 0
@@ -59,6 +63,10 @@ class TestGitHubUtilCheck(unittest.TestCase):
         real_run = GitHub_util.subprocess.run
 
         def mock_run(cmd, *args, **kwargs):
+            if 'fetch' in cmd:
+                m = MagicMock()
+                m.returncode = 0
+                return m
             if 'rev-list' in cmd:
                 m = MagicMock()
                 m.returncode = 0

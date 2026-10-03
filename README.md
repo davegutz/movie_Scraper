@@ -4,9 +4,17 @@ A comprehensive movie collection management and optimization toolkit. It combine
 
 ---
 
+## Setup to Remotely Read Database
+
+For complete instructions on configuring SSH authentication and publishing your database for remote access on Android and web browsers, see:
+
+* **[Setup to Remotely Read Database (export_git_files.md)](export_git_files.md)**: Details generating SSH keys on Ubuntu/Lubuntu, configuring GitHub permissions, running the one-click **"Export Movies to Web"** button in Tkinter, and viewing/installing `movie_search_app.html` as a mobile web app.
+
+---
+
 ## Workflow: Alternating Resample & Database Health Audits
 
-When maintaining and compressing a large movie library (e.g., converting oversized rips into optimized H.264 files suitable for older hardware and universal Jellyfin direct-play), the primary workflow alternates between **`resample_library.py`** and **`check_database_health.py`**:
+When maintaining and compressing a large movie library (e.g., converting oversized rips into optimized H.264 files suitable for older hardware and universal Jellyfin direct-play), the primary workflow alternates between **`resample_library.py`**, **`check_database_health.py`**, and **`generate_subtitle_contact_sheets.py`**:
 
 ```mermaid
 graph TD
@@ -14,7 +22,9 @@ graph TD
     B --> C["3. Run check_database_health.py<br/>Verify Sized=YES & Jellyfin=DIRECT"]
     C --> D{"More oversized files?"}
     D -- Yes --> B
-    D -- No --> E["Library Optimized!"]
+    D -- No --> E["4. Generate Contact Sheets<br/>generate_subtitle_contact_sheets.py"]
+    E --> F["5. Human Visual QC<br/>Inspect PDF by hand/eye, log in notes.txt"]
+    F --> G["Library Optimized & Verified!"]
 ```
 
 ### 1. Audit Library Health (`check_database_health.py`)
@@ -45,11 +55,21 @@ python3 resample_library.py --max-files 3 --sort-by size_desc --dry-run
 * **Backup Management:** Original video files are backed up as `.bak`. The script automatically maintains a rolling limit (default: $\le 50$ backups) to prevent disk exhaustion.
 * **Subtitles:** Automatically checks and downloads sidecar `.en.srt` files for any video with missing or bitmapped subtitles.
 
-### 3. Verify Results (`check_database_health.py`)
+### 3. Verify Results (`check_database_health.py` & `notes.txt`)
 Re-run `check_database_health.py` to confirm:
 * The resampled movies now show **`Sized: YES`**.
-* The subtitles display **`SRT`** or **`Text`** with **`Jellyfin: DIRECT`**.
+* The subtitles display **`SRT`** or **`Text`** with **`Jellyfin: DIRECT`****.
 * Disk space savings are accurately reflected in the library totals.
+* **Manual Review Notes (`notes.txt`):** Manual quality audit findings (e.g., subtitle desync/overrun flags, bogus `.srt` removals, or movies needing further investigation) are recorded in `notes.txt`.
+
+### 4. Visual Verification via Contact Sheets (`generate_subtitle_contact_sheets.py`)
+During re-encoding, proof snapshots are extracted from dialogue timestamps into `subtitle_proof/`. To review thousands of proof images across the library:
+```bash
+# Generate 3x3 contact sheets and assemble single PDF:
+python3 generate_subtitle_contact_sheets.py
+```
+* **Human Hand/Eye Review vs. AI Vision:** Subtitle proof sheets are reviewed by hand/eye rather than delegating to automated AI/multimodal vision models. This decision is driven by the current immaturity and unreliability of machine vision pipelines for subtle subtitle drift, as well as frequent rate-limiting and denial of service (DoS) errors from web-based machine vision APIs when processing thousands of high-resolution images in bulk.
+* **Contact Sheet PDF:** Compiles the proof snapshots into 3×3 grid pages (grouping all 3 timestamps per movie together with wrapped titles) into a single document: `/media/daveg/Lib/Movies/subtitle_proof_contact_sheets.pdf`. This enables rapid, fluid manual review of the entire collection in minutes. Any defective subtitles found during visual inspection are flagged in `notes.txt`.
 
 ---
 
@@ -65,19 +85,24 @@ Re-run `check_database_health.py` to confirm:
 
 ## Project Script Overview
 
-Every `.py` file in this repository serves a specific role in the collection management, scraping, audit, and transcoding workflow:
+Every `.py` and tracking file in this repository serves a specific role in the collection management, scraping, audit, and transcoding workflow:
 
 | File | Purpose |
 | :--- | :--- |
 | **`check_database_health.py`** | Comprehensive health auditing CLI for the video library and database. Compares `IMDB_Films.db` entries against files on disk in `/media/daveg/Lib/Movies`, categorizing them into Matched, Missing, and Unmatched. Inspects video resolution, framerate, file size bounds (`Sized`), subtitle formats (`Text`, `Bitmap`, `SRT`, `None`), Jellyfin streaming compatibility (`DIRECT` vs `TRANSCODE`), and manages backup `.bak` pruning. Supports flexible CLI arguments or IDE execution via `main(...)`. |
 | **`resample_library.py`** | Automated FFmpeg batch transcoding engine. Scans the movie library for oversized files (`Sized=NO`), normalizes problematic container timestamps (e.g. 120 fps metadata bugs), re-encodes to CRF 20 H.264 (`libx264`) for maximum hardware compatibility, preserves audio tracks, fetches missing `.en.srt` sidecars, visually verifies subtitles, and manages a rolling `.bak` backup directory. |
+| **`export_movies_json.py`** | Database JSON exporter. Dumps `My_Films` to `movies.json` and supports `--push` to stage, commit, and push updates to GitHub for web/mobile search. |
+| **`movie_search_app.html`** | Single-file, standalone responsive mobile and desktop web app. Fetches `movies.json` from GitHub and provides instant client-side searching, sorting, and filtering with offline caching. |
+| **`export_git_files.md`** | Setup documentation for passwordless SSH authentication on Ubuntu/Lubuntu, GitHub Pages hosting, and mobile web app installation. |
 | **`fetch_subtitles.py`** | Automated subtitle search and downloader. Queries IMDb IDs and titles against YTS Subtitles and OpenSubtitles REST APIs, downloads English `.srt` files, cleans up UTF-8 encoding (stripping BOMs), and saves clean sidecars alongside video files for seamless direct-play on Jellyfin and smart TVs. |
-| **`verify_jellyfin_subtitles.py`** | Automated subtitle verification and proof capture tool. Extracts dialogue cues from internal tracks or `.srt` sidecars, captures high-resolution video frames at precise timestamps using FFmpeg with burned-in subtitles, and saves 2-3 proof snapshots directly into the `subtitle_proof/` subfolder of `Lib/Movies` for user quality control and Antigravity multimodal review. |
+| **`verify_jellyfin_subtitles.py`** | Automated subtitle verification and proof capture tool. Extracts dialogue cues from internal tracks or `.srt` sidecars, captures high-resolution video frames at precise timestamps using FFmpeg with burned-in subtitles, and saves 2-3 proof snapshots directly into the `subtitle_proof/` subfolder of `Lib/Movies` for quality control review. |
+| **`generate_subtitle_contact_sheets.py`** | ImageMagick `montage` contact sheet generator. Compiles all proof snapshots in `subtitle_proof/` into organized 3×3 contact sheet pages with movie titles, and compiles them into a single multi-page PDF (`subtitle_proof_contact_sheets.pdf`) for efficient human hand/eye review. |
 | **`checks_subtitles_vision.py`** | Command-line quality control utility for scanning movie files or test batches, verifying subtitle track validity and dialogue cues, and generating proof snapshots into `subtitle_proof/`. |
 | **`GUI_sqlite_scrape.py`** | Main Tkinter graphical user interface application. Allows browsing, searching, editing, and scraping movie information from IMDb directly into the local SQLite database (`IMDB_Films.db`). Tracks view dates, ratings, and physical/digital ownership. |
 | **`sqlite_scrape_util.py`** | Utility library supporting `GUI_sqlite_scrape.py`. Handles SQLite database queries, table schema initialization, IMDb web scraping parsing routines, and record sanitization. |
 | **`Colors.py`** | ANSI terminal color and styling definitions (green, red, yellow, bold, cyan, reset) used to format terminal outputs, summary tables, and warning banners across CLI tools. |
 | **`GitHub_util.py`** | Git automation helper script for managing local repository status, committing updates, and synchronizing with remote GitHub repositories. |
+| **`notes.txt`** | Tracking log for manual movie quality control, audit notes, subtitle sync/overrun flags, bogus `.srt` removals, and titles requiring manual investigation. |
 | **`install.py`** | Project initialization and dependency setup script. Configures virtual environment packages, validates database paths, and verifies local prerequisites. |
 | **`setuplinux.py`** | Linux platform configuration script. Handles desktop launchers, file associations, and environment-specific path configurations. |
 | **`custom_sort_treeview_ex.py`** | UI component demonstrating multi-column custom sorting algorithms for Tkinter `ttk.Treeview` tables. |
@@ -94,7 +119,7 @@ Every `.py` file in this repository serves a specific role in the collection man
    cd movie_Scraper
    ```
 2. **Open in PyCharm:**
-   * Open the project directory in PyCharm.
+   * Open the project directory in PyCharm.\
    * Configure a Python 3 virtual environment (`.venv`).
 3. **Install dependencies:**
    ```bash
@@ -104,5 +129,9 @@ Every `.py` file in this repository serves a specific role in the collection man
    * **FFmpeg / FFprobe:** Required for library audits and resampling:
      ```bash
      sudo apt install ffmpeg
+     ```
+   * **ImageMagick & Poppler:** Required for contact sheet montage and PDF generation:
+     ```bash
+     sudo apt install imagemagick poppler-utils
      ```
    * **Database Browser (Optional):** [DB Browser for SQLite](https://sqlitebrowser.org/dl/) for manual inspection of `IMDB_Films.db`.
