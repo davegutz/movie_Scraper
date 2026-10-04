@@ -6,9 +6,9 @@
   <component name="ChangeListManager">
     <list default="true" id="0cae84e8-8944-4574-befa-511288ccf470" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/check_database_health.py" beforeDir="false" afterPath="$PROJECT_DIR$/check_database_health.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fetch_subtitles.py" beforeDir="false" afterPath="$PROJECT_DIR$/fetch_subtitles.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/resample_library.py" beforeDir="false" afterPath="$PROJECT_DIR$/resample_library.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/largest.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/myMovies20240119.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/rclone-sync.log" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -24,23 +24,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0" />
-      <entry key="MS500" value="1.0" />
-      <entry key="S2" value="1.0" />
-      <entry key="S5" value="1.0" />
-      <entry key="S10" value="1.0" />
-      <entry key="S30" value="1.0" />
-      <entry key="S60" value="1.0000000007921879" />
-      <entry key="M2" value="1.000165324059247" />
-      <entry key="M5" value="1.354567238707148" />
-      <entry key="M10" value="7.9749228486079975" />
-      <entry key="M15" value="21.64148326079827" />
-      <entry key="M30" value="64.91100834058496" />
-      <entry key="H1" value="115.21268905797683" />
-      <entry key="H2" value="154.35765590843292" />
-      <entry key="H4" value="183.65586237606186" />
-      <entry key="D1" value="584.2163766602511" />
-      <entry key="W1" value="5416.608669546362" />
+      <entry key="MS100" value="1.3077238153837814" />
+      <entry key="MS500" value="3.711762730280404" />
+      <entry key="S2" value="8.221931470251356" />
+      <entry key="S5" value="12.902141816715474" />
+      <entry key="S10" value="18.482326143746096" />
+      <entry key="S30" value="26.470558646709737" />
+      <entry key="S60" value="29.479082697936818" />
+      <entry key="M2" value="33.54197269467393" />
+      <entry key="M5" value="71.73380784527208" />
+      <entry key="M10" value="147.52709045357213" />
+      <entry key="M15" value="211.0149362248565" />
+      <entry key="M30" value="360.328132704923" />
+      <entry key="H1" value="571.3007999621722" />
+      <entry key="H2" value="797.5658296068378" />
+      <entry key="H4" value="999.6323685560625" />
+      <entry key="D1" value="1418.3177785936155" />
+      <entry key="W1" value="4300.527920030694" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -62,23 +62,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.8408964152537145" />
-      <entry key="MS500" value="0.9659363289248456" />
-      <entry key="S2" value="0.9913730874626621" />
-      <entry key="S5" value="0.9965402628278678" />
-      <entry key="S10" value="0.9982686325973925" />
-      <entry key="S30" value="0.9994225441413808" />
-      <entry key="S60" value="0.9997112311688907" />
-      <entry key="M2" value="1.0000209243383884" />
-      <entry key="M5" value="1.3545057591177159" />
-      <entry key="M10" value="7.974860148263029" />
-      <entry key="M15" value="21.641399067266978" />
-      <entry key="M30" value="64.91090043993043" />
-      <entry key="H1" value="115.2125972221692" />
-      <entry key="H2" value="154.3575950697618" />
-      <entry key="H4" value="183.65582489459044" />
-      <entry key="D1" value="584.2163490825291" />
-      <entry key="W1" value="5416.608636510991" />
+      <entry key="MS100" value="1.2648459938792975" />
+      <entry key="MS500" value="3.687166346566479" />
+      <entry key="S2" value="8.208022596738152" />
+      <entry key="S5" value="12.89337102790808" />
+      <entry key="S10" value="18.47603899068477" />
+      <entry key="S30" value="26.46755646717995" />
+      <entry key="S60" value="29.477410831360036" />
+      <entry key="M2" value="33.54101793814935" />
+      <entry key="M5" value="71.73298663288259" />
+      <entry key="M10" value="147.5262842460403" />
+      <entry key="M15" value="211.01420044543408" />
+      <entry key="M30" value="360.3275508288291" />
+      <entry key="H1" value="571.3003617927936" />
+      <entry key="H2" value="797.565530544362" />
+      <entry key="H4" value="999.6321819060483" />
+      <entry key="D1" value="1418.317733963944" />
+      <entry key="W1" value="4300.52789676065" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -120,9 +120,19 @@
     &quot;settings.editor.selected.configurable&quot;: &quot;configurable.group.tools&quot;,
     &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  },
+  &quot;keyToStringList&quot;: {
+    &quot;com.intellij.ide.scratch.ScratchImplUtil$2/New Scratch File&quot;: [
+      &quot;TEXT&quot;
+    ]
   }
 }</component>
-  <component name="RunManager" selected="Python.resample_library">
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Python.GUI_sqlite_scrape">
     <configuration name="GUI_sqlite_scrape" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="movie_Scraper" />
       <option name="ENV_FILES" value="" />
