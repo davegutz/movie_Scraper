@@ -47,6 +47,33 @@ eject_drive() {
     command eject "$1" 2>/dev/null
 }
 
+play_alert_sound() {
+    # Ensure system audio is unmuted
+    pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
+
+    local sound_file=""
+    if [ -f "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga" ]; then
+        sound_file="/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
+    elif [ -f "/usr/share/sounds/freedesktop/stereo/complete.oga" ]; then
+        sound_file="/usr/share/sounds/freedesktop/stereo/complete.oga"
+    elif [ -f "/usr/share/sounds/freedesktop/stereo/bell.oga" ]; then
+        sound_file="/usr/share/sounds/freedesktop/stereo/bell.oga"
+    fi
+
+    if [ -n "$sound_file" ]; then
+        if command -v paplay >/dev/null 2>&1; then
+            timeout 3 paplay --volume=65536 "$sound_file" 2>/dev/null &
+        elif command -v pw-play >/dev/null 2>&1; then
+            timeout 3 pw-play --volume=1.0 "$sound_file" 2>/dev/null &
+        elif command -v aplay >/dev/null 2>&1; then
+            timeout 3 aplay "$sound_file" 2>/dev/null &
+        fi
+    fi
+
+    # Terminal bells as fallback
+    printf '\7\7\7'
+}
+
 # Locate HandBrakeCLI
 if command -v HandBrakeCLI >/dev/null 2>&1; then
     HANDBRAKE_CLI="HandBrakeCLI"
@@ -217,7 +244,7 @@ while [ true ]; do
 
         if [ $handbrake_failure -eq 0 ] && [ $size_test_failure -eq 0 ]; then
             eject_drive "$SRC"
-            printf '\7'
+            play_alert_sound
             msg "\n\nMSG($SRC): Movie $NAM successfully encoded to $DEST_LOCAL\n"
 
             # Automatically fetch external .srt subtitles using movie_Scraper
