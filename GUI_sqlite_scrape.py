@@ -36,7 +36,7 @@
 #
 import io
 import re
-ANSI_ESCAPE_RE = re.compile(r'\[([0-9;]+)m')
+ANSI_ESCAPE_RE = re.compile(r'\x1b\[([0-9;]+)m')
 import os
 import sys
 from configparser import ConfigParser
@@ -140,7 +140,7 @@ class Feature:
                 print('timeout.......retry after 0.5 second')
                 sleep(0.5)
                 continue
-        self.title = movie['Title'].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')
+        self.title = movie['Title'].replace(':', '-').replace('?', '').replace('/', '-').replace('\u00e9', 'e').replace('\u00b7', '-').replace('\u00e1', 'a')
         try:
             self.year = movie['Year']
         except KeyError:
@@ -223,6 +223,20 @@ class IMDBdataBase:
         self.db_name = 'IMDB_Films.db'
         self.db_path = ''
         self.update_db_path()
+        try:
+            self.movies_dir = self.cf['path'].get('movies_dir', '/media/daveg/Lib/Movies')
+        except Exception:
+            self.movies_dir = '/media/daveg/Lib/Movies'
+        try:
+            self.rclone_remote = self.cf['rclone'].get('remote', 'gdrive:Movies')
+        except Exception:
+            self.rclone_remote = 'gdrive:Movies'
+        self.rclone_tpslimit = '8'
+        self.rclone_transfers = '2'
+        self.rclone_checkers = '4'
+        self.rclone_chunk_size = '512M'
+        self.rclone_stats = '5s'
+        self.rclone_log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-error.log')
         self.year = datetime.now().year
         self.search_entry = None
         self.selected_id = []
@@ -262,39 +276,6 @@ class IMDBdataBase:
         self.select_label.pack(side='left')
         self.select_display.pack(side='left', pady=10)
 
-        self.change_dvd_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
-        self.change_dvd_frame.pack(side='top', fill='both')
-        self.dvd_label = tk.Label(self.change_dvd_frame, text="Change DVD available   =", bg=bg_color)
-        self.entry_dvd = tk.Entry(self.change_dvd_frame, width=10, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
-        self.entry_dvd_btn = tk.Button(self.change_dvd_frame, text="Enter new DVD availability", font=('LilyUPC', 9, 'bold'), bg=light_purple,
-                                       width=20, command=self.enter_dvd)
-        self.dvd_label.pack(side='left')
-        self.entry_dvd.pack(side="left", pady=5)
-        self.entry_dvd_btn.pack(side='left', pady=5)
-
-        self.change_watched_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
-        self.change_watched_frame.pack(side='top', fill='both')
-        self.date_label = tk.Label(self.change_watched_frame, text="Change selection Watched   =", bg=bg_color)
-        self.entry_date = tk.Entry(self.change_watched_frame, width=10, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
-        self.entry_date_btn = tk.Button(self.change_watched_frame, text="Enter new Watched date", font=('LilyUPC', 9, 'bold'), bg=light_purple,
-                                        width=20, command=self.enter_watched_date)
-        self.enter_today_btn = tk.Button(self.change_watched_frame, text="Enter today", font=('LilyUPC', 9, 'bold'), bg=light_purple,
-                                         width=20, command=self.enter_today)
-        self.date_label.pack(side='left')
-        self.entry_date.pack(side="left", pady=5)
-        self.entry_date_btn.pack(side='left', pady=5)
-        self.enter_today_btn.pack(side='left', pady=5)
-
-        self.change_rating_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
-        self.change_rating_frame.pack(side='top', fill='both')
-        self.rating_label = tk.Label(self.change_rating_frame, text="Change selection My Rating =", bg=bg_color)
-        self.entry_rating = tk.Entry(self.change_rating_frame, width=10, font=('LilyUPC', 13, 'bold'), fg=blue_front_color, bg=entry_color)
-        self.entry_rating_btn = tk.Button(self.change_rating_frame, text="Enter new My Rating", font=('LilyUPC', 9, 'bold'), bg=light_purple,
-                                          width=20, command=self.enter_my_rating)
-        self.rating_label.pack(side='left')
-        self.entry_rating.pack(side="left", pady=5)
-        self.entry_rating_btn.pack(side='left', pady=5)
-
         self.del_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.del_btn_frame.pack(side='top', fill='both')
         self.del_btn = tk.Button(self.del_btn_frame, text="Delete selection", font=('LilyUPC', 9, 'bold'), bg=light_purple,
@@ -307,16 +288,25 @@ class IMDBdataBase:
                                   width=25, command=self.edit_selection)
         self.edit_btn.pack(side='left')
 
-        self.working_label = tk.Label(self.bot_frame_left, text="DB location =", bg=bg_color)
-        self.destination_folder_butt = myButton(self.bot_frame_left, text=self.db_folder,
+        self.db_loc_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.db_loc_frame.pack(side='top', fill='both')
+        self.working_label = tk.Label(self.db_loc_frame, text="DB location =", bg=bg_color)
+        self.destination_folder_butt = myButton(self.db_loc_frame, text=self.db_folder,
                                                 command=self.enter_db_folder, fg="blue", bg=bg_color)
-        slash = tk.Label(self.bot_frame_left, text="/", fg="blue", bg=bg_color)
-        self.title_butt = myButton(self.bot_frame_left, text=self.db_name, command=self.enter_db, fg="blue",
+        slash = tk.Label(self.db_loc_frame, text="/", fg="blue", bg=bg_color)
+        self.title_butt = myButton(self.db_loc_frame, text=self.db_name, command=self.enter_db, fg="blue",
                                    bg=bg_color)
         self.working_label.pack(side="left", fill='x')
         self.destination_folder_butt.pack(side="left", fill='x')
         slash.pack(side="left", fill='x')
         self.title_butt.pack(side="left", fill='x')
+
+        self.backup_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.backup_btn_frame.pack(side='top', fill='both', pady=(20, 0))
+        self.backup_btn = tk.Button(self.backup_btn_frame, text="Google Drive Backup",
+                                    font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                    width=25, command=self.google_drive_backup)
+        self.backup_btn.pack(side='left')
 
         # Database
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
@@ -714,7 +704,7 @@ class IMDBdataBase:
                         for row in rows:
                             # Consider translate to names compatible both Windows and Linux
                             # You may need to work over your file system names to make this go smoothly
-                            db_can = f"{row[0].replace(':', '-').replace('?', '').replace('/', '-').replace('é', 'e').replace('·', '-').replace('á', 'a')} ({row[1]}){ext}"
+                            db_can = f"{row[0].replace(':', '-').replace('?', '').replace('/', '-').replace('\u00e9', 'e').replace('\u00b7', '-').replace('\u00e1', 'a')} ({row[1]}){ext}"
                             val = string_similarity(file_name, db_can)
                             if val > best_similarity:
                                 best_name = db_can
@@ -813,81 +803,6 @@ class IMDBdataBase:
         self.fill_tree_view()
         print("tree initialized and packed")
 
-    def enter_dvd(self):
-        if self.picked is None:
-            tk.messagebox.showerror(title="Error", message='You should pick something')
-        elif self.picked == '<search and select something above>':
-            tk.messagebox.showerror(title="Error", message='You should select some features first')
-        else:
-            IMDB_ID = self.tree.item(self.picked)['values'][0]
-            title = self.tree.item(self.picked)['values'][1]
-            year = self.tree.item(self.picked)['values'][2]
-            dvd = str(self.tree.item(self.picked)['values'][11])
-            new_dvd = self.entry_dvd.get()
-            print(f"setting DVD = {new_dvd}")
-            print(f"old picked ID {self.picked} IMDB_ID {IMDB_ID} dvd {dvd}")
-            self.c.execute(f"""UPDATE My_Films SET DVD = (?) WHERE IMDB_ID = (?)""",
-                           (new_dvd, IMDB_ID)),
-            self.fill_tree_view()
-            self.highlight_film((str(title).lower(), int(year)))
-
-    def enter_my_rating(self):
-        if self.picked is None:
-            tk.messagebox.showerror(title="Error", message='You should pick something')
-        elif self.picked == '<search and select something above>':
-            tk.messagebox.showerror(title="Error", message='You should select some features first')
-        else:
-            IMDB_ID = self.tree.item(self.picked)['values'][0]
-            title = self.tree.item(self.picked)['values'][1]
-            year = self.tree.item(self.picked)['values'][2]
-            my_rating = str(self.tree.item(self.picked)['values'][4])
-            new_my_rating = self.entry_rating.get()
-            print(f"setting rating = {new_my_rating}")
-            print(f"old picked ID {self.picked} IMDB_ID {IMDB_ID} rating {my_rating}")
-            self.c.execute(f"""UPDATE My_Films SET my_rating = (?) WHERE IMDB_ID = (?)""",
-                           (new_my_rating, IMDB_ID)),
-            self.fill_tree_view()
-            self.highlight_film((str(title).lower(), int(year)))
-
-    # noinspection
-    def enter_today(self):
-        if self.picked is None:
-            tk.messagebox.showerror(title="Error", message='You should pick a film')
-        elif self.picked == '<search and select something above>':
-            tk.messagebox.showerror(title="Error", message='You should select some features first')
-        else:
-            IMDB_ID = self.tree.item(self.picked)['values'][0]
-            title = self.tree.item(self.picked)['values'][1]
-            year = self.tree.item(self.picked)['values'][2]
-            WATCHED = str(self.tree.item(self.picked)['values'][10])
-            new_WATCHED = str(datetime.today().strftime('%Y-%m-%d'))
-            self.entry_date.delete(0, "end")
-            self.entry_date.insert(0, new_WATCHED)
-            print(f"setting date = {new_WATCHED}")
-            print(f"old picked ID {self.picked} IMDB_ID {IMDB_ID} date={WATCHED}")
-            self.c.execute(f"""UPDATE My_Films SET WATCHED = (?) WHERE IMDB_ID = (?)""",
-                           (new_WATCHED, IMDB_ID)),
-            self.fill_tree_view()
-            self.highlight_film((str(title).lower(), int(year)))
-
-    def enter_watched_date(self):
-        if self.picked is None:
-            tk.messagebox.showerror(title="Error", message='You should pick a film')
-        elif self.picked == '<search and select something above>':
-            tk.messagebox.showerror(title="Error", message='You should select some features first')
-        else:
-            IMDB_ID = self.tree.item(self.picked)['values'][0]
-            title = self.tree.item(self.picked)['values'][1]
-            year = self.tree.item(self.picked)['values'][2]
-            WATCHED = str(self.tree.item(self.picked)['values'][10])
-            new_WATCHED = self.entry_date.get()
-            print(f"setting date = {new_WATCHED}")
-            print(f"old picked ID {self.picked} IMDB_ID {IMDB_ID} date {WATCHED}")
-            self.c.execute(f"""UPDATE My_Films SET WATCHED = (?) WHERE IMDB_ID = (?)""",
-                           (new_WATCHED, IMDB_ID)),
-            self.fill_tree_view()
-            self.highlight_film((str(title).lower(), int(year)))
-
     def highlight_film(self, film):
         """Check for existence by year and title (film = (year, title)) and set focus in tree"""
         (title, year) = film
@@ -898,150 +813,35 @@ class IMDBdataBase:
         for child in self.tree.get_children():
             can_title = str(self.tree.item(child)['values'][1]).lower()
             can_year = int(self.tree.item(child)['values'][2])
-            if title in can_title and year == can_year and first_child is None:
+            if can_title == title and can_year == year:
                 first_child = child
-                print(f"First {title=} {year=} found as {first_child=}")
                 break
         if first_child is not None:
-            self.tree.see(first_child)
-            self.tree.selection_set(first_child)
             self.tree.focus(first_child)
-            curItem = self.tree.focus()
-            self.picked = curItem
-            print(f"highlight_film: {self.picked=}")
-            self.select_display.config(text=self.tree.item(self.picked)['values'][1])
-        else:
-            print(f"{title=} {year=} not found")
-
-    def search_acts(self):
-        # Reset from previous sorts first
-        if self.tree_modified is True:
-            self.fill_tree_view()
-        query = self.search_acts_entry.get().strip().lower()
-        if query == '':
-            print('nothing entered')
-            return
-        self.search_term(query, 6)
-
-    def search_dirs(self):
-        # Reset from previous sorts first
-        if self.tree_modified is True:
-            self.fill_tree_view()
-        query = self.search_dirs_entry.get().strip().lower()
-        if query == '':
-            print('nothing entered')
-            return
-        self.search_term(query, 5)
-
-    def search_titles(self):
-        # Reset from previous sorts first
-        if self.tree_modified is True:
-            self.fill_tree_view()
-        query = self.search_title_entry.get().strip().lower()
-        if query == '':
-            print('nothing entered')
-            return
-        self.search_term(query, 1)
-
-    def search_acts_event(self, _e):
-        self.search_acts()
-
-    def search_dirs_event(self, _e):
-        self.search_dirs()
-
-    def search_term(self, query, ind):
-        self.selected_id = []
-        self.selected_titles = []
-        selected_child_title = []
-        first_child = None
-        for child in self.tree.get_children():
-            can_Title = str(self.tree.item(child)['values'][ind])
-            can_title = can_Title.lower()
-            if query in can_title:  # compare strings in  lower cases.
-                if first_child is None:
-                    first_child = child
-                print(self.tree.item(child)['values'][ind])
-                self.selected_id.append(child)
-                self.selected_titles.append(f"'{can_Title}'")
-                selected_child_title.append((child, f"'{can_Title}'"))
-        self.tree.selection_set(self.selected_id)
-        if first_child is not None:
-            for index, (child, _) in enumerate(selected_child_title):
-                self.tree.move(child, '', index)
-            self.select_display.config(text='')
+            self.tree.selection_set(first_child)
             self.tree.see(first_child)
-            self.tree_modified = True
+            self.picked = first_child
+            self.select_display.config(text=self.tree.item(self.picked)['values'][1])
+            self.raise_it(self.tree.item(first_child))
+            print(f"found and focused on {film}")
         else:
-            print("Nothing found")
-            self.fill_tree_view()
-
-    def search_titles_event(self, _e):
-        self.search_titles()
-
-    def sort_title(self, column):
-        data = [(ignore_articles(self.tree.set(child, column)), child) for child in self.tree.get_children('')]
-        data.sort()
-        for index, (_, child) in enumerate(data):
-            self.tree.move(child, '', index)
-
-    def treeview_sort_column(self, tv, col, reverse):
-        items = [(tv.set(k, col), k) for k in tv.get_children('')]
-        items.sort(reverse=reverse)
-        # rearrange items in sorted positions
-        for index, (val, k) in enumerate(items):
-            tv.move(k, '', index)
-        # reverse sort next time
-        tv.heading(col, text=col, command=lambda _col=col: self.treeview_sort_column(tv, _col, not reverse))
-        # jump to top
-        self.tree.yview_moveto(0)
-
-    def treeview_sort_column_int(self, tv, col, reverse):
-        items = []
-        for k in tv.get_children(''):
-            try:
-                items.append((float(tv.set(k, col)), k))
-            except ValueError:
-                items.append((0, k))
-        items.sort(reverse=reverse)
-        # rearrange items in sorted positions
-        for index, (val, k) in enumerate(items):
-            tv.move(k, '', index)
-        # reverse sort next time
-        tv.heading(col, text=col, command=lambda _col=col: self.treeview_sort_column_int(tv, _col, not reverse))
-        # jump to top
-        self.tree.yview_moveto(0)
-
-    def treeview_sort_column_float(self, tv, col, reverse):
-        items = []
-        for k in tv.get_children(''):
-            try:
-                items.append((float(tv.set(k, col)), k))
-            except ValueError:
-                items.append((0., k))
-        items.sort(reverse=reverse)
-        # rearrange items in sorted positions
-        for index, (val, k) in enumerate(items):
-            tv.move(k, '', index)
-        # reverse sort next time
-        tv.heading(col, text=col, command=lambda _col=col: self.treeview_sort_column_float(tv, _col, not reverse))
-        # jump to top
-        self.tree.yview_moveto(0)
+            print(f"did not find {film}")
 
     def delete_film(self):
-        """Delete selected film from database"""
-        try:
-            curItem = self.tree.focus()
-            item = self.tree.item(curItem)
-            deleting = tk.messagebox.askyesno(title="Warning", message=f"Are you sure you want to delete feature: "f"{(str(item['values'][1]))}?")
-            if deleting:
-                self.c.execute(f"DELETE FROM My_Films where IMDB_ID = (?);", (item['values'][0],))
-                print(f"deleted", item['values'][1])
-        except IndexError:
-            tk.messagebox.showinfo(title='Info', message='You should pick an entry')
-            print("Index Error")
-        self.conn.commit()
-        self.fill_tree_view()
-        self.root.title(f"Features ({len(self.tree.get_children())})")
+        """Delete from Database"""
+        if self.picked is None:
+            tk.messagebox.showerror(title="Error", message='You should pick a film')
+        elif self.picked == '<search and select something above>':
+            tk.messagebox.showerror(title="Error", message='You should select some features first')
+        else:
+            IMDB_ID = self.tree.item(self.picked)['values'][0]
+            title = self.tree.item(self.picked)['values'][1]
+            year = self.tree.item(self.picked)['values'][2]
+            print(f"deleting {self.picked=} {IMDB_ID=} {title=} {year=}")
+            self.c.execute(f"""DELETE from My_Films WHERE IMDB_ID = {IMDB_ID}""")
+            self.fill_tree_view()
+            self.root.title(f"Features ({len(self.tree.get_children())})")
+            self.conn.commit()
 
     def edit_selection(self):
         """Open edit window for currently selected film"""
@@ -1050,302 +850,274 @@ class IMDBdataBase:
             selection = self.tree.selection()
             if selection:
                 curItem = selection[0]
-            elif self.picked and self.picked != '<search and select something above>':
-                curItem = self.picked
-
         if not curItem:
-            tk.messagebox.showinfo(title="Info", message="choose entry to edit", parent=self.root)
+            if self.picked and self.picked != '<search and select something above>':
+                curItem = self.picked
+        if not curItem or curItem == '<search and select something above>':
+            tk.messagebox.showinfo(title="Edit Selection", message="choose entry to edit", parent=self.root)
             return
 
         item = self.tree.item(curItem)
-        if not item or not item.get('values') or len(item['values']) == 0:
-            tk.messagebox.showinfo(title="Info", message="choose entry to edit", parent=self.root)
+        if not item or not item.get('values'):
+            tk.messagebox.showinfo(title="Edit Selection", message="choose entry to edit", parent=self.root)
             return
 
         self.open_edit_entry_window(item)
 
     def enter_db(self):
-        answer = tk.simpledialog.askstring(title=__file__, prompt="enter db name", initialvalue=self.db_name)
-        if answer is not None:
-            self.db_name = answer
-        if self.db_name == '':
-            self.db_name = '<enter title>'
-        cf['path']['db_name'] = self.db_name
-        cf.save_to_file()
+        """Change to a different database name"""
+        self.db_name = tk.simpledialog.askstring("Database Name", "Enter database name:", initialvalue=self.db_name)
+        self.cf.put_item('path', 'db_name', self.db_name)
         self.title_butt.config(text=self.db_name)
         self.update_db_path()
-        self.scroll.pack_forget()
-        self.tree.pack_forget()
-        self.tree.delete()
-        self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
         self.db_tree_init()
 
     def enter_db_folder(self):
-        """Select database folder"""
-        answer = filedialog.askdirectory(title="Select a database storage folder", initialdir=self.db_folder)
-        if answer is not None and answer != '':
-            self.db_folder = answer
-        self.cf['path']['db_folder'] = self.db_folder
-        self.cf.save_to_file()
+        """Change to a different database folder"""
+        self.db_folder = filedialog.askdirectory(title='Choose a Database folder', initialdir=self.db_folder)
+        self.cf.put_item('path', 'db_folder', self.db_folder)
         self.destination_folder_butt.config(text=self.db_folder)
         self.update_db_path()
-        print("delete tree")
-        self.scroll.pack_forget()
-        self.tree.pack_forget()
-        self.tree.delete()
-        self.tree = ttk.Treeview(self.top_frame, style="mystyle.Treeview", selectmode=tk.BROWSE)
         self.db_tree_init()
-
-    def fill_tree_view(self):
-        """Fill the TreeView with database fields"""
-        self.tree.delete(*self.tree.get_children())
-        self.c.execute(f"SELECT IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, WATCHED, ADDED, DVD, runtime, certification, ADDED FROM My_Films ORDER BY title")
-        self.tree_modified = False
-        title_col = 1
-        rows = self.c.fetchall()
-        for row in rows:
-            self.tree.insert("", tk.END, values=row)
-        self.conn.commit()
-        self.picked = None
-        self.select_display.config(text='')
-        self.sort_title(title_col)
-
-    def get_candidates_search_title(self, search_title, year, api_key):
-        """
-        Fetches movie details from OMDb API by title and year.
-        """
-        # The 'i' parameter is for title, 'y' for year, and 'plot' for plot length
-        params = {
-            's': search_title,
-            'y': year,
-            'plot': 'full',
-            'apikey': api_key
-        }
-        # OMDb API endpoint
-        url = "http://www.omdbapi.com/"
-
-        try:
-            response = requests.get(url, params=params)
-            # Raise an exception for bad status codes
-            response.raise_for_status()
-            movie_data = response.json()
-
-            # Check if the request was successful
-            if (movie_data and not hasattr(movie_data, 'Error') and
-                    movie_data.get('Search') and movie_data.get('Search')[0].get('Title') is not None):
-                result_dict = movie_data.get('Search')
-                num = len(result_dict)
-                for i in range(num):
-                    movie_title = movie_data.get('Search')[i].get('Title')
-                    movie_details = get_movie_details(movie_title, year, API_KEY)
-                    print("")
-                return result_dict
-            else:
-                return None
-        except requests.exceptions.RequestException as e:
-            print(f"A request error occurred: {e}")
-            return None
-
-    def look_smart(self, title, year=None):
-        """Find IMDB match as good as possible, returning the ID"""
-        film = (title, year)
-
-        # Find possible matches (candidates)
-        adder = -1
-        candidates_dict = None
-        while adder < 3:
-            search_year = str(int(year) + adder)
-            movie_dict = self.get_candidates_search_title(search_title=title, year=search_year, api_key=API_KEY)
-            if movie_dict is not None:
-                if candidates_dict is None:
-                    candidates_dict = movie_dict
-                else:
-                    candidates_dict.append(movie_dict)
-            adder += 1
-        array_of_cans = None
-        if candidates_dict:
-            for i in range(len(candidates_dict)):
-                try:
-                    print(f"{candidates_dict[i]['Title']} {candidates_dict[i]['Year']}")
-                except TypeError:
-                    pass
-            list_of_cans, array_of_cans, array_of_titles, array_of_years = \
-                self.make_list_of_cans(candidates_dict)
-            print(f"{list_of_cans=}\n {array_of_cans=}\n {array_of_titles=}\n {array_of_years=}")
-
-        if array_of_cans is None or not len(array_of_cans):
-            return None
-
-        # If exact matches take the first one
-        IDomdb = None
-        exact_matches = (array_of_cans == film).all(axis=1)
-        if exact_matches.any():
-            exact_matches = np.where(exact_matches)[0][0]  # take first one
-            IDomdb = list_of_cans[exact_matches][0]
-            return IDomdb
-
-        # Next find 'exact' matches within one year and take the first one
-        film_p1 = (title, str(int(year)+1))
-        film_m1 = (title, str(int(year)-1))
-        exact_matches_m1 = (array_of_cans == film_m1).all(axis=1)
-        exact_matches_p1 = (array_of_cans == film_p1).all(axis=1)
-        if exact_matches_m1.any():
-            exact_match = np.where(exact_matches_m1)[0][0]  # take first one
-            IDomdb = list_of_cans[exact_match][0]
-            return IDomdb
-        elif exact_matches_p1.any():
-            exact_match = np.where(exact_matches_p1)[0][0]  # take first one
-            IDomdb = list_of_cans[exact_match][0]
-            return IDomdb
-
-        # Next offer choices of all that IMDB came up with
-        print(f"{film}: {array_of_titles=}")
-        IDomdb = None
-        select_list = []
-        for i in range(len(array_of_titles)):
-            try:
-                ID = candidates_dict[i]['imdbID']
-                movie = Feature(ID)
-                select_list.append(f"{movie.ID}:   {movie.title} ({movie.year})   cast = {movie.casting}   dir = {movie.directors}")
-            except (IOError, NameError):
-                print(f"skipped: ", end='')
-            print(f"{i}, ", end='')
-        print(f"{select_list=}")
-        lst = pSG.Listbox(select_list, size=(400, 100), font=('Arial Bold', 12), expand_y=True, enable_events=True,
-                          key='-SELECTION-', horizontal_scroll=True)
-        layout = [[pSG.Input(size=(20, 1), font=('Arial Bold', 14), expand_x=True, key='-INPUT-'), pSG.Button('Process'), pSG.Button('Cancel')], [lst], [pSG.Text("", key='-MSG-', font=('Arial Bold', 14), justification='center')]]
-        window = pSG.Window(f"Match to '{title} ({year})'", layout, size=(900, 400), finalize=True)
-        window.bring_to_front()
-        event, selection = window.read()
-        window.close()
-        print(f"{selection=}")
-        if event in (pSG.WIN_CLOSED, 'Cancel'):
-            IDomdb = None
-        if event == '-SELECTION-':
-            IDomdb = selection['-SELECTION-'][0].split(':')[0]
-            print(f"Selected from GUI {IDomdb=}")
-        window.close()
-
-        return IDomdb
-
-    @staticmethod
-    def make_list_of_cans(cans):
-        """String together data; difficult to do for some reason.  Resort to this manual way"""
-        result = []
-        searchable_result = []
-        titles = []
-        years = []
-        for item in cans:
-            title = item['title'].strip().lower()
-            ID = item.getID()
-            try:
-                year = item['year']
-            except KeyError:
-                year = 0
-            result.append((ID, title, year))
-            titles.append(title)
-            years.append(year)
-            searchable_result.append(np.array([title, year]))
-        return result, np.array(searchable_result), np.array(titles, dtype='<U78'), np.array(years, dtype='<U78')
-
-    @staticmethod
-    def make_list_of_cans(cans):
-        """String together data; difficult to do for some reason.  Resort to this manual way"""
-        result = []
-        searchable_result = []
-        titles = []
-        years = []
-        for item in cans:
-            try:
-                title = item['Title'].strip().lower()
-                ID = item['imdbID']
-                try:
-                    year = item['Year']
-                except KeyError:
-                    year = 0
-                result.append((ID, title, year))
-                titles.append(title)
-                years.append(year)
-                searchable_result.append(np.array([title, year]))
-            except TypeError:
-                pass
-        return result, np.array(searchable_result), np.array(titles, dtype='<U78'), np.array(years, dtype='<U78')
 
     @staticmethod
     def fetch_image_from_url(url, timeout=5):
-        """Safely fetch and return PIL Image from URL, or None if failed."""
-        if not url or not str(url).strip().startswith(('http://', 'https://')):
+        """Fetch image bytes from URL with User-Agent header, returning PIL Image or None on error."""
+        if not url:
             return None
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         try:
-            req = urllib.request.Request(
-                str(url).strip(),
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'}
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as u:
-                raw_data = u.read()
-            return Image.open(io.BytesIO(raw_data))
-        except Exception:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                raw_data = response.read()
+                return Image.open(io.BytesIO(raw_data))
+        except urllib.error.HTTPError as e:
+            print(f"HTTPError fetching cover image from {url}: {e.code} {e.reason}")
+            return None
+        except urllib.error.URLError as e:
+            print(f"URLError fetching cover image from {url}: {e.reason}")
+            return None
+        except Exception as e:
+            print(f"Error fetching cover image from {url}: {e}")
             return None
 
+    def fill_tree_view(self):
+        # Delete old
+        for child in self.tree.get_children():
+            self.tree.delete(child)
+
+        # Repopulate
+        self.c.execute(f"SELECT * FROM My_Films ORDER BY title")
+        rows = self.c.fetchall()
+        for row in rows:
+            if row[0] is not None:
+                self.tree.insert("", tk.END, values=(row[0], row[1], row[2], f"{row[3]:3.1f}", f"{row[4]:3.1f}",
+                                                     row[5], row[6], row[7], row[8], row[9], row[10], row[11],
+                                                     row[12], row[13], row[14]))
+
+    def look_smart(self, film, year=0):
+        # Look in IMDb
+        print(f"searching OMDB for {film} ({year})...")
+        search_result = get_movie_details(film, year, API_KEY)
+        if search_result is None or search_result['Response'] == 'False':
+            clean_film = ignore_articles(film)
+            print(f"retry without articles: searching OMDB for {clean_film} ({year})...")
+            search_result = get_movie_details(clean_film, year, API_KEY)
+        if search_result is not None:
+            id_film = search_result['imdbID']
+        else:
+            id_film = None
+        return id_film
+
+    def search_acts(self):
+        self.search_acts_entry.config(bg='white')
+        self.search_actors()
+        self.search_acts_entry.config(bg=entry_color)
+
+    def search_acts_event(self, _e):
+        self.search_acts()
+
+    def search_actors(self):
+        actor = self.search_acts_entry.get().strip().lower()
+        if actor == "" or actor.isspace():
+            tk.messagebox.showerror(title="Error", message='You should pick an Actor')
+        else:
+            self.c.execute(f"""SELECT * FROM My_Films WHERE actors LIKE '%{actor}%' ORDER BY title""")
+            rows = self.c.fetchall()
+            row = [item[0] for item in rows]
+            if not row:
+                tk.messagebox.showerror(title="Error", message='No films found')
+            else:
+                for child in self.tree.get_children():
+                    self.tree.delete(child)
+                for item in rows:
+                    self.tree.insert("", tk.END, values=(item[0], item[1], item[2], item[3], item[4], item[5],
+                                                         item[6], item[7], item[8], item[9], item[10], item[11],
+                                                         item[12], item[13], item[14]))
+                self.root.title(f"Features ({len(self.tree.get_children())})")
+
+    def search_dirs(self):
+        self.search_dirs_entry.config(bg='white')
+        self.search_directors()
+        self.search_dirs_entry.config(bg=entry_color)
+
+    def search_dirs_event(self, _e):
+        self.search_dirs()
+
+    def search_directors(self):
+        director = self.search_dirs_entry.get().strip().lower()
+        if director == "" or director.isspace():
+            tk.messagebox.showerror(title="Error", message='You should pick a Director')
+        else:
+            self.c.execute(f"""SELECT * FROM My_Films WHERE director LIKE '%{director}%' ORDER BY title""")
+            rows = self.c.fetchall()
+            row = [item[0] for item in rows]
+            if not row:
+                tk.messagebox.showerror(title="Error", message='No films found')
+            else:
+                for child in self.tree.get_children():
+                    self.tree.delete(child)
+                for item in rows:
+                    self.tree.insert("", tk.END, values=(item[0], item[1], item[2], item[3], item[4], item[5],
+                                                         item[6], item[7], item[8], item[9], item[10], item[11],
+                                                         item[12], item[13], item[14]))
+                self.root.title(f"Features ({len(self.tree.get_children())})")
+
+    def search_titles(self):
+        title = self.search_title_entry.get().strip().lower()
+        if title == "" or title.isspace():
+            tk.messagebox.showerror(title="Error", message='You should pick a title')
+        else:
+            self.c.execute(f"""SELECT * FROM My_Films WHERE title LIKE '%{title}%' ORDER BY title""")
+            rows = self.c.fetchall()
+            row = [item[0] for item in rows]
+            if not row:
+                tk.messagebox.showerror(title="Error", message='No films found')
+            else:
+                for child in self.tree.get_children():
+                    self.tree.delete(child)
+                for item in rows:
+                    self.tree.insert("", tk.END, values=(item[0], item[1], item[2], item[3], item[4], item[5],
+                                                         item[6], item[7], item[8], item[9], item[10], item[11],
+                                                         item[12], item[13], item[14]))
+                self.root.title(f"Features ({len(self.tree.get_children())})")
+
+    def search_titles_event(self, _e):
+        self.search_title_btn.config(bg='white')
+        self.search_titles()
+        self.search_title_btn.config(bg=light_purple)
+
+    def sort_title(self, order):
+        # Sort by title
+        self.tree_modified = True
+        self.c.execute(f"""SELECT * FROM My_Films ORDER BY title {'ASC' if order == 1 else 'DESC'}""")
+        rows = self.c.fetchall()
+        for child in self.tree.get_children():
+            self.tree.delete(child)
+        for item in rows:
+            self.tree.insert("", tk.END, values=(item[0], item[1], item[2], item[3], item[4], item[5],
+                                                 item[6], item[7], item[8], item[9], item[10], item[11],
+                                                 item[12], item[13], item[14]))
+        self.tree_modified = False
+
+    def treeview_sort_column(self, tv, col, reverse):
+        self.tree_modified = True
+        line = [(tv.set(k, col), k) for k in tv.get_children('')]
+        line.sort(reverse=reverse)
+        # rearrange items in sorted positions
+        for index, (val, k) in enumerate(line):
+            tv.move(k, '', index)
+        # reverse sort next time
+        tv.heading(col, command=lambda: self.treeview_sort_column(tv, col, not reverse))
+        self.tree_modified = False
+
+    def treeview_sort_column_float(self, tv, col, reverse):
+        self.tree_modified = True
+        line = [(float(tv.set(k, col)), k) for k in tv.get_children('')]
+        line.sort(reverse=reverse)
+        # rearrange items in sorted positions
+        for index, (val, k) in enumerate(line):
+            tv.move(k, '', index)
+        # reverse sort next time
+        tv.heading(col, command=lambda: self.treeview_sort_column_float(tv, col, not reverse))
+        self.tree_modified = False
+
+    def treeview_sort_column_int(self, tv, col, reverse):
+        self.tree_modified = True
+        line = []
+        for k in tv.get_children(''):
+            try:
+                line.append((int(tv.set(k, col)), k))
+            except ValueError:
+                line.append((-1, k))
+        line.sort(reverse=reverse)
+        # rearrange items in sorted positions
+        for index, (val, k) in enumerate(line):
+            tv.move(k, '', index)
+        # reverse sort next time
+        tv.heading(col, command=lambda: self.treeview_sort_column_int(tv, col, not reverse))
+        self.tree_modified = False
 
     def OnDoubleClick(self, _event):
-        """Called when user double clicks element from TreeView"""
+        """Called when user double clicks an element from TreeView"""
         curItem = self.tree.focus()
         item = self.tree.item(curItem)
+        print(f"OnDoubleClick: {curItem=} {item=}")
         self.renew()
-        pic = None
+        self.raise_it(item)
+        self.picked = curItem
         try:
-            values = item.get('values', []) if isinstance(item, dict) else []
-            cover_url = str(values[9]).strip() if len(values) > 9 and values[9] else ''
-            image = self.fetch_image_from_url(cover_url, timeout=5)
-            if image is not None:
-                my_img = ImageTk.PhotoImage(image)
-                pic = tk.Label(self.root, image=my_img)
-                pic.pack(side='left')
-        except Exception as e:
-            print(f"OnDoubleClick: could not load image: {e}")
-
-        info_win = tk.Toplevel(self.root)
-        info_win.title(f"{item['values'][1]}")
-        info_win.config(bg=bg_color, padx=20, pady=20)
-        info_win.grab_set()
-
-        msg = (f"IMDB_ID: {item['values'][0]}\n\n"
-               f"Title: {item['values'][1]}\n\n"
-               f"Cert: {item['values'][14]}\n\n"
-               f"Time: {item['values'][13]}\n\n"
-               f"Year: {item['values'][2]}\n\n"
-               f"Rating: {item['values'][3]}\n\n"
-               f"MyRating: {item['values'][4]}\n\n"
-               f"Director: {item['values'][5]}\n\n"
-               f"Actors: {item['values'][6]}\n\n"
-               f"Generes: {item['values'][7]}\n\n"
-               f"Summary: {item['values'][8]}\n\n"
-               f"Watched: {item['values'][10]}\n\n"
-               f"Added: {item['values'][11]}")
-        tk.Label(info_win, text=msg, bg=bg_color, justify='left', anchor='w',
-                 font=('Arial', 10), wraplength=500).pack(pady=(0, 10))
+            self.select_display.config(text=self.tree.item(self.picked)['values'][1])
+        except IndexError:
+            pass
 
         edit_requested = [False]
 
-        btn_frame = tk.Frame(info_win, bg=bg_color)
-        btn_frame.pack()
-
-        def on_ok():
-            info_win.destroy()
-
-        def on_edit():
+        def on_edit_btn():
             edit_requested[0] = True
-            info_win.destroy()
+            win.destroy()
 
-        tk.Button(btn_frame, text="OK", font=('LilyUPC', 9, 'bold'), bg=light_purple,
-                  width=20, command=on_ok).pack(side='left', padx=5)
-        tk.Button(btn_frame, text="Edit", font=('LilyUPC', 9, 'bold'), bg=light_purple,
-                  width=20, command=on_edit).pack(side='left', padx=5)
+        def on_key(event):
+            if event.keysym.lower() == 'e':
+                on_edit_btn()
+            elif event.keysym in ('Return', 'Escape', 'space'):
+                win.destroy()
 
-        info_win.wait_window()
-        if pic is not None:
-            pic.pack_forget()
+        win = tk.Toplevel(self.root)
+        win.title("Summary")
+        win.config(bg=bg_color, padx=10, pady=10)
+        win.bind('<Key>', on_key)
+        try:
+            win.title(f"{item['values'][1]} ({item['values'][2]})")
+            raw_summary = str(item['values'][8])
+            lines = raw_summary.splitlines()
+            wrapped_lines = []
+            for l in lines:
+                if len(l) > 100:
+                    wrapped_lines.extend(re.findall(r'.{1,100}(?:\s+|$)', l))
+                else:
+                    wrapped_lines.append(l)
+            summary_txt = "\n".join([wl.strip() for wl in wrapped_lines if wl.strip()])
+
+            summary_label = tk.Label(win, text=summary_txt, font=note_font, bg='white', fg='black',
+                                     wraplength=wrap_length_note, justify='left', anchor='w')
+            summary_label.pack(side='top', fill='both', expand=True, padx=5, pady=5)
+        except IndexError:
+            pass
+
+        btn_frame = tk.Frame(win, bg=bg_color)
+        btn_frame.pack(side='bottom', fill='x', pady=(10, 0))
+
+        edit_btn = tk.Button(btn_frame, text="Edit Entry (E)", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                             width=15, command=on_edit_btn)
+        edit_btn.pack(side='left', padx=5)
+
+        close_btn = tk.Button(btn_frame, text="Close (Esc)", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                              width=15, command=win.destroy)
+        close_btn.pack(side='right', padx=5)
+
+        win.focus_set()
+        win.wait_window()
 
         if edit_requested[0]:
             self.open_edit_entry_window(item)
@@ -1670,6 +1442,186 @@ class IMDBdataBase:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def google_drive_backup(self):
+        """Run rclone sync (INSTALL_Google_Drive_Backup.md lines 44-50) in background and open a monitor window (line 52)."""
+        movies_src = self.movies_dir if self.movies_dir.endswith('/') else f"{self.movies_dir}/"
+        rclone_cmd = [
+            "rclone", "sync",
+            movies_src,
+            self.rclone_remote,
+            "--tpslimit", str(self.rclone_tpslimit),
+            "--transfers", str(self.rclone_transfers),
+            "--checkers", str(self.rclone_checkers),
+            "--drive-chunk-size", str(self.rclone_chunk_size),
+            "--stats", str(self.rclone_stats),
+            "-vv",
+            "--log-file", self.rclone_log_file,
+        ]
+
+        # Ensure directory for log file exists
+        log_dir = os.path.dirname(os.path.abspath(self.rclone_log_file))
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+
+        # Clear or initialize log file
+        try:
+            with open(self.rclone_log_file, 'w', encoding='utf-8') as f:
+                f.write(f"=== Google Drive Backup Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+                f.write(f"Command: {' '.join(rclone_cmd)}\n\n")
+        except Exception as e:
+            print(f"Warning: could not initialize log file: {e}")
+
+        # Start rclone sync in background (hidden process)
+        try:
+            backup_proc = subprocess.Popen(
+                rclone_cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                close_fds=True
+            )
+        except Exception as e:
+            tk.messagebox.showerror("Error", f"Failed to start rclone backup: {e}", parent=self.root)
+            return
+
+        # Open monitor window for tail -f rclone-error.log
+        win = tk.Toplevel(self.root)
+        win.title("Google Drive Backup Monitor (tail -f rclone-error.log)")
+        win.geometry("1100x600")
+        win.config(bg=bg_color, padx=10, pady=10)
+
+        header_frame = tk.Frame(win, bg=bg_color)
+        header_frame.pack(side='top', fill='x', pady=(0, 5))
+        status_lbl = tk.Label(
+            header_frame,
+            text=f"Syncing: {movies_src} -> {self.rclone_remote} (PID: {backup_proc.pid})...",
+            font=('David', 12, 'bold'),
+            bg=bg_color,
+            fg=blue_back_color
+        )
+        status_lbl.pack(side='left')
+
+        txt_frame = tk.Frame(win)
+        txt_frame.pack(side='top', fill='both', expand=True)
+
+        txt = scrolledtext.ScrolledText(
+            txt_frame,
+            wrap='none',
+            font=('Courier', 9),
+            bg='#1e1e1e',
+            fg='#d4d4d4',
+            insertbackground='white'
+        )
+        txt.pack(side='left', fill='both', expand=True)
+
+        txt.tag_config('red', foreground='#ff6b6b')
+        txt.tag_config('green', foreground='#1dd1a1')
+        txt.tag_config('yellow', foreground='#feca57')
+        txt.tag_config('cyan', foreground='#48dbfb')
+        txt.tag_config('gray', foreground='#8395a7')
+
+        h_scroll = tk.Scrollbar(win, orient='horizontal', command=txt.xview)
+        txt.configure(xscrollcommand=h_scroll.set)
+        h_scroll.pack(side='top', fill='x')
+
+        btn_frame = tk.Frame(win, bg=bg_color)
+        btn_frame.pack(side='bottom', fill='x', pady=(10, 0))
+
+        stop_btn = tk.Button(
+            btn_frame,
+            text="Stop Backup",
+            font=('LilyUPC', 11, 'bold'),
+            bg='#e74c3c',
+            fg='white',
+            width=15
+        )
+        stop_btn.pack(side='left', padx=5)
+
+        close_btn = tk.Button(
+            btn_frame,
+            text="Close",
+            font=('LilyUPC', 11, 'bold'),
+            bg=light_purple,
+            width=15,
+            command=win.destroy
+        )
+        close_btn.pack(side='right', padx=5)
+
+        stop_tail_event = threading.Event()
+
+        def on_stop():
+            if backup_proc.poll() is None:
+                if tk.messagebox.askyesno("Confirm Stop", "Are you sure you want to stop the Google Drive Backup process?", parent=win):
+                    backup_proc.terminate()
+                    stop_btn.config(state='disabled')
+                    status_lbl.config(text="Backup stopped by user.")
+
+        stop_btn.config(command=on_stop)
+
+        def on_window_close():
+            stop_tail_event.set()
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", on_window_close)
+
+        def append_text(line):
+            txt.config(state='normal')
+            tag = None
+            l_upper = line.upper()
+            if "ERROR" in l_upper or "FATAL" in l_upper or "FAILED" in l_upper:
+                tag = 'red'
+            elif "NOTICE" in l_upper or "TRANSFERRED:" in l_upper or "100%" in l_upper:
+                tag = 'green'
+            elif "WARN" in l_upper or "STATS" in l_upper or "ELAPSED" in l_upper:
+                tag = 'yellow'
+            elif "INFO" in l_upper:
+                tag = 'cyan'
+            elif "DEBUG" in l_upper:
+                tag = 'gray'
+
+            if tag:
+                txt.insert(tk.END, line, (tag,))
+            else:
+                txt.insert(tk.END, line)
+            txt.see(tk.END)
+            txt.config(state='disabled')
+
+        def on_done(ret_code):
+            stop_btn.config(state='disabled')
+            if ret_code == 0:
+                status_lbl.config(text="Google Drive Backup Complete successfully.")
+            elif ret_code in (-15, 15, 1):
+                status_lbl.config(text=f"Google Drive Backup stopped/ended with status {ret_code}.")
+            else:
+                status_lbl.config(text=f"Google Drive Backup finished with exit code {ret_code}.")
+
+        def tail_worker():
+            time_waited = 0.0
+            while not os.path.exists(self.rclone_log_file) and not stop_tail_event.is_set() and time_waited < 10.0:
+                sleep(0.2)
+                time_waited += 0.2
+
+            try:
+                with open(self.rclone_log_file, 'r', encoding='utf-8', errors='replace') as f:
+                    while not stop_tail_event.is_set():
+                        line = f.readline()
+                        if line:
+                            txt.after(0, append_text, line)
+                        else:
+                            if backup_proc.poll() is not None:
+                                for rem_line in f:
+                                    txt.after(0, append_text, rem_line)
+                                break
+                            sleep(0.3)
+            except Exception as ex:
+                txt.after(0, append_text, f"\n[Log Monitor Error]: {ex}\n")
+
+            ret = backup_proc.poll()
+            if ret is not None:
+                txt.after(0, on_done, ret)
+
+        threading.Thread(target=tail_worker, daemon=True).start()
+
     def check_git_newer_version(self, verbose=False):
         """Check if a newer version of movie_Scraper or the database exists in git repository."""
         app_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1870,11 +1822,14 @@ if __name__ == "__main__":
 
     # Configuration for entire folder selection read with filepaths
     if sys.platform == 'linux':
-        default_dict = {'path': {"db_folder": '/home/daveg/Documents/GitHub/myComputer', "db_name": 'myMovies.db'}}
+        default_dict = {'path': {"db_folder": '/home/daveg/Documents/GitHub/myComputer', "db_name": 'myMovies.db', "movies_dir": '/media/daveg/Lib/Movies'},
+                        'rclone': {"remote": 'gdrive:Movies'}}
     elif sys.platform == 'darwin':
-        default_dict = {'path': {"db_folder": '/Users/daveg/Library/CloudStorage/GoogleDrive-davegutz2006@gmail.com/My Drive/Movies Stuff', "db_name": 'myMovies.db'}}
+        default_dict = {'path': {"db_folder": '/Users/daveg/Library/CloudStorage/GoogleDrive-davegutz2006@gmail.com/My Drive/Movies Stuff', "db_name": 'myMovies.db', "movies_dir": '/media/daveg/Lib/Movies'},
+                        'rclone': {"remote": 'gdrive:Movies'}}
     else:
-        default_dict = {'path': {"db_folder": 'G:/My Drive/Movies Stuff', "db_name": 'myMovies.db'}}
+        default_dict = {'path': {"db_folder": 'G:/My Drive/Movies Stuff', "db_name": 'myMovies.db', "movies_dir": 'G:/Movies'},
+                        'rclone': {"remote": 'gdrive:Movies'}}
 
     cf = Begini(__file__, default_dict)
     imdb = IMDBdataBase(cf_=cf)

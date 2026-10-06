@@ -164,5 +164,21 @@ class TestEditSelection(unittest.TestCase):
 
 
 
+    def test_fill_tree_view_inserts_without_invalid_image(self):
+        """fill_tree_view should populate items without passing invalid image arguments."""
+        self.app.tree.get_children.return_value = ['item1']
+        fake_db_rows = [
+            (1, 'Movie A', 2020, 7.0, 8.0, 'Dir A', 'Act A', 'Gen A', 'Sum A', 'http://cover.jpg', '2020-01-01', '2020-01-01', '1', '120', 'PG-13')
+        ]
+        self.app.c.fetchall.return_value = fake_db_rows
+        GUI_sqlite_scrape.IMDBdataBase.fill_tree_view(self.app)
+
+        self.app.tree.delete.assert_called_with('item1')
+        self.app.tree.insert.assert_called_once_with(
+            '', 'end',
+            values=(1, 'Movie A', 2020, '7.0', '8.0', 'Dir A', 'Act A', 'Gen A', 'Sum A', 'http://cover.jpg', '2020-01-01', '2020-01-01', '1', '120', 'PG-13')
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
