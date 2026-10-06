@@ -277,6 +277,7 @@ while [ true ]; do
 
             last_completed_disc="$RAW_VOL"
         else
+            play_alert_sound
             msg "\nWARN($SRC): HandBrake failed (exit=$handbrake_failure) or output too small (size test exit=$size_test_failure). Look at $NAM to investigate. Leaving disk in drive.\n\nPress any key when ready to continue with checking..."
             while [ true ]; do
                 read -t 3 -n 1
