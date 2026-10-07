@@ -47,8 +47,35 @@ eject_drive() {
     command eject "$1" 2>/dev/null
 }
 
-play_alert_sound() {
+play_single_beep() {
     # Ensure system audio is unmuted
+    pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
+
+    local sound_file=""
+    if [ -f "/usr/share/sounds/freedesktop/stereo/bell.oga" ]; then
+        sound_file="/usr/share/sounds/freedesktop/stereo/bell.oga"
+    elif [ -f "/usr/share/sounds/freedesktop/stereo/message.oga" ]; then
+        sound_file="/usr/share/sounds/freedesktop/stereo/message.oga"
+    elif [ -f "/usr/share/sounds/freedesktop/stereo/complete.oga" ]; then
+        sound_file="/usr/share/sounds/freedesktop/stereo/complete.oga"
+    fi
+
+    if [ -n "$sound_file" ]; then
+        if command -v paplay >/dev/null 2>&1; then
+            timeout 2 paplay --volume=65536 "$sound_file" 2>/dev/null &
+        elif command -v pw-play >/dev/null 2>&1; then
+            timeout 2 pw-play --volume=1.0 "$sound_file" 2>/dev/null &
+        elif command -v aplay >/dev/null 2>&1; then
+            timeout 2 aplay "$sound_file" 2>/dev/null &
+        fi
+    fi
+
+    # Single terminal bell
+    printf '\7'
+}
+
+play_alert_sound() {
+    # Ensure system audio is unmuted (Success alert: 3 beeps / chime)
     pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
 
     local sound_file=""
@@ -70,8 +97,37 @@ play_alert_sound() {
         fi
     fi
 
-    # Terminal bells as fallback
+    # 3 terminal bells for success
     printf '\7\7\7'
+}
+
+play_failure_sound() {
+    # Ensure system audio is unmuted (Failure/error tone)
+    pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
+
+    local sound_file=""
+    if [ -f "/usr/share/sounds/freedesktop/stereo/dialog-error.oga" ]; then
+        sound_file="/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+    elif [ -f "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga" ]; then
+        sound_file="/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+    elif [ -f "/usr/share/sounds/freedesktop/stereo/suspend-error.oga" ]; then
+        sound_file="/usr/share/sounds/freedesktop/stereo/suspend-error.oga"
+    fi
+
+    if [ -n "$sound_file" ]; then
+        if command -v paplay >/dev/null 2>&1; then
+            timeout 3 paplay --volume=65536 "$sound_file" 2>/dev/null &
+        elif command -v pw-play >/dev/null 2>&1; then
+            timeout 3 pw-play --volume=1.0 "$sound_file" 2>/dev/null &
+        elif command -v aplay >/dev/null 2>&1; then
+            timeout 3 aplay "$sound_file" 2>/dev/null &
+        fi
+    fi
+
+    # Distinct failure tone pattern (double pulse) for terminal bells
+    printf '\7'
+    sleep 0.15
+    printf '\7'
 }
 
 # Locate HandBrakeCLI
@@ -109,6 +165,18 @@ fi
 
 # Time to wait between attempts (seconds)
 SLEEP_TIME=5
+
+# Function to check if physical media is present in drive
+is_media_present() {
+    local dev="$1"
+    if /usr/lib/udev/cdrom_id "$dev" 2>/dev/null | grep -q "^ID_CDROM_MEDIA=1"; then
+        return 0
+    fi
+    if udevadm info -q property -n "$dev" 2>/dev/null | grep -q "^ID_CDROM_MEDIA=1"; then
+        return 0
+    fi
+    return 1
+}
 
 # Function to get volume label from disc
 get_volume_name() {
@@ -156,142 +224,156 @@ echo "======================"
 # Main loop
 last_completed_disc=''
 while [ true ]; do
-    RAW_VOL=$(get_volume_name "$SRC")
-    if [ -z "$RAW_VOL" ]; then
+    if ! is_media_present "$SRC"; then
         # Disc removed or drive tray open; reset tracker so newly inserted disc will process
         last_completed_disc=''
-    else
-        # If the same disc that just finished is still in the drive, wait without re-ripping
-        if [ "$RAW_VOL" = "$last_completed_disc" ]; then
-            echo -en "."
-            sleep "$SLEEP_TIME"
-            continue
-        fi
+        sleep "$SLEEP_TIME"
+        continue
+    fi
 
-        echo "Found disc: preliminary scan returned '$RAW_VOL'"
-        NAM="$RAW_VOL"
+    # Physical media is present in the drive
+    RAW_VOL=$(get_volume_name "$SRC")
 
-        # Check if preliminary title contains a 4-digit date in parentheses, e.g. "Title (2020)"
-        while ! [[ "$NAM" =~ \([0-9]{4}\) ]]; do
-            echo ""
-            echo "=========================================================================="
-            echo "Preliminary scan of disc returned title: '$NAM'"
-            echo "Title does not contain a 4-digit year in parentheses, e.g. 'Gladiator (2000)'"
-            echo "=========================================================================="
-            read -r -p "Enter movie title with year (or 'e' to eject, 'q' to quit): " user_title
-            if [ "$user_title" = "e" ] || [ "$user_title" = "E" ]; then
-                eject_drive "$SRC"
-                last_completed_disc="$RAW_VOL"
-                NAM=""
-                break
-            elif [ "$user_title" = "q" ] || [ "$user_title" = "Q" ]; then
-                echo "Exiting."
-                exit 0
-            fi
-
-            user_title="$(echo "$user_title" | sed -e 's/^[[:blank:]]*//' -e 's/[[:blank:]]*$//')"
-            if [[ "$user_title" =~ \([0-9]{4}\) ]]; then
-                NAM="$user_title"
-                break
-            else
-                echo "Invalid title: '$user_title' must have a 4-digit year in parentheses like 'Title (YYYY)'. Please try again."
-            fi
-        done
-
-        if [ -z "$NAM" ]; then
-            sleep "$SLEEP_TIME"
-            continue
-        fi
-
-        echo "Using title: NAM=$NAM"
-        DEST_LIB="${LIB_DIR}/${NAM}.m4v"
-
-        # Check local staging target: avoid overwriting existing local files
-        if [ -f "${STAGE_DIR}/${NAM}.m4v" ]; then
-            DEST_LOCAL="${STAGE_DIR}/${NAM}_$(date +%Y%m%d_%H%M%S).m4v"
-            echo "Existing local file found. Using unique local destination: $DEST_LOCAL"
+    # If the disc has no volume label or blkid returned empty
+    if [ -z "$RAW_VOL" ]; then
+        if /usr/lib/udev/cdrom_id "$SRC" 2>/dev/null | grep -q "^ID_CDROM_MEDIA_STATE=blank"; then
+            RAW_VOL="BLANK_OR_UNREADABLE_DISC"
         else
-            DEST_LOCAL="${STAGE_DIR}/${NAM}.m4v"
+            RAW_VOL="UNLABELLED_DISC"
         fi
+    fi
 
-        if [ -f "$DEST_LIB" ]; then
-            msg "NOTICE($SRC): '$NAM.m4v' already exists in library ($LIB_DIR). New rip will be saved locally.\n"
-        fi
+    # If the same disc that just finished is still in the drive, wait without re-ripping
+    if [ "$RAW_VOL" = "$last_completed_disc" ]; then
+        echo -en "."
+        sleep "$SLEEP_TIME"
+        continue
+    fi
 
-        clear
-        # Run HandBrake
-        if [ -x "${SCRIPT_DIR}/jobStat.sh" ]; then
-            "${SCRIPT_DIR}/jobStat.sh" "  $SRC: $NAM\n" &
-            stat_id=$!
-            echo "spawned $stat_id"
-            trap 'kill $stat_id 2>/dev/null' EXIT INT TERM
-        else
-            stat_id=''
-        fi
+    echo "Found disc: preliminary scan returned '$RAW_VOL'"
+    NAM="$RAW_VOL"
 
-        sleep 2  # To allow stdout of HandBrakeCLI to start
-        echo "running $HANDBRAKE_CLI --main-feature --preset-import-file \"$PRESET\" --subtitle none -i $SRC -o $DEST_LOCAL"
-        "$HANDBRAKE_CLI" --main-feature --preset-import-file "$PRESET" --subtitle none -i "$SRC" -o "$DEST_LOCAL"
-        handbrake_failure=$?
-
-        find "$DEST_LOCAL" -type f -size +"$SIZE_TEST" 2>/dev/null
-        size_test_failure=$?
-
-        if [ -n "$stat_id" ]; then
-            kill "$stat_id" 2>/dev/null
-            trap - EXIT INT TERM
-        fi
-
-        if [ $handbrake_failure -eq 0 ] && [ $size_test_failure -eq 0 ]; then
+    # Check if preliminary title contains a 4-digit date in parentheses, e.g. "Title (2020)"
+    while ! [[ "$NAM" =~ \([0-9]{4}\) ]]; do
+        echo ""
+        echo "=========================================================================="
+        echo "Preliminary scan of disc returned title: '$NAM'"
+        echo "Title does not contain a 4-digit year in parentheses, e.g. 'Gladiator (2000)'"
+        echo "=========================================================================="
+        play_single_beep
+        read -r -p "Enter movie title with year (or 'e' to eject, 'q' to quit): " user_title
+        if [ "$user_title" = "e" ] || [ "$user_title" = "E" ]; then
             eject_drive "$SRC"
-            play_alert_sound
-            msg "\n\nMSG($SRC): Movie $NAM successfully encoded to $DEST_LOCAL\n"
-
-            # Automatically fetch external .srt subtitles using movie_Scraper
-            if [ -f "$FETCH_SUBS_SCRIPT" ]; then
-                echo "Attempting to fetch subtitles using movie_Scraper ($FETCH_SUBS_SCRIPT)..."
-                python3 "$FETCH_SUBS_SCRIPT" "$DEST_LOCAL"
-            fi
-
-            # Handle destination: if duplicate exists in library, keep new rip work locally
-            local_base="${DEST_LOCAL%.*}"
-            if [ -f "$DEST_LIB" ]; then
-                msg "\n[!] DUPLICATE IN LIBRARY: '$DEST_LIB' already exists.\n"
-                msg "[!] Preserving new rip work locally in $STAGE_DIR without overwriting library.\n"
-                echo "Video kept locally: $DEST_LOCAL"
-                for srt in "${local_base}"*.srt; do
-                    [ -f "$srt" ] && echo "Subtitle kept locally: $srt"
-                done
-            elif [ -d "$LIB_DIR" ]; then
-                echo "Moving files to library: $LIB_DIR"
-                mv -v "$DEST_LOCAL" "$LIB_DIR/"
-                for srt in "${local_base}"*.srt; do
-                    if [ -f "$srt" ]; then
-                        mv -v "$srt" "$LIB_DIR/"
-                    fi
-                done
-                echo "Local disk space freed in $STAGE_DIR."
-            else
-                msg "\nWARN: Library directory $LIB_DIR is not accessible. Retaining file in $STAGE_DIR.\n"
-            fi
-
             last_completed_disc="$RAW_VOL"
+            NAM=""
+            break
+        elif [ "$user_title" = "q" ] || [ "$user_title" = "Q" ]; then
+            echo "Exiting."
+            exit 0
+        fi
+
+        user_title="$(echo "$user_title" | sed -e 's/^[[:blank:]]*//' -e 's/[[:blank:]]*$//')"
+        if [[ "$user_title" =~ \([0-9]{4}\) ]]; then
+            NAM="$user_title"
+            break
         else
-            play_alert_sound
-            msg "\nWARN($SRC): HandBrake failed (exit=$handbrake_failure) or output too small (size test exit=$size_test_failure). Look at $NAM to investigate. Leaving disk in drive.\n\nPress any key when ready to continue with checking..."
-            while [ true ]; do
-                read -t 3 -n 1
-                if [ $? -eq 0 ]; then
-                    echo ""
-                    break
-                else
-                    echo -en "."
+            echo "Invalid title: '$user_title' must have a 4-digit year in parentheses like 'Title (YYYY)'. Please try again."
+        fi
+    done
+
+    if [ -z "$NAM" ]; then
+        sleep "$SLEEP_TIME"
+        continue
+    fi
+
+    echo "Using title: NAM=$NAM"
+    DEST_LIB="${LIB_DIR}/${NAM}.m4v"
+
+    # Check local staging target: avoid overwriting existing local files
+    if [ -f "${STAGE_DIR}/${NAM}.m4v" ]; then
+        DEST_LOCAL="${STAGE_DIR}/${NAM}_$(date +%Y%m%d_%H%M%S).m4v"
+        echo "Existing local file found. Using unique local destination: $DEST_LOCAL"
+    else
+        DEST_LOCAL="${STAGE_DIR}/${NAM}.m4v"
+    fi
+
+    if [ -f "$DEST_LIB" ]; then
+        msg "NOTICE($SRC): '$NAM.m4v' already exists in library ($LIB_DIR). New rip will be saved locally.\n"
+    fi
+
+    clear
+    # Run HandBrake
+    if [ -x "${SCRIPT_DIR}/jobStat.sh" ]; then
+        "${SCRIPT_DIR}/jobStat.sh" "  $SRC: $NAM\n" &
+        stat_id=$!
+        echo "spawned $stat_id"
+        trap 'kill $stat_id 2>/dev/null' EXIT INT TERM
+    else
+        stat_id=''
+    fi
+
+    sleep 2  # To allow stdout of HandBrakeCLI to start
+    echo "running $HANDBRAKE_CLI --main-feature --preset-import-file \"$PRESET\" --subtitle none -i $SRC -o $DEST_LOCAL"
+    "$HANDBRAKE_CLI" --main-feature --preset-import-file "$PRESET" --subtitle none -i "$SRC" -o "$DEST_LOCAL"
+    handbrake_failure=$?
+
+    find "$DEST_LOCAL" -type f -size +"$SIZE_TEST" 2>/dev/null
+    size_test_failure=$?
+
+    if [ -n "$stat_id" ]; then
+        kill "$stat_id" 2>/dev/null
+        trap - EXIT INT TERM
+    fi
+
+    if [ $handbrake_failure -eq 0 ] && [ $size_test_failure -eq 0 ]; then
+        eject_drive "$SRC"
+        play_alert_sound
+        msg "\n\nMSG($SRC): Movie $NAM successfully encoded to $DEST_LOCAL\n"
+
+        # Automatically fetch external .srt subtitles using movie_Scraper
+        if [ -f "$FETCH_SUBS_SCRIPT" ]; then
+            echo "Attempting to fetch subtitles using movie_Scraper ($FETCH_SUBS_SCRIPT)..."
+            python3 "$FETCH_SUBS_SCRIPT" "$DEST_LOCAL"
+        fi
+
+        # Handle destination: if duplicate exists in library, keep new rip work locally
+        local_base="${DEST_LOCAL%.*}"
+        if [ -f "$DEST_LIB" ]; then
+            msg "\n[!] DUPLICATE IN LIBRARY: '$DEST_LIB' already exists.\n"
+            msg "[!] Preserving new rip work locally in $STAGE_DIR without overwriting library.\n"
+            echo "Video kept locally: $DEST_LOCAL"
+            for srt in "${local_base}"*.srt; do
+                [ -f "$srt" ] && echo "Subtitle kept locally: $srt"
+            done
+        elif [ -d "$LIB_DIR" ]; then
+            echo "Moving files to library: $LIB_DIR"
+            mv -v "$DEST_LOCAL" "$LIB_DIR/"
+            for srt in "${local_base}"*.srt; do
+                if [ -f "$srt" ]; then
+                    mv -v "$srt" "$LIB_DIR/"
                 fi
             done
-            last_completed_disc="$RAW_VOL"
+            echo "Local disk space freed in $STAGE_DIR."
+        else
+            msg "\nWARN: Library directory $LIB_DIR is not accessible. Retaining file in $STAGE_DIR.\n"
         fi
-        msg "\n\nMSG($SRC): Movie $NAM finished.\nInsert a new disk...\n"
+
+        last_completed_disc="$RAW_VOL"
+    else
+        play_failure_sound
+        msg "\nWARN($SRC): HandBrake failed (exit=$handbrake_failure) or output too small (size test exit=$size_test_failure). Look at $NAM to investigate. Leaving disk in drive.\n\nPress any key when ready to continue with checking..."
+        while [ true ]; do
+            read -t 3 -n 1
+            if [ $? -eq 0 ]; then
+                echo ""
+                break
+            else
+                echo -en "."
+            fi
+        done
+        last_completed_disc="$RAW_VOL"
     fi
+    msg "\n\nMSG($SRC): Movie $NAM finished.\nInsert a new disk...\n"
 
     # Skips to here if drive not available or while waiting
     sleep "$SLEEP_TIME"
