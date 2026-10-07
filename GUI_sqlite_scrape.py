@@ -288,6 +288,13 @@ class IMDBdataBase:
                                   width=25, command=self.edit_selection)
         self.edit_btn.pack(side='left')
 
+        self.watched_today_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.watched_today_frame.pack(side='top', fill='both')
+        self.enter_today_btn = tk.Button(self.watched_today_frame, text="Watched today", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                         width=25, command=self.enter_today)
+        self.enter_today_btn.pack(side='left')
+        self.watched_today_btn = self.enter_today_btn
+
         self.db_loc_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.db_loc_frame.pack(side='top', fill='both')
         self.working_label = tk.Label(self.db_loc_frame, text="DB location =", bg=bg_color)
@@ -303,10 +310,31 @@ class IMDBdataBase:
 
         self.backup_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.backup_btn_frame.pack(side='top', fill='both', pady=(20, 0))
-        self.backup_btn = tk.Button(self.backup_btn_frame, text="Google Drive Backup",
+        self.backup_btn = tk.Button(self.backup_btn_frame, text="G-Drive rclone sync",
                                     font=('LilyUPC', 9, 'bold'), bg=light_purple,
                                     width=25, command=self.google_drive_backup)
         self.backup_btn.pack(side='left')
+
+        self.check_db_health_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.check_db_health_frame.pack(side='top', fill='both')
+        self.check_db_health_btn = tk.Button(self.check_db_health_frame, text="Check Database Health",
+                                             font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                             width=25, command=self.run_check_database_health)
+        self.check_db_health_btn.pack(side='left')
+
+        self.check_git_db_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.check_git_db_frame.pack(side='top', fill='both')
+        self.check_git_db_btn = tk.Button(self.check_git_db_frame, text="Check Git Versions",
+                                          font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                          width=25, command=lambda: self.check_git_newer_version(verbose=True))
+        self.check_git_db_btn.pack(side='left')
+
+        self.export_web_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.export_web_frame.pack(side='top', fill='both')
+        self.export_web_btn = tk.Button(self.export_web_frame, text="Export movies.json",
+                                        font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                        width=25, command=self.export_movies_to_web)
+        self.export_web_btn.pack(side='left')
 
         # Database
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
@@ -386,15 +414,6 @@ class IMDBdataBase:
         self.update_cert_time_btn = tk.Button(self.bot_frame_right, text="Update Cert and Time", font=('LilyUPC', 13, 'bold'), bg=light_purple,
                                               width=25, command=self.update_cert_time)
         self.update_cert_time_btn.pack(side='top')
-        self.check_db_health_btn = tk.Button(self.bot_frame_right, text="Check Database Health", font=('LilyUPC', 13, 'bold'), bg=light_purple,
-                                             width=25, command=self.run_check_database_health)
-        self.check_db_health_btn.pack(side='top')
-        self.check_git_db_btn = tk.Button(self.bot_frame_right, text="Check Git Versions", font=('LilyUPC', 13, 'bold'), bg=light_purple,
-                                          width=25, command=lambda: self.check_git_newer_version(verbose=True))
-        self.check_git_db_btn.pack(side='top')
-        self.export_web_btn = tk.Button(self.bot_frame_right, text="Export movies.json", font=('LilyUPC', 13, 'bold'), bg=light_purple,
-                                        width=25, command=self.export_movies_to_web)
-        self.export_web_btn.pack(side='top')
 
         self.root.title(f"Features ({len(self.tree.get_children())})")
         self.root.after(200, self.check_git_newer_version)
@@ -441,14 +460,14 @@ class IMDBdataBase:
                                 try:
                                     print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
                                     self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
-                                                    director, actors, generes, summary, cover, WATCHED, ADDED, DVD,
-                                                    runtime, certification) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);""",
+                                                    director, actors, generes, summary, cover, WATCHED, DVD,
+                                                    runtime, certification, ADDED) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);""",
                                                    (new_movie.ID, str(new_movie.title), int(year),
                                                     float(new_movie.rating), float(new_movie.my_rating),
                                                     str(new_movie.directors[0]), str(new_movie.casting),
                                                     str(new_movie.genres), str(new_movie.summary[0]),
-                                                    str(new_movie.cover), new_movie.watched, new_movie.added,
-                                                    new_movie.DVD, new_movie.runtime, new_movie.certification)),
+                                                    str(new_movie.cover), new_movie.watched, new_movie.DVD,
+                                                    new_movie.runtime, new_movie.certification, new_movie.added)),
                                     self.fill_tree_view()
                                 except (UnboundLocalError, sqlite3.IntegrityError) as e:
                                     print(e)
@@ -507,14 +526,14 @@ class IMDBdataBase:
                     except ValueError:
                         new_movie.my_rating = 0.
                     self.c.execute(f"""INSERT INTO My_Films(IMDB_ID, title, year, rating, my_rating,
-                                    director, actors, generes, summary, cover, WATCHED, ADDED, 
-                                    DVD, runtime, certification)
+                                    director, actors, generes, summary, cover, WATCHED, 
+                                    DVD, runtime, certification, ADDED)
                                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);""",
                                    (new_movie.ID, str(new_movie.title), int(new_movie.year),
                                     float(new_movie.rating), float(new_movie.my_rating), str(new_movie.directors),
                                     str(new_movie.casting), str(new_movie.genres), str(new_movie.summary),
-                                    str(new_movie.cover), str(''), str(new_movie.added),
-                                    int(new_movie.DVD), str(new_movie.runtime), str(new_movie.certification)),)
+                                    str(new_movie.cover), str(''), int(new_movie.DVD),
+                                    str(new_movie.runtime), str(new_movie.certification), str(new_movie.added)),)
                     self.fill_tree_view()
                     self.highlight_film((str(new_movie.title).lower(), int(new_movie.year)))
                 except (UnboundLocalError, ValueError):
@@ -727,8 +746,8 @@ class IMDBdataBase:
         self.c = self.conn.cursor()
         self.c.execute(f"CREATE TABLE if not exists My_Films(IMDB_ID integer PRIMARY KEY,"
                        "title text, year integer, rating real, my_rating real,  director text, actors text,\
-                        generes text, summary text, cover text, WATCHED, ADDED, DVD text, runtime text, \
-                        certification text)")
+                        generes text, summary text, cover text, WATCHED text, DVD integer, runtime text, \
+                        certification text, ADDED text)")
         self.conn.commit()
 
         # Set up Tree style
@@ -736,7 +755,7 @@ class IMDBdataBase:
 
         # Set up the Tree columns
         self.tree['columns'] = ('IMDB_ID', 'Title', 'Year', 'Rating', 'MyRating', 'Director', 'Actors', 'Generes',
-                                'Summary', 'Cover', 'WATCHED', 'ADDED', 'DVD', 'Runtime', 'Certification')
+                                'Summary', 'Cover', 'WATCHED', 'DVD', 'Runtime', 'Certification', 'ADDED')
         self.tree.column('#0', width=0, stretch=tk.NO)
         self.tree.column('IMDB_ID', width=70, minwidth=50, anchor=tk.CENTER)
         self.tree.column('Title', width=150, minwidth=150, anchor=tk.CENTER)
@@ -749,28 +768,33 @@ class IMDBdataBase:
         self.tree.column('Summary', width=350, minwidth=350, anchor=tk.CENTER)
         self.tree.column('Cover', width=50, minwidth=50, anchor=tk.CENTER)
         self.tree.column('WATCHED', width=80, minwidth=80, anchor=tk.CENTER)
-        self.tree.column('ADDED', width=80, minwidth=80, anchor=tk.CENTER)
         self.tree.column('DVD', width=40, minwidth=40, anchor=tk.CENTER)
         self.tree.column('Runtime', width=50, minwidth=50, anchor=tk.CENTER)
         self.tree.column('Certification', width=50, minwidth=50, anchor=tk.CENTER)
+        self.tree.column('ADDED', width=80, minwidth=80, anchor=tk.CENTER)
 
         # Set up the Tree headings
+        col_heading_text = {
+            'IMDB_ID': 'IMDB_ID',
+            'Title': 'Title',
+            'Year': 'Year',
+            'Rating': 'Rating',
+            'MyRating': 'My Rating',
+            'Director': 'Director',
+            'Actors': 'Actors',
+            'Generes': 'Generes',
+            'Summary': 'Summary',
+            'Cover': 'Cover',
+            'WATCHED': 'WATCHED',
+            'DVD': 'DVD',
+            'Runtime': 'Time',
+            'Certification': 'Cert',
+            'ADDED': 'ADDED',
+        }
         self.tree.heading('#0', text='', anchor=tk.CENTER)
-        self.tree.heading('IMDB_ID', text='IMDB_ID', anchor=tk.CENTER)
-        self.tree.heading('Title', text='Title', anchor=tk.CENTER)
-        self.tree.heading('Year', text='Year', anchor=tk.CENTER)
-        self.tree.heading('Rating', text='Rating', anchor=tk.CENTER)
-        self.tree.heading('MyRating', text='My Rating', anchor=tk.CENTER)
-        self.tree.heading('Director', text='Director', anchor=tk.CENTER)
-        self.tree.heading('Actors', text='Actors', anchor=tk.CENTER)
-        self.tree.heading('Generes', text='Generes', anchor=tk.CENTER)
-        self.tree.heading('Summary', text='Summary', anchor=tk.CENTER)
-        self.tree.heading('Cover', text='Cover', anchor=tk.CENTER)
-        self.tree.heading('WATCHED', text='WATCHED', anchor=tk.CENTER)
-        self.tree.heading('ADDED', text='ADDED', anchor=tk.CENTER)
-        self.tree.heading('DVD', text='DVD', anchor=tk.CENTER)
-        self.tree.heading('Runtime', text='Time', anchor=tk.CENTER)
-        self.tree.heading('Certification', text='Cert', anchor=tk.CENTER)
+        for col, heading_txt in col_heading_text.items():
+            self.tree.heading(col, text=heading_txt, anchor=tk.CENTER)
+
         self.tree["displaycolumns"] = ("IMDB_ID", "Title", "Certification", "Runtime", "Year", "Rating",
                                        "MyRating", "WATCHED", "ADDED", "DVD", "Director", "Actors", "Generes",
                                        "Summary")
@@ -791,13 +815,13 @@ class IMDBdataBase:
         # Bind for click column sort
         for col in self.tree["displaycolumns"]:
             if col == 'IMDB_ID' or col == 'Runtime' or col == 'Year':
-                self.tree.heading(col, text=col, command=lambda _col=col:
+                self.tree.heading(col, command=lambda _col=col:
                                   self.treeview_sort_column_int(self.tree, _col, False))
             elif col == 'MyRating' or col == 'Rating':
-                self.tree.heading(col, text=col, command=lambda _col=col:
+                self.tree.heading(col, command=lambda _col=col:
                                   self.treeview_sort_column_float(self.tree, _col, False))
             else:
-                self.tree.heading(col, text=col, command=lambda _col=col:
+                self.tree.heading(col, command=lambda _col=col:
                                   self.treeview_sort_column(self.tree, _col, False))
 
         self.fill_tree_view()
@@ -864,6 +888,35 @@ class IMDBdataBase:
 
         self.open_edit_entry_window(item)
 
+    def enter_today(self):
+        """Update the WATCHED date of the currently selected film to today's date"""
+        curItem = self.tree.focus()
+        if not curItem:
+            selection = self.tree.selection()
+            if selection:
+                curItem = selection[0]
+        if not curItem:
+            if self.picked and self.picked != '<search and select something above>':
+                curItem = self.picked
+        if not curItem or curItem == '<search and select something above>':
+            tk.messagebox.showerror(title="Error", message='You should pick a film')
+            return
+
+        item = self.tree.item(curItem)
+        if not item or not item.get('values'):
+            tk.messagebox.showerror(title="Error", message='You should pick a film')
+            return
+
+        IMDB_ID = item['values'][0]
+        title = item['values'][1]
+        year = item['values'][2]
+        new_watched = str(datetime.today().strftime('%Y-%m-%d'))
+        print(f"setting watched date for '{title} ({year})' = {new_watched}")
+        self.c.execute("UPDATE My_Films SET WATCHED = ? WHERE IMDB_ID = ?", (new_watched, IMDB_ID))
+        self.conn.commit()
+        self.fill_tree_view()
+        self.highlight_film((str(title).lower(), int(year)))
+
     def enter_db(self):
         """Change to a different database name"""
         self.db_name = tk.simpledialog.askstring("Database Name", "Enter database name:", initialvalue=self.db_name)
@@ -907,11 +960,14 @@ class IMDBdataBase:
             self.tree.delete(child)
 
         # Repopulate
-        self.c.execute(f"SELECT * FROM My_Films ORDER BY title")
+        cols = [c[0] for c in self.DB_FIELDS]
+        self.c.execute(f"SELECT {', '.join(cols)} FROM My_Films ORDER BY title")
         rows = self.c.fetchall()
         for row in rows:
             if row[0] is not None:
-                self.tree.insert("", tk.END, values=(row[0], row[1], row[2], f"{row[3]:3.1f}", f"{row[4]:3.1f}",
+                rating_str = f"{row[3]:3.1f}" if isinstance(row[3], (int, float)) else str(row[3])
+                my_rating_str = f"{row[4]:3.1f}" if isinstance(row[4], (int, float)) else str(row[4])
+                self.tree.insert("", tk.END, values=(row[0], row[1], row[2], rating_str, my_rating_str,
                                                      row[5], row[6], row[7], row[8], row[9], row[10], row[11],
                                                      row[12], row[13], row[14]))
 
@@ -942,7 +998,8 @@ class IMDBdataBase:
         if actor == "" or actor.isspace():
             tk.messagebox.showerror(title="Error", message='You should pick an Actor')
         else:
-            self.c.execute(f"""SELECT * FROM My_Films WHERE actors LIKE '%{actor}%' ORDER BY title""")
+            cols = [c[0] for c in self.DB_FIELDS]
+            self.c.execute(f"""SELECT {', '.join(cols)} FROM My_Films WHERE actors LIKE '%{actor}%' ORDER BY title""")
             rows = self.c.fetchall()
             row = [item[0] for item in rows]
             if not row:
@@ -951,8 +1008,10 @@ class IMDBdataBase:
                 for child in self.tree.get_children():
                     self.tree.delete(child)
                 for item in rows:
-                    self.tree.insert("", tk.END, values=(item[0], item[1], item[2], item[3], item[4], item[5],
-                                                         item[6], item[7], item[8], item[9], item[10], item[11],
+                    rating_str = f"{item[3]:3.1f}" if isinstance(item[3], (int, float)) else str(item[3])
+                    my_rating_str = f"{item[4]:3.1f}" if isinstance(item[4], (int, float)) else str(item[4])
+                    self.tree.insert("", tk.END, values=(item[0], item[1], item[2], rating_str, my_rating_str,
+                                                         item[5], item[6], item[7], item[8], item[9], item[10], item[11],
                                                          item[12], item[13], item[14]))
                 self.root.title(f"Features ({len(self.tree.get_children())})")
 
@@ -969,7 +1028,8 @@ class IMDBdataBase:
         if director == "" or director.isspace():
             tk.messagebox.showerror(title="Error", message='You should pick a Director')
         else:
-            self.c.execute(f"""SELECT * FROM My_Films WHERE director LIKE '%{director}%' ORDER BY title""")
+            cols = [c[0] for c in self.DB_FIELDS]
+            self.c.execute(f"""SELECT {', '.join(cols)} FROM My_Films WHERE director LIKE '%{director}%' ORDER BY title""")
             rows = self.c.fetchall()
             row = [item[0] for item in rows]
             if not row:
@@ -978,8 +1038,10 @@ class IMDBdataBase:
                 for child in self.tree.get_children():
                     self.tree.delete(child)
                 for item in rows:
-                    self.tree.insert("", tk.END, values=(item[0], item[1], item[2], item[3], item[4], item[5],
-                                                         item[6], item[7], item[8], item[9], item[10], item[11],
+                    rating_str = f"{item[3]:3.1f}" if isinstance(item[3], (int, float)) else str(item[3])
+                    my_rating_str = f"{item[4]:3.1f}" if isinstance(item[4], (int, float)) else str(item[4])
+                    self.tree.insert("", tk.END, values=(item[0], item[1], item[2], rating_str, my_rating_str,
+                                                         item[5], item[6], item[7], item[8], item[9], item[10], item[11],
                                                          item[12], item[13], item[14]))
                 self.root.title(f"Features ({len(self.tree.get_children())})")
 
@@ -988,7 +1050,8 @@ class IMDBdataBase:
         if title == "" or title.isspace():
             tk.messagebox.showerror(title="Error", message='You should pick a title')
         else:
-            self.c.execute(f"""SELECT * FROM My_Films WHERE title LIKE '%{title}%' ORDER BY title""")
+            cols = [c[0] for c in self.DB_FIELDS]
+            self.c.execute(f"""SELECT {', '.join(cols)} FROM My_Films WHERE title LIKE '%{title}%' ORDER BY title""")
             rows = self.c.fetchall()
             row = [item[0] for item in rows]
             if not row:
@@ -997,8 +1060,10 @@ class IMDBdataBase:
                 for child in self.tree.get_children():
                     self.tree.delete(child)
                 for item in rows:
-                    self.tree.insert("", tk.END, values=(item[0], item[1], item[2], item[3], item[4], item[5],
-                                                         item[6], item[7], item[8], item[9], item[10], item[11],
+                    rating_str = f"{item[3]:3.1f}" if isinstance(item[3], (int, float)) else str(item[3])
+                    my_rating_str = f"{item[4]:3.1f}" if isinstance(item[4], (int, float)) else str(item[4])
+                    self.tree.insert("", tk.END, values=(item[0], item[1], item[2], rating_str, my_rating_str,
+                                                         item[5], item[6], item[7], item[8], item[9], item[10], item[11],
                                                          item[12], item[13], item[14]))
                 self.root.title(f"Features ({len(self.tree.get_children())})")
 
@@ -1010,13 +1075,16 @@ class IMDBdataBase:
     def sort_title(self, order):
         # Sort by title
         self.tree_modified = True
-        self.c.execute(f"""SELECT * FROM My_Films ORDER BY title {'ASC' if order == 1 else 'DESC'}""")
+        cols = [c[0] for c in self.DB_FIELDS]
+        self.c.execute(f"""SELECT {', '.join(cols)} FROM My_Films ORDER BY title {'ASC' if order == 1 else 'DESC'}""")
         rows = self.c.fetchall()
         for child in self.tree.get_children():
             self.tree.delete(child)
         for item in rows:
-            self.tree.insert("", tk.END, values=(item[0], item[1], item[2], item[3], item[4], item[5],
-                                                 item[6], item[7], item[8], item[9], item[10], item[11],
+            rating_str = f"{item[3]:3.1f}" if isinstance(item[3], (int, float)) else str(item[3])
+            my_rating_str = f"{item[4]:3.1f}" if isinstance(item[4], (int, float)) else str(item[4])
+            self.tree.insert("", tk.END, values=(item[0], item[1], item[2], rating_str, my_rating_str,
+                                                 item[5], item[6], item[7], item[8], item[9], item[10], item[11],
                                                  item[12], item[13], item[14]))
         self.tree_modified = False
 

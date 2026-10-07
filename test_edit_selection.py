@@ -168,7 +168,7 @@ class TestEditSelection(unittest.TestCase):
         """fill_tree_view should populate items without passing invalid image arguments."""
         self.app.tree.get_children.return_value = ['item1']
         fake_db_rows = [
-            (1, 'Movie A', 2020, 7.0, 8.0, 'Dir A', 'Act A', 'Gen A', 'Sum A', 'http://cover.jpg', '2020-01-01', '2020-01-01', '1', '120', 'PG-13')
+            (1, 'Movie A', 2020, 7.0, 8.0, 'Dir A', 'Act A', 'Gen A', 'Sum A', 'http://cover.jpg', '2020-01-01', 1, '120', 'PG-13', '2020-01-01')
         ]
         self.app.c.fetchall.return_value = fake_db_rows
         GUI_sqlite_scrape.IMDBdataBase.fill_tree_view(self.app)
@@ -176,9 +176,49 @@ class TestEditSelection(unittest.TestCase):
         self.app.tree.delete.assert_called_with('item1')
         self.app.tree.insert.assert_called_once_with(
             '', 'end',
-            values=(1, 'Movie A', 2020, '7.0', '8.0', 'Dir A', 'Act A', 'Gen A', 'Sum A', 'http://cover.jpg', '2020-01-01', '2020-01-01', '1', '120', 'PG-13')
+            values=(1, 'Movie A', 2020, '7.0', '8.0', 'Dir A', 'Act A', 'Gen A', 'Sum A', 'http://cover.jpg', '2020-01-01', 1, '120', 'PG-13', '2020-01-01')
         )
 
+    def test_treeview_column_order_matches_db_fields(self):
+        """Ensure treeview columns match DB_FIELDS in exact sequence."""
+        expected_cols = [col.lower() for col, _, _ in GUI_sqlite_scrape.IMDBdataBase.DB_FIELDS]
+        # IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, watched, dvd, runtime, certification, added
+        self.assertEqual(expected_cols, [
+            'imdb_id', 'title', 'year', 'rating', 'my_rating',
+            'director', 'actors', 'generes', 'summary', 'cover',
+            'watched', 'dvd', 'runtime', 'certification', 'added'
+        ])
+
+
+    def test_enter_today_updates_watched_date(self):
+        """enter_today should update the WATCHED column to today's date and commit."""
+        self.app.tree.focus.return_value = 'I001'
+        self.app.tree.selection.return_value = ('I001',)
+        sample_item = {'values': [59113, 'Doctor Zhivago', 1965, 7.9, 9.0]}
+        self.app.tree.item.return_value = sample_item
+
+        with patch('GUI_sqlite_scrape.datetime') as mock_dt:
+            mock_dt.today.return_value.strftime.return_value = '2026-10-07'
+            GUI_sqlite_scrape.IMDBdataBase.enter_today(self.app)
+
+            # Verify UPDATE query executed with today's date
+            self.app.c.execute.assert_called_with(
+                "UPDATE My_Films SET WATCHED = ? WHERE IMDB_ID = ?",
+                ('2026-10-07', 59113)
+            )
+            self.app.conn.commit.assert_called()
+            self.app.fill_tree_view.assert_called()
+            self.app.highlight_film.assert_called_with(('doctor zhivago', 1965))
+
+    def test_enter_today_no_selection_shows_error(self):
+        """enter_today without a valid selection should show an error dialog."""
+        self.app.tree.focus.return_value = ''
+        self.app.tree.selection.return_value = ()
+        self.app.picked = None
+
+        with patch('GUI_sqlite_scrape.tk.messagebox.showerror') as mock_err:
+            GUI_sqlite_scrape.IMDBdataBase.enter_today(self.app)
+            mock_err.assert_called_once_with(title='Error', message='You should pick a film')
 
 if __name__ == '__main__':
     unittest.main()
