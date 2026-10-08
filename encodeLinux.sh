@@ -102,32 +102,52 @@ play_alert_sound() {
 }
 
 play_failure_sound() {
-    # Ensure system audio is unmuted (Failure/error tone)
+    # Ensure system audio is unmuted (Failure sequence: fail -> success -> fail -> success -> fail)
     pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
 
-    local sound_file=""
+    local fail_file=""
     if [ -f "/usr/share/sounds/freedesktop/stereo/dialog-error.oga" ]; then
-        sound_file="/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+        fail_file="/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
     elif [ -f "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga" ]; then
-        sound_file="/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+        fail_file="/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
     elif [ -f "/usr/share/sounds/freedesktop/stereo/suspend-error.oga" ]; then
-        sound_file="/usr/share/sounds/freedesktop/stereo/suspend-error.oga"
+        fail_file="/usr/share/sounds/freedesktop/stereo/suspend-error.oga"
     fi
 
-    if [ -n "$sound_file" ]; then
-        if command -v paplay >/dev/null 2>&1; then
-            timeout 3 paplay --volume=65536 "$sound_file" 2>/dev/null &
-        elif command -v pw-play >/dev/null 2>&1; then
-            timeout 3 pw-play --volume=1.0 "$sound_file" 2>/dev/null &
-        elif command -v aplay >/dev/null 2>&1; then
-            timeout 3 aplay "$sound_file" 2>/dev/null &
-        fi
+    local success_file=""
+    if [ -f "/usr/share/sounds/freedesktop/stereo/complete.oga" ]; then
+        success_file="/usr/share/sounds/freedesktop/stereo/complete.oga"
+    elif [ -f "/usr/share/sounds/freedesktop/stereo/bell.oga" ]; then
+        success_file="/usr/share/sounds/freedesktop/stereo/bell.oga"
     fi
 
-    # Distinct failure tone pattern (double pulse) for terminal bells
-    printf '\7'
-    sleep 0.15
-    printf '\7'
+    # Play sequence in background: fail -> success -> fail -> success -> fail
+    (
+        play_clip() {
+            local f="$1"
+            if [ -n "$f" ] && [ -f "$f" ]; then
+                if command -v paplay >/dev/null 2>&1; then
+                    paplay --volume=65536 "$f" 2>/dev/null
+                elif command -v pw-play >/dev/null 2>&1; then
+                    pw-play --volume=1.0 "$f" 2>/dev/null
+                elif command -v aplay >/dev/null 2>&1; then
+                    aplay "$f" 2>/dev/null
+                fi
+            fi
+        }
+
+        play_clip "$fail_file"
+        play_clip "$success_file"
+        play_clip "$fail_file"
+        play_clip "$success_file"
+        play_clip "$fail_file"
+    ) &
+
+    # Terminal bell sequence (5 pulses)
+    for _ in 1 2 3 4 5; do
+        printf '\7'
+        sleep 0.2
+    done
 }
 
 # Locate HandBrakeCLI
