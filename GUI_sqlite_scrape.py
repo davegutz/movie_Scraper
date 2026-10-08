@@ -66,6 +66,7 @@ else:
     from tkinter import Button as myButton
 from Colors import Colors
 import requests
+import fetch_subtitles
 API_KEY = 'fd597cf0'
 
 # Define frames
@@ -84,6 +85,30 @@ blue_back_color = '#3a4470'
 blue_front_color = '#477bc9'
 entry_color = '#2e3a4d'
 light_purple = '#7258db'
+
+
+def get_screencast_movies_dir():
+    """Retrieve Movies destination folder from GUI_screencast config if present."""
+    try:
+        cfg_path = None
+        if sys.platform == 'linux':
+            cfg_path = os.path.expanduser('~/.local/GUI_screencast_linux.ini')
+        elif sys.platform == 'darwin':
+            cfg_path = os.path.expanduser('~/.local/GUI_screencast_macos.ini')
+        elif sys.platform == 'win32':
+            cfg_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'GUI_screencast.ini')
+
+        if cfg_path and os.path.isfile(cfg_path):
+            cp = ConfigParser()
+            cp.read(cfg_path)
+            section = 'Linux' if sys.platform == 'linux' else ('Darwin' if sys.platform == 'darwin' else 'Windows')
+            if cp.has_section(section) and cp.has_option(section, 'destination_folder'):
+                dest = cp.get(section, 'destination_folder').strip()
+                if dest and not dest.startswith('<'):
+                    return dest
+    except Exception as e:
+        print(f"Notice: Could not read screencast config: {e}")
+    return None
 
 
 class Begini(ConfigParser):
@@ -223,10 +248,14 @@ class IMDBdataBase:
         self.db_name = 'IMDB_Films.db'
         self.db_path = ''
         self.update_db_path()
-        try:
-            self.movies_dir = self.cf['path'].get('movies_dir', '/media/daveg/Lib/Movies')
-        except Exception:
-            self.movies_dir = '/media/daveg/Lib/Movies'
+        screencast_dir = get_screencast_movies_dir()
+        if screencast_dir:
+            self.movies_dir = screencast_dir
+        else:
+            try:
+                self.movies_dir = self.cf['path'].get('movies_dir', '/media/daveg/Lib/Movies')
+            except Exception:
+                self.movies_dir = '/media/daveg/Lib/Movies'
         try:
             self.rclone_remote = self.cf['rclone'].get('remote', 'gdrive:Movies')
         except Exception:
@@ -287,6 +316,14 @@ class IMDBdataBase:
         self.edit_btn = tk.Button(self.edit_btn_frame, text="Edit Selection", font=('LilyUPC', 9, 'bold'), bg=light_purple,
                                   width=25, command=self.edit_selection)
         self.edit_btn.pack(side='left')
+
+        self.download_subs_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.download_subs_btn_frame.pack(side='top', fill='both')
+        self.download_subs_btn = tk.Button(self.download_subs_btn_frame, text="Download subtitles", font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                           width=25, command=self.download_subtitles_for_selection)
+        self.download_subs_btn.pack(side='left')
+        self.add_subs_btn = self.download_subs_btn
+        self.add_subtitles_btn = self.download_subs_btn
 
         self.watched_today_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.watched_today_frame.pack(side='top', fill='both')
@@ -887,6 +924,129 @@ class IMDBdataBase:
             return
 
         self.open_edit_entry_window(item)
+
+    def get_movies_dir(self):
+        """Return the active movies directory, preferring screencast config or self.movies_dir."""
+        screencast_dir = get_screencast_movies_dir()
+        if screencast_dir and os.path.isdir(screencast_dir):
+            return screencast_dir
+        if hasattr(self, 'movies_dir') and self.movies_dir:
+            return self.movies_dir
+        return '/media/daveg/Lib/Movies'
+
+    def download_subtitles_for_selection(self):
+        """Download subtitles (.en.srt) for the currently selected film."""
+        curItem = self.tree.focus()
+        if not curItem:
+            selection = self.tree.selection()
+            if selection:
+                curItem = selection[0]
+        if not curItem:
+            if self.picked and self.picked != '<search and select something above>':
+                curItem = self.picked
+        if not curItem or curItem == '<search and select something above>':
+            tk.messagebox.showinfo(title="Download Subtitles", message="choose entry to download subtitles", parent=self.root)
+            return
+
+        item = self.tree.item(curItem)
+        if not item or not item.get('values'):
+            tk.messagebox.showinfo(title="Download Subtitles", message="choose entry to download subtitles", parent=self.root)
+            return
+
+        values = item['values']
+        imdb_id_raw = values[0]
+        title = str(values[1]).strip()
+        try:
+            year = int(values[2])
+        except (ValueError, TypeError, IndexError):
+            year = None
+
+        if imdb_id_raw:
+            raw_str = str(imdb_id_raw).strip()
+            if raw_str.startswith('tt'):
+                imdb_id = raw_str
+            elif raw_str.isdigit():
+                imdb_id = f"tt{int(raw_str):07d}"
+            else:
+                imdb_id = raw_str
+        else:
+            imdb_id = None
+
+        movies_dir = self.get_movies_dir()
+
+        # Locate matching video file on disk
+        video_path = None
+        if year and year > 1800:
+            video_path = fetch_subtitles.find_movie_file_by_query(f"{title} ({year})", movies_dir)
+        if not video_path:
+            video_path = fetch_subtitles.find_movie_file_by_query(title, movies_dir)
+
+        if not video_path:
+            ans = tk.messagebox.askyesno(
+                title="Video File Not Found",
+                message=f"Could not automatically locate video file for '{title}' in:\n{movies_dir}\n\nWould you like to select the video file manually?",
+                parent=self.root
+            )
+            if ans:
+                init_dir = movies_dir if os.path.isdir(movies_dir) else os.path.expanduser("~")
+                video_path = filedialog.askopenfilename(
+                    title=f"Select video file for '{title}'",
+                    initialdir=init_dir,
+                    filetypes=[("Video files", "*.m4v *.mp4 *.mkv *.avi *.mov *.mpg *.mpeg *.ts *.m2ts *.wmv *.webm"), ("All files", "*.*")],
+                    parent=self.root
+                )
+                if not video_path:
+                    return
+            else:
+                if os.path.isdir(movies_dir):
+                    fname_base = f"{title} ({year})" if (year and year > 1800) else title
+                    fname_clean = fname_base.replace(':', '-').replace('?', '').replace('/', '-')
+                    target_srt = os.path.join(movies_dir, f"{fname_clean}.en.srt")
+                else:
+                    return
+
+        if video_path:
+            base, _ = os.path.splitext(video_path)
+            target_srt = f"{base}.en.srt"
+
+        if os.path.isfile(target_srt):
+            overwrite = tk.messagebox.askyesno(
+                title="Subtitles Exist",
+                message=f"Subtitle file already exists:\n{target_srt}\n\nDo you want to overwrite it?",
+                parent=self.root
+            )
+            if not overwrite:
+                return
+
+        def worker():
+            print(f"Downloading subtitles for '{title}' (IMDb: {imdb_id})...")
+            srt_text = fetch_subtitles.fetch_english_srt(imdb_id=imdb_id, title=title)
+            if not srt_text and year and year > 1800:
+                srt_text = fetch_subtitles.fetch_english_srt(imdb_id=imdb_id, title=f"{title} {year}")
+
+            if srt_text and len(srt_text.strip()) > 50:
+                try:
+                    os.makedirs(os.path.dirname(os.path.abspath(target_srt)), exist_ok=True)
+                    with open(target_srt, "w", encoding="utf-8") as f:
+                        f.write(srt_text)
+                    if video_path and os.path.isfile(video_path):
+                        fetch_subtitles.update_cache_for_file(video_path)
+                    lines = len(srt_text.splitlines())
+                    msg = f"Successfully downloaded English subtitles ({lines} lines) to:\n{target_srt}"
+                    print(f"[+] {msg}")
+                    self.root.after(0, lambda: tk.messagebox.showinfo(title="Subtitles Downloaded", message=msg, parent=self.root))
+                except Exception as ex:
+                    err = f"Error saving subtitle file:\n{ex}"
+                    print(f"[!] {err}")
+                    self.root.after(0, lambda: tk.messagebox.showerror(title="Save Error", message=err, parent=self.root))
+            else:
+                fail_msg = f"Could not find English subtitles online for:\n'{title}' ({year or 'N/A'})\nIMDb ID: {imdb_id or 'None'}"
+                print(f"[-] {fail_msg}")
+                self.root.after(0, lambda: tk.messagebox.showwarning(title="Subtitles Not Found", message=fail_msg, parent=self.root))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    add_subtitles_for_selection = download_subtitles_for_selection
 
     def enter_today(self):
         """Update the WATCHED date of the currently selected film to today's date"""

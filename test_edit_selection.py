@@ -1,3 +1,4 @@
+import os
 """
 Unit tests for 'Edit Selection' feature and database field synchronization in GUI_sqlite_scrape.py.
 """
@@ -219,6 +220,102 @@ class TestEditSelection(unittest.TestCase):
         with patch('GUI_sqlite_scrape.tk.messagebox.showerror') as mock_err:
             GUI_sqlite_scrape.IMDBdataBase.enter_today(self.app)
             mock_err.assert_called_once_with(title='Error', message='You should pick a film')
+
+    def test_download_subtitles_no_selection_shows_info(self):
+        """download_subtitles_for_selection without selection displays info dialog."""
+        self.app.tree.focus.return_value = ''
+        self.app.tree.selection.return_value = ()
+        self.app.picked = '<search and select something above>'
+
+        with patch('GUI_sqlite_scrape.tk.messagebox.showinfo') as mock_info:
+            GUI_sqlite_scrape.IMDBdataBase.download_subtitles_for_selection(self.app)
+            mock_info.assert_called_once()
+            self.assertEqual(mock_info.call_args[1].get('title'), 'Download Subtitles')
+
+    def test_download_subtitles_success_with_existing_video(self):
+        """download_subtitles_for_selection downloads srt and writes it alongside video file."""
+        import tempfile
+        import threading
+        self.app.tree.focus.return_value = 'I001'
+        self.app.tree.selection.return_value = ('I001',)
+        self.app.tree.item.return_value = {'values': [83946, 'Fitzcarraldo', 1982]}
+        self.app.get_movies_dir.return_value = '/dummy/movies'
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_video = os.path.join(tmpdir, "Fitzcarraldo (1982).m4v")
+            with open(dummy_video, "w") as f:
+                f.write("video content")
+
+            expected_srt = os.path.join(tmpdir, "Fitzcarraldo (1982).en.srt")
+            mock_srt_text = "1\n00:00:01,000 --> 00:00:04,000\nHello world subtitle\n\n" * 5
+
+            with patch('fetch_subtitles.find_movie_file_by_query', return_value=dummy_video) as mock_find, \
+                 patch('fetch_subtitles.fetch_english_srt', return_value=mock_srt_text) as mock_fetch, \
+                 patch('fetch_subtitles.update_cache_for_file') as mock_cache, \
+                 patch('threading.Thread') as mock_thread:
+
+                # Let the thread worker execute synchronously in test
+                mock_thread.side_effect = lambda target, daemon: MagicMock(start=target)
+
+                GUI_sqlite_scrape.IMDBdataBase.download_subtitles_for_selection(self.app)
+
+                self.assertTrue(os.path.isfile(expected_srt))
+                with open(expected_srt, "r", encoding="utf-8") as f:
+                    self.assertEqual(f.read(), mock_srt_text)
+                mock_cache.assert_called_once_with(dummy_video)
+
+    def test_download_subtitles_already_exists_declined(self):
+        """When .en.srt exists and user declines overwrite, do not overwrite or fetch."""
+        import tempfile
+        self.app.tree.focus.return_value = 'I001'
+        self.app.tree.selection.return_value = ('I001',)
+        self.app.tree.item.return_value = {'values': [83946, 'Fitzcarraldo', 1982]}
+        self.app.get_movies_dir.return_value = '/dummy/movies'
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_video = os.path.join(tmpdir, "Fitzcarraldo (1982).m4v")
+            existing_srt = os.path.join(tmpdir, "Fitzcarraldo (1982).en.srt")
+            with open(dummy_video, "w") as f: f.write("video")
+            with open(existing_srt, "w") as f: f.write("original subtitle")
+
+            with patch('fetch_subtitles.find_movie_file_by_query', return_value=dummy_video), \
+                 patch('GUI_sqlite_scrape.tk.messagebox.askyesno', return_value=False) as mock_ask, \
+                 patch('fetch_subtitles.fetch_english_srt') as mock_fetch:
+
+                GUI_sqlite_scrape.IMDBdataBase.download_subtitles_for_selection(self.app)
+                mock_ask.assert_called_once()
+                mock_fetch.assert_not_called()
+                with open(existing_srt, "r") as f:
+                    self.assertEqual(f.read(), "original subtitle")
+
+    def test_download_subtitles_not_found_online_shows_warning(self):
+        """When subtitles cannot be found online, show warning message."""
+        import tempfile
+        self.app.tree.focus.return_value = 'I001'
+        self.app.tree.selection.return_value = ('I001',)
+        self.app.tree.item.return_value = {'values': [83946, 'Unknown Movie', 1982]}
+        self.app.get_movies_dir.return_value = '/dummy/movies'
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_video = os.path.join(tmpdir, "Unknown Movie (1982).m4v")
+            with open(dummy_video, "w") as f: f.write("video")
+
+            with patch('fetch_subtitles.find_movie_file_by_query', return_value=dummy_video), \
+                 patch('fetch_subtitles.fetch_english_srt', return_value=None), \
+                 patch('threading.Thread') as mock_thread:
+
+                # Execute synchronously
+                mock_thread.side_effect = lambda target, daemon: MagicMock(start=target)
+
+                GUI_sqlite_scrape.IMDBdataBase.download_subtitles_for_selection(self.app)
+
+                # app.root.after should be called with warning lambda
+                self.app.root.after.assert_called()
+                callback = self.app.root.after.call_args[0][1]
+                with patch('GUI_sqlite_scrape.tk.messagebox.showwarning') as mock_warn:
+                    callback()
+                    mock_warn.assert_called_once()
+                    self.assertIn("Could not find English subtitles", mock_warn.call_args[1].get('message', ''))
 
 if __name__ == '__main__':
     unittest.main()
