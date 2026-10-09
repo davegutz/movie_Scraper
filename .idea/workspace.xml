@@ -6,9 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="0cae84e8-8944-4574-befa-511288ccf470" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/GUI_sqlite_scrape.py" beforeDir="false" afterPath="$PROJECT_DIR$/GUI_sqlite_scrape.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/rclone-error.log" beforeDir="false" afterPath="$PROJECT_DIR$/rclone-error.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test_edit_selection.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_edit_selection.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
