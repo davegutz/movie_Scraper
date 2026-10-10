@@ -368,10 +368,16 @@ class IMDBdataBase:
 
         self.export_web_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.export_web_frame.pack(side='top', fill='both')
-        self.export_web_btn = tk.Button(self.export_web_frame, text="Export movies.json",
+        self.export_web_btn = tk.Button(self.export_web_frame, text="Export Movies.json",
                                         font=('LilyUPC', 9, 'bold'), bg=light_purple,
-                                        width=25, command=self.export_movies_to_web)
+                                        width=20, command=self.export_movies_to_web)
         self.export_web_btn.pack(side='left')
+
+        self.export_csv_btn = tk.Button(self.export_web_frame, text="Export Movies.csv",
+                                        font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                        width=20, command=self.export_movies_to_csv)
+        self.export_csv_btn.pack(side='left', padx=(5, 0))
+        self.export_movies_csv_btn = self.export_csv_btn
 
         # Database
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
@@ -1664,6 +1670,116 @@ class IMDBdataBase:
                 txt.after(0, on_done, proc.returncode)
             except Exception as e:
                 err_msg = "\nError executing export_movies_json: " + str(e) + "\n"
+                print(err_msg, flush=True)
+                txt.after(0, append_text, err_msg)
+                txt.after(0, on_done, -1)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def export_movies_to_csv(self):
+        """Export My_Films to movies.csv in alphabetical order containing the same movie data as movies.json."""
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'export_movies_csv.py')
+        if not os.path.isfile(script_path):
+            tk.messagebox.showerror("Error", f"Could not find export script: {script_path}", parent=self.root)
+            return
+
+        cmd = [sys.executable, script_path]
+        if self.db_path and os.path.isfile(self.db_path):
+            cmd.extend(["--db", self.db_path])
+
+        win = tk.Toplevel(self.root)
+        win.title("Export Movies.csv")
+        win.geometry("750x350")
+        win.config(bg=bg_color, padx=10, pady=10)
+
+        header_frame = tk.Frame(win, bg=bg_color)
+        header_frame.pack(side='top', fill='x', pady=(0, 5))
+        status_lbl = tk.Label(
+            header_frame,
+            text="Exporting database to movies.csv...",
+            font=('David', 12, 'bold'),
+            bg=bg_color,
+            fg=blue_back_color
+        )
+        status_lbl.pack(side='left')
+
+        txt_frame = tk.Frame(win)
+        txt_frame.pack(side='top', fill='both', expand=True)
+
+        txt = scrolledtext.ScrolledText(
+            txt_frame,
+            wrap='none',
+            font=('Courier', 9),
+            bg='#1e1e1e',
+            fg='#d4d4d4',
+            insertbackground='white'
+        )
+        txt.pack(side='left', fill='both', expand=True)
+
+        txt.tag_config('red', foreground='#ff6b6b')
+        txt.tag_config('green', foreground='#1dd1a1')
+        txt.tag_config('yellow', foreground='#feca57')
+
+        h_scroll = tk.Scrollbar(win, orient='horizontal', command=txt.xview)
+        txt.configure(xscrollcommand=h_scroll.set)
+        h_scroll.pack(side='top', fill='x')
+
+        btn_frame = tk.Frame(win, bg=bg_color)
+        btn_frame.pack(side='bottom', fill='x', pady=(10, 0))
+
+        close_btn = tk.Button(
+            btn_frame,
+            text="Close",
+            font=('LilyUPC', 11, 'bold'),
+            bg=light_purple,
+            width=15,
+            command=win.destroy
+        )
+        close_btn.pack(side='right', padx=5)
+
+        def append_text(line):
+            txt.config(state='normal')
+            tag = None
+            l_low = line.lower()
+            if "error" in l_low or "fatal" in l_low or "failed" in l_low or "[!]" in line:
+                tag = 'red'
+            elif "successfully" in l_low or "[✓]" in line:
+                tag = 'green'
+            elif "warning" in l_low or "[i]" in line:
+                tag = 'yellow'
+
+            if tag:
+                txt.insert(tk.END, line, (tag,))
+            else:
+                txt.insert(tk.END, line)
+            txt.see(tk.END)
+            txt.config(state='disabled')
+
+        def on_done(ret_code):
+            if ret_code == 0:
+                status_lbl.config(text="Export to movies.csv Complete (Success)!")
+                append_text("\n[✓] movies.csv is updated in alphabetical order.\n")
+            else:
+                status_lbl.config(text=f"Export finished with exit code {ret_code}.")
+
+        def worker():
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=os.path.dirname(os.path.abspath(__file__)),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                for line in iter(proc.stdout.readline, ''):
+                    print(line, end='', flush=True)
+                    txt.after(0, append_text, line)
+                proc.stdout.close()
+                proc.wait()
+                txt.after(0, on_done, proc.returncode)
+            except Exception as e:
+                err_msg = "\nError executing export_movies_csv: " + str(e) + "\n"
                 print(err_msg, flush=True)
                 txt.after(0, append_text, err_msg)
                 txt.after(0, on_done, -1)
