@@ -304,6 +304,10 @@ class IMDBdataBase:
         self.select_display = tk.Label(self.select_label_frame, text=self.picked, fg=blue_front_color, bg=blue_back_color)
         self.select_label.pack(side='left')
         self.select_display.pack(side='left', pady=10)
+        self.clear_search_btn = tk.Button(self.select_label_frame, text="Clear Search",
+                                          font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                          width=12, command=self.clear_search)
+        self.clear_search_btn.pack(side='left', padx=10)
 
         self.del_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.del_btn_frame.pack(side='top', fill='both')
@@ -1237,6 +1241,31 @@ class IMDBdataBase:
         self.search_title_btn.config(bg='white')
         self.search_titles()
         self.search_title_btn.config(bg=light_purple)
+
+    def clear_search(self):
+        """Restore treeview to display the entire database and clear search entry fields."""
+        if hasattr(self, 'search_title_entry') and self.search_title_entry:
+            self.search_title_entry.delete(0, tk.END)
+        if hasattr(self, 'search_dirs_entry') and self.search_dirs_entry:
+            self.search_dirs_entry.delete(0, tk.END)
+        if hasattr(self, 'search_acts_entry') and self.search_acts_entry:
+            self.search_acts_entry.delete(0, tk.END)
+
+        self.fill_tree_view()
+        self.root.title(f"Features ({len(self.tree.get_children())})")
+
+        self.picked = '<search and select something above>'
+        if hasattr(self, 'select_display') and self.select_display:
+            self.select_display.config(text=self.picked)
+
+        if hasattr(self, 'poster') and self.poster:
+            try:
+                img = ImageTk.PhotoImage(Image.open("blank.png"))
+                self.poster.config(image=img)
+                self.poster.image = img
+            except Exception:
+                pass
+
 
     def sort_title(self, order):
         # Sort by title
