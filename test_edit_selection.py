@@ -317,5 +317,24 @@ class TestEditSelection(unittest.TestCase):
                     mock_warn.assert_called_once()
                     self.assertIn("Could not find English subtitles", mock_warn.call_args[1].get('message', ''))
 
+    def test_clear_search_restores_database_view_and_clears_entries(self):
+        """clear_search resets search entries, calls fill_tree_view, and resets selection display."""
+        import tkinter as tk
+        self.app.search_title_entry = MagicMock()
+        self.app.search_dirs_entry = MagicMock()
+        self.app.search_acts_entry = MagicMock()
+        self.app.tree.get_children.return_value = ['item1', 'item2', 'item3']
+        self.app.poster = MagicMock()
+
+        GUI_sqlite_scrape.IMDBdataBase.clear_search(self.app)
+
+        self.app.search_title_entry.delete.assert_called_once_with(0, tk.END)
+        self.app.search_dirs_entry.delete.assert_called_once_with(0, tk.END)
+        self.app.search_acts_entry.delete.assert_called_once_with(0, tk.END)
+        self.app.fill_tree_view.assert_called_once()
+        self.app.root.title.assert_called_with("Features (3)")
+        self.assertEqual(self.app.picked, '<search and select something above>')
+        self.app.select_display.config.assert_called_with(text='<search and select something above>')
+
 if __name__ == '__main__':
     unittest.main()

@@ -46,14 +46,15 @@ class TestExportMoviesCSV(unittest.TestCase):
                 ADDED text
             )
         """)
-        # Insert out of alphabetical order
+        # Insert out of alphabetical order, including titles with leading articles
         cur.executemany("""
             INSERT INTO My_Films (IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, DVD, runtime, certification)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, [
-            (2, "Zodiac", 2007, 7.7, 8.5, "David Fincher", "Jake Gyllenhaal", "Crime, Drama", "A cartoonist tracks a killer", "http://cover2", 1, "157", "R"),
-            (1, "Alien", 1979, 8.5, 9.0, "Ridley Scott", "Sigourney Weaver", "Horror, Sci-Fi", "In space no one can hear you scream", "http://cover1", 1, "117", "R"),
-            (3, "Casablanca", 1942, 8.5, 8.5, "Michael Curtiz", "Humphrey Bogart", "Drama, Romance", "Here's looking at you kid", "http://cover3", 0, "102", "PG"),
+            (2, "The Godfather", 1972, 9.2, 9.5, "Francis Ford Coppola", "Marlon Brando", "Crime, Drama", "The aging patriarch...", "http://cover2", 1, "175", "R"),
+            (1, "Alien", 1979, 8.5, 9.0, "Ridley Scott", "Sigourney Weaver", "Horror, Sci-Fi", "In space...", "http://cover1", 1, "117", "R"),
+            (3, "A Beautiful Mind", 2001, 8.2, 8.5, "Ron Howard", "Russell Crowe", "Biography, Drama", "Mathematical genius...", "http://cover3", 0, "135", "PG-13"),
+            (4, "Casablanca", 1942, 8.5, 8.5, "Michael Curtiz", "Humphrey Bogart", "Drama, Romance", "Here's looking at you kid", "http://cover4", 0, "102", "PG"),
         ])
         conn.commit()
         conn.close()
@@ -61,27 +62,40 @@ class TestExportMoviesCSV(unittest.TestCase):
     def tearDown(self):
         self.tmp_dir.cleanup()
 
-    def test_export_csv_alphabetical_order(self):
-        """Verify export_csv outputs in alphabetical order by title."""
+    def test_move_article_to_end(self):
+        """Verify move_article_to_end converts leading articles correctly."""
+        self.assertEqual(export_movies_csv.move_article_to_end("The Godfather"), "Godfather, The")
+        self.assertEqual(export_movies_csv.move_article_to_end("A Beautiful Mind"), "Beautiful Mind, A")
+        self.assertEqual(export_movies_csv.move_article_to_end("An American in Paris"), "American in Paris, An")
+        self.assertEqual(export_movies_csv.move_article_to_end("Le Mans"), "Mans, Le")
+        self.assertEqual(export_movies_csv.move_article_to_end("L'Avventura"), "Avventura, L'")
+        self.assertEqual(export_movies_csv.move_article_to_end("Alien"), "Alien")
+        self.assertEqual(export_movies_csv.move_article_to_end(""), "")
+        self.assertEqual(export_movies_csv.move_article_to_end(None), "")
+
+    def test_export_csv_movie_collection_format_and_alphabetical_order(self):
+        """Verify export_csv outputs in movie collection format and alphabetized by formatted title."""
         count, out_file = export_movies_csv.export_csv(db_path=self.db_path, output_path=self.csv_path)
-        self.assertEqual(count, 3)
+        self.assertEqual(count, 4)
         self.assertTrue(os.path.isfile(out_file))
 
         with open(out_file, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
-        self.assertEqual(len(rows), 3)
-        # Verify alphabetical order: Alien, Casablanca, Zodiac
+        self.assertEqual(len(rows), 4)
+        # Alphabetical order: Alien -> Beautiful Mind, A -> Casablanca -> Godfather, The
         self.assertEqual(rows[0]["title"], "Alien")
         self.assertEqual(rows[0]["year"], "1979")
-        self.assertEqual(rows[0]["director"], "Ridley Scott")
 
-        self.assertEqual(rows[1]["title"], "Casablanca")
-        self.assertEqual(rows[1]["year"], "1942")
+        self.assertEqual(rows[1]["title"], "Beautiful Mind, A")
+        self.assertEqual(rows[1]["year"], "2001")
 
-        self.assertEqual(rows[2]["title"], "Zodiac")
-        self.assertEqual(rows[2]["year"], "2007")
+        self.assertEqual(rows[2]["title"], "Casablanca")
+        self.assertEqual(rows[2]["year"], "1942")
+
+        self.assertEqual(rows[3]["title"], "Godfather, The")
+        self.assertEqual(rows[3]["year"], "1972")
 
     def test_export_csv_columns_match_json_structure(self):
         """Verify CSV columns match the fields exported in JSON."""
