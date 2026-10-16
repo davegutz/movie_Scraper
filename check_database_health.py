@@ -1509,9 +1509,9 @@ def main(*raw_args):
 
     # Apply DVD filter if requested
     if args.dvd_filter == 'dvd_only':
-        db_movies = [m for m in db_movies if str(m['dvd']) in ('1', '4', '1, 4')]
+        db_movies = [m for m in db_movies if str(m['dvd']) in ('1', '2', '3', '4', '1, 4')]
     elif args.dvd_filter == 'non_dvd':
-        db_movies = [m for m in db_movies if str(m['dvd']) == '0']
+        db_movies = [m for m in db_movies if str(m['dvd']) in ('0', '-2')]
 
     if not args.quiet:
         status_msg(f"Loaded {len(db_movies):,} movie record(s) from database.", advance=True)

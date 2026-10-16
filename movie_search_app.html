@@ -366,8 +366,11 @@
       </select>
 
       <select id="dvdFilter" class="filter-select">
-        <option value="all">DVD: All</option>
-        <option value="dvd_only">DVD: Owned Only</option>
+        <option value="all">Format: All</option>
+        <option value="owned_only">Owned: Any (DVD / Screencast)</option>
+        <option value="dvd_only">DVD Only (1)</option>
+        <option value="screencast_only">Screencast Only (2)</option>
+        <option value="both_only">Both DVD & Screencast (3)</option>
       </select>
 
       <select id="genreFilter" class="filter-select">
@@ -475,8 +478,15 @@
       clearBtn.style.display = query ? 'block' : 'none';
 
       let filtered = allMovies.filter(m => {
-        // DVD Filter
-        if (dvdVal === 'dvd_only' && !(m.dvd === 1 || m.dvd === 4 || m.dvd === '1' || m.dvd === '4')) {
+        // Format / DVD Filter
+        const dVal = Number(m.dvd);
+        if (dvdVal === 'owned_only' && !(dVal === 1 || dVal === 2 || dVal === 3 || dVal === 4)) {
+          return false;
+        } else if (dvdVal === 'dvd_only' && dVal !== 1) {
+          return false;
+        } else if (dvdVal === 'screencast_only' && dVal !== 2 && dVal !== 4) {
+          return false;
+        } else if (dvdVal === 'both_only' && dVal !== 3) {
           return false;
         }
 
@@ -540,7 +550,15 @@
         const year = m.year ? `<span class="year">(${m.year})</span>` : '';
         const imdb = m.rating ? `<span class="rating-badge imdb-badge">★ ${m.rating}</span>` : '';
         const myRate = m.my_rating ? `<span class="rating-badge my-badge">♥ ${m.my_rating}</span>` : '';
-        const dvd = (m.dvd === 1 || m.dvd === 4 || m.dvd === '1' || m.dvd === '4') ? `<span class="rating-badge dvd-badge">DVD</span>` : '';
+        let dvd = '';
+        const badgeVal = Number(m.dvd);
+        if (badgeVal === 3) {
+          dvd = `<span class="rating-badge dvd-badge" title="Both DVD and Screencast (11 = 3)">DVD + Screencast</span>`;
+        } else if (badgeVal === 2 || badgeVal === 4) {
+          dvd = `<span class="rating-badge dvd-badge" title="Screencast recording (10 = 2)">Screencast</span>`;
+        } else if (badgeVal === 1) {
+          dvd = `<span class="rating-badge dvd-badge" title="Physical DVD owned (01 = 1)">DVD</span>`;
+        }
         const director = m.director ? `<div class="meta-line"><strong>Dir:</strong> ${m.director}</div>` : '';
         const actors = m.actors ? `<div class="meta-line"><strong>Cast:</strong> ${m.actors}</div>` : '';
         

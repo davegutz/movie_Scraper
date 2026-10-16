@@ -555,7 +555,7 @@ class IMDBdataBase:
                         tk.messagebox.showerror(title="Error", message="The selected film is already in the list")
                         return
                     added_in = str(datetime.today().strftime('%Y-%m-%d'))
-                    new_movie = Feature(id_film, have_dvd=4, added=added_in)  # 4=screencast copy
+                    new_movie = Feature(id_film, have_dvd=2, added=added_in)  # 2=screencast copy (bit 1: 10)
                     print(f"new_movie: '{new_movie.title}' ({new_movie.year})")
                 except KeyError:
                     print(f"{film=} {year=}")
