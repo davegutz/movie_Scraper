@@ -248,24 +248,66 @@ class IMDBdataBase:
         self.db_name = 'IMDB_Films.db'
         self.db_path = ''
         self.update_db_path()
-        screencast_dir = get_screencast_movies_dir()
-        if screencast_dir:
-            self.movies_dir = screencast_dir
-        else:
+        # Lib folder & Movies / Music dirs
+        try:
+            self.lib_folder = self.cf['path'].get('lib_folder', None)
+        except Exception:
+            self.lib_folder = None
+
+        if not self.lib_folder:
+            screencast_dir = get_screencast_movies_dir()
+            if screencast_dir and os.path.exists(screencast_dir):
+                self.lib_folder = os.path.dirname(os.path.abspath(screencast_dir))
+            elif os.path.exists('/media/daveg/Lib'):
+                self.lib_folder = '/media/daveg/Lib'
+            else:
+                try:
+                    cand = self.cf['path'].get('movies_dir', '/media/daveg/Lib')
+                    if os.path.basename(cand) in ('Movies', 'Music', 'TV Shows', 'Videos'):
+                        self.lib_folder = os.path.dirname(cand)
+                    else:
+                        self.lib_folder = cand
+                except Exception:
+                    self.lib_folder = '/media/daveg/Lib'
+
             try:
-                self.movies_dir = self.cf['path'].get('movies_dir', '/media/daveg/Lib/Movies')
+                if hasattr(self.cf, 'put_item'):
+                    self.cf.put_item('path', 'lib_folder', self.lib_folder)
+                elif isinstance(self.cf, dict) and 'path' in self.cf:
+                    self.cf['path']['lib_folder'] = self.lib_folder
             except Exception:
-                self.movies_dir = '/media/daveg/Lib/Movies'
+                pass
+
+        self.movies_dir = os.path.join(self.lib_folder, 'Movies')
+        self.music_dir = os.path.join(self.lib_folder, 'Music')
+        self.tv_shows_dir = os.path.join(self.lib_folder, 'TV Shows')
+        self.videos_dir = os.path.join(self.lib_folder, 'Videos')
+
         try:
             self.rclone_remote = self.cf['rclone'].get('remote', 'gdrive:Movies')
         except Exception:
             self.rclone_remote = 'gdrive:Movies'
+        try:
+            self.rclone_music_remote = self.cf['rclone'].get('remote_music', 'gdrive:Music')
+        except Exception:
+            self.rclone_music_remote = 'gdrive:Music'
+        try:
+            self.rclone_tv_shows_remote = self.cf['rclone'].get('remote_tv_shows', 'gdrive:TV Shows')
+        except Exception:
+            self.rclone_tv_shows_remote = 'gdrive:TV Shows'
+        try:
+            self.rclone_videos_remote = self.cf['rclone'].get('remote_videos', 'gdrive:Videos')
+        except Exception:
+            self.rclone_videos_remote = 'gdrive:Videos'
         self.rclone_tpslimit = '8'
         self.rclone_transfers = '2'
         self.rclone_checkers = '4'
         self.rclone_chunk_size = '512M'
         self.rclone_stats = '5s'
         self.rclone_log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-error.log')
+        self.rclone_music_log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-music-error.log')
+        self.rclone_tv_shows_log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-tv-shows-error.log')
+        self.rclone_videos_log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-videos-error.log')
         self.year = datetime.now().year
         self.search_entry = None
         self.selected_id = []
@@ -349,12 +391,41 @@ class IMDBdataBase:
         slash.pack(side="left", fill='x')
         self.title_butt.pack(side="left", fill='x')
 
+        self.lib_loc_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.lib_loc_frame.pack(side='top', fill='both')
+        self.lib_working_label = tk.Label(self.lib_loc_frame, text="Lib location =", bg=bg_color)
+        self.destination_lib_butt = myButton(self.lib_loc_frame, text=self.lib_folder,
+                                             command=self.enter_lib_folder, fg="blue", bg=bg_color)
+        self.lib_working_label.pack(side="left", fill='x')
+        self.destination_lib_butt.pack(side="left", fill='x')
+        self.lib_loc_butt = self.destination_lib_butt
+
         self.backup_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.backup_btn_frame.pack(side='top', fill='both', pady=(20, 0))
         self.backup_btn = tk.Button(self.backup_btn_frame, text="G-Drive rclone sync",
                                     font=('LilyUPC', 9, 'bold'), bg=light_purple,
-                                    width=25, command=self.google_drive_backup)
+                                    width=20, command=self.google_drive_backup)
         self.backup_btn.pack(side='left')
+
+        self.backup_music_btn = tk.Button(self.backup_btn_frame, text="G-Drive rclone sync music",
+                                          font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                          width=22, command=self.google_drive_backup_music)
+        self.backup_music_btn.pack(side='left', padx=(5, 0))
+        self.sync_music_btn = self.backup_music_btn
+
+        self.sync_media_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.sync_media_btn_frame.pack(side='top', fill='both')
+        self.backup_tv_shows_btn = tk.Button(self.sync_media_btn_frame, text="Sync TV Shows",
+                                             font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                             width=20, command=self.google_drive_backup_tv_shows)
+        self.backup_tv_shows_btn.pack(side='left')
+        self.sync_tv_shows_btn = self.backup_tv_shows_btn
+
+        self.backup_videos_btn = tk.Button(self.sync_media_btn_frame, text="Sync Videos",
+                                           font=('LilyUPC', 9, 'bold'), bg=light_purple,
+                                           width=22, command=self.google_drive_backup_videos)
+        self.backup_videos_btn.pack(side='left', padx=(5, 0))
+        self.sync_videos_btn = self.backup_videos_btn
 
         self.check_db_health_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.check_db_health_frame.pack(side='top', fill='both')
@@ -1103,6 +1174,22 @@ class IMDBdataBase:
         self.update_db_path()
         self.db_tree_init()
 
+    def enter_lib_folder(self):
+        """Change to a different library root folder"""
+        folder = filedialog.askdirectory(title='Choose a Library root folder', initialdir=self.lib_folder)
+        if folder:
+            self.lib_folder = folder
+            if hasattr(self.cf, 'put_item'):
+                self.cf.put_item('path', 'lib_folder', self.lib_folder)
+            elif isinstance(self.cf, dict) and 'path' in self.cf:
+                self.cf['path']['lib_folder'] = self.lib_folder
+            if hasattr(self, 'destination_lib_butt') and hasattr(self.destination_lib_butt, 'config'):
+                self.destination_lib_butt.config(text=self.lib_folder)
+            self.movies_dir = os.path.join(self.lib_folder, 'Movies')
+            self.music_dir = os.path.join(self.lib_folder, 'Music')
+            self.tv_shows_dir = os.path.join(self.lib_folder, 'TV Shows')
+            self.videos_dir = os.path.join(self.lib_folder, 'Videos')
+
     @staticmethod
     def fetch_image_from_url(url, timeout=5):
         """Fetch image bytes from URL with User-Agent header, returning PIL Image or None on error."""
@@ -1815,51 +1902,46 @@ class IMDBdataBase:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def google_drive_backup(self):
-        """Run rclone sync (INSTALL_Google_Drive_Backup.md lines 44-50) in background and open a monitor window (line 52)."""
-        movies_src = self.movies_dir if self.movies_dir.endswith('/') else f"{self.movies_dir}/"
-        rclone_cmd = [
-            "rclone", "sync",
-            movies_src,
-            self.rclone_remote,
-            "--tpslimit", str(self.rclone_tpslimit),
-            "--transfers", str(self.rclone_transfers),
-            "--checkers", str(self.rclone_checkers),
-            "--drive-chunk-size", str(self.rclone_chunk_size),
-            "--stats", str(self.rclone_stats),
+    def _run_rclone_bidirectional_sync(self, local_path, remote_path, log_file, title_name, win_title):
+        """Run safe two-way rclone copy in background and open a monitor window (tail -f log_file).
+
+        Pass 1: Download from Google Drive (remote -> local) with --update (skips newer local files).
+        Pass 2: Upload to Google Drive (local -> remote) with --update (skips newer remote files).
+        No files are ever deleted at either end.
+        """
+        local_dir = local_path if local_path.endswith('/') else f"{local_path}/"
+        common_flags = [
+            "--update",
+            "--tpslimit", str(getattr(self, 'rclone_tpslimit', '8')),
+            "--transfers", str(getattr(self, 'rclone_transfers', '2')),
+            "--checkers", str(getattr(self, 'rclone_checkers', '4')),
+            "--drive-chunk-size", str(getattr(self, 'rclone_chunk_size', '512M')),
+            "--stats", str(getattr(self, 'rclone_stats', '5s')),
             "-vv",
-            "--log-file", self.rclone_log_file,
+            "--log-file", log_file,
         ]
 
+        cmd_download = ["rclone", "copy", remote_path, local_dir] + common_flags
+        cmd_upload = ["rclone", "copy", local_dir, remote_path] + common_flags
+
         # Ensure directory for log file exists
-        log_dir = os.path.dirname(os.path.abspath(self.rclone_log_file))
+        log_dir = os.path.dirname(os.path.abspath(log_file))
         if log_dir and not os.path.exists(log_dir):
             os.makedirs(log_dir, exist_ok=True)
 
         # Clear or initialize log file
         try:
-            with open(self.rclone_log_file, 'w', encoding='utf-8') as f:
-                f.write(f"=== Google Drive Backup Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
-                f.write(f"Command: {' '.join(rclone_cmd)}\n\n")
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write(f"=== {title_name} (Two-Way Safe Sync) Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+                f.write(f"Local Folder:  {local_dir}\n")
+                f.write(f"Remote Folder: {remote_path}\n")
+                f.write("Mode: Bidirectional safe copy (--update, never deletes files)\n\n")
         except Exception as e:
             print(f"Warning: could not initialize log file: {e}")
 
-        # Start rclone sync in background (hidden process)
-        try:
-            backup_proc = subprocess.Popen(
-                rclone_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-                close_fds=True
-            )
-        except Exception as e:
-            tk.messagebox.showerror("Error", f"Failed to start rclone backup: {e}", parent=self.root)
-            return
-
-        # Open monitor window for tail -f rclone-error.log
+        # Open monitor window for tail -f log_file
         win = tk.Toplevel(self.root)
-        win.title("Google Drive Backup Monitor (tail -f rclone-error.log)")
+        win.title(win_title)
         win.geometry("1100x600")
         win.config(bg=bg_color, padx=10, pady=10)
 
@@ -1867,7 +1949,7 @@ class IMDBdataBase:
         header_frame.pack(side='top', fill='x', pady=(0, 5))
         status_lbl = tk.Label(
             header_frame,
-            text=f"Syncing: {movies_src} -> {self.rclone_remote} (PID: {backup_proc.pid})...",
+            text=f"Initializing Two-Way Sync: {local_dir} <-> {remote_path}...",
             font=('David', 12, 'bold'),
             bg=bg_color,
             fg=blue_back_color
@@ -1902,7 +1984,7 @@ class IMDBdataBase:
 
         stop_btn = tk.Button(
             btn_frame,
-            text="Stop Backup",
+            text="Stop Sync",
             font=('LilyUPC', 11, 'bold'),
             bg='#e74c3c',
             fg='white',
@@ -1921,13 +2003,21 @@ class IMDBdataBase:
         close_btn.pack(side='right', padx=5)
 
         stop_tail_event = threading.Event()
+        runner_state = {
+            'proc': None,
+            'stopped': False,
+            'done': False,
+            'exit_code': 0,
+        }
 
         def on_stop():
-            if backup_proc.poll() is None:
-                if tk.messagebox.askyesno("Confirm Stop", "Are you sure you want to stop the Google Drive Backup process?", parent=win):
-                    backup_proc.terminate()
+            if not runner_state['done']:
+                if tk.messagebox.askyesno("Confirm Stop", f"Are you sure you want to stop the {title_name} process?", parent=win):
+                    runner_state['stopped'] = True
+                    if runner_state['proc'] and runner_state['proc'].poll() is None:
+                        runner_state['proc'].terminate()
                     stop_btn.config(state='disabled')
-                    status_lbl.config(text="Backup stopped by user.")
+                    status_lbl.config(text=f"{title_name} stopped by user.")
 
         stop_btn.config(command=on_stop)
 
@@ -1961,27 +2051,75 @@ class IMDBdataBase:
 
         def on_done(ret_code):
             stop_btn.config(state='disabled')
-            if ret_code == 0:
-                status_lbl.config(text="Google Drive Backup Complete successfully.")
+            if runner_state['stopped']:
+                status_lbl.config(text=f"{title_name} stopped by user.")
+            elif ret_code == 0:
+                status_lbl.config(text=f"{title_name} Complete successfully (2-way synced, no deletions).")
             elif ret_code in (-15, 15, 1):
-                status_lbl.config(text=f"Google Drive Backup stopped/ended with status {ret_code}.")
+                status_lbl.config(text=f"{title_name} stopped/ended with status {ret_code}.")
             else:
-                status_lbl.config(text=f"Google Drive Backup finished with exit code {ret_code}.")
+                status_lbl.config(text=f"{title_name} finished with exit code {ret_code}.")
+
+        def runner_worker():
+            passes = [
+                ("Pass 1/2: Download (Remote -> Local)", cmd_download),
+                ("Pass 2/2: Upload (Local -> Remote)", cmd_upload),
+            ]
+            last_ret = 0
+            for pass_title, cmd in passes:
+                if runner_state['stopped'] or stop_tail_event.is_set():
+                    break
+                try:
+                    with open(log_file, 'a', encoding='utf-8') as f:
+                        f.write(f"\n=== {pass_title} ===\nCommand: {' '.join(cmd)}\n\n")
+                except Exception:
+                    pass
+
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        stdin=subprocess.DEVNULL,
+                        close_fds=True
+                    )
+                    runner_state['proc'] = proc
+                    status_lbl.after(0, lambda pt=pass_title, pid=proc.pid: status_lbl.config(
+                        text=f"Syncing: {pt} (PID: {pid})..."
+                    ))
+                    proc.wait()
+                    last_ret = proc.returncode
+                    if last_ret != 0:
+                        break
+                except Exception as ex:
+                    try:
+                        with open(log_file, 'a', encoding='utf-8') as f:
+                            f.write(f"\n[Error executing {pass_title}]: {ex}\n")
+                    except Exception:
+                        pass
+                    last_ret = -1
+                    break
+
+            runner_state['done'] = True
+            txt.after(0, lambda: on_done(last_ret))
+
+        win.runner_thread = threading.Thread(target=runner_worker, daemon=True)
+        win.runner_thread.start()
 
         def tail_worker():
             time_waited = 0.0
-            while not os.path.exists(self.rclone_log_file) and not stop_tail_event.is_set() and time_waited < 10.0:
+            while not os.path.exists(log_file) and not stop_tail_event.is_set() and time_waited < 10.0:
                 sleep(0.2)
                 time_waited += 0.2
 
             try:
-                with open(self.rclone_log_file, 'r', encoding='utf-8', errors='replace') as f:
+                with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
                     while not stop_tail_event.is_set():
                         line = f.readline()
                         if line:
                             txt.after(0, append_text, line)
                         else:
-                            if backup_proc.poll() is not None:
+                            if runner_state['done']:
                                 for rem_line in f:
                                     txt.after(0, append_text, rem_line)
                                 break
@@ -1989,11 +2127,93 @@ class IMDBdataBase:
             except Exception as ex:
                 txt.after(0, append_text, f"\n[Log Monitor Error]: {ex}\n")
 
-            ret = backup_proc.poll()
-            if ret is not None:
-                txt.after(0, on_done, ret)
-
         threading.Thread(target=tail_worker, daemon=True).start()
+        return win
+
+    def _run_rclone_sync(self, src_path, remote_dest, log_file, title_name, win_title):
+        """Compatibility wrapper that maps to safe two-way rclone copy."""
+        if ':' in src_path and ':' not in remote_dest:
+            remote_path, local_path = src_path, remote_dest
+        elif ':' in remote_dest and ':' not in src_path:
+            local_path, remote_path = src_path, remote_dest
+        else:
+            if os.path.exists(src_path):
+                local_path, remote_path = src_path, remote_dest
+            else:
+                remote_path, local_path = src_path, remote_dest
+        return self._run_rclone_bidirectional_sync(local_path, remote_path, log_file, title_name, win_title)
+
+    def google_drive_backup(self):
+        """Run safe two-way rclone copy between Movies local library and Google Drive."""
+        movies_dir = getattr(self, 'movies_dir', None)
+        if not movies_dir:
+            lib_dir = getattr(self, 'lib_folder', '/media/daveg/Lib')
+            movies_dir = os.path.join(lib_dir, 'Movies')
+        movies_dest = movies_dir if movies_dir.endswith('/') else f"{movies_dir}/"
+        remote = getattr(self, 'rclone_remote', 'gdrive:Movies')
+        log_file = getattr(self, 'rclone_log_file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-error.log'))
+        return IMDBdataBase._run_rclone_bidirectional_sync(
+            self,
+            local_path=movies_dest,
+            remote_path=remote,
+            log_file=log_file,
+            title_name="Google Drive Movies Sync",
+            win_title="Google Drive Movies Backup Monitor (tail -f rclone-error.log)",
+        )
+
+    def google_drive_backup_music(self):
+        """Run safe two-way rclone copy between Music local library and Google Drive."""
+        music_dir = getattr(self, 'music_dir', None)
+        if not music_dir:
+            lib_dir = getattr(self, 'lib_folder', '/media/daveg/Lib')
+            music_dir = os.path.join(lib_dir, 'Music')
+        music_dest = music_dir if music_dir.endswith('/') else f"{music_dir}/"
+        remote = getattr(self, 'rclone_music_remote', 'gdrive:Music')
+        log_file = getattr(self, 'rclone_music_log_file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-music-error.log'))
+        return IMDBdataBase._run_rclone_bidirectional_sync(
+            self,
+            local_path=music_dest,
+            remote_path=remote,
+            log_file=log_file,
+            title_name="Google Drive Music Sync",
+            win_title="Google Drive Music Backup Monitor (tail -f rclone-music-error.log)",
+        )
+
+    def google_drive_backup_tv_shows(self):
+        """Run safe two-way rclone copy between TV Shows local library and Google Drive."""
+        tv_shows_dir = getattr(self, 'tv_shows_dir', None)
+        if not tv_shows_dir:
+            lib_dir = getattr(self, 'lib_folder', '/media/daveg/Lib')
+            tv_shows_dir = os.path.join(lib_dir, 'TV Shows')
+        tv_shows_dest = tv_shows_dir if tv_shows_dir.endswith('/') else f"{tv_shows_dir}/"
+        remote = getattr(self, 'rclone_tv_shows_remote', 'gdrive:TV Shows')
+        log_file = getattr(self, 'rclone_tv_shows_log_file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-tv-shows-error.log'))
+        return IMDBdataBase._run_rclone_bidirectional_sync(
+            self,
+            local_path=tv_shows_dest,
+            remote_path=remote,
+            log_file=log_file,
+            title_name="Google Drive TV Shows Sync",
+            win_title="Google Drive TV Shows Backup Monitor (tail -f rclone-tv-shows-error.log)",
+        )
+
+    def google_drive_backup_videos(self):
+        """Run safe two-way rclone copy between Videos local library and Google Drive."""
+        videos_dir = getattr(self, 'videos_dir', None)
+        if not videos_dir:
+            lib_dir = getattr(self, 'lib_folder', '/media/daveg/Lib')
+            videos_dir = os.path.join(lib_dir, 'Videos')
+        videos_dest = videos_dir if videos_dir.endswith('/') else f"{videos_dir}/"
+        remote = getattr(self, 'rclone_videos_remote', 'gdrive:Videos')
+        log_file = getattr(self, 'rclone_videos_log_file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-videos-error.log'))
+        return IMDBdataBase._run_rclone_bidirectional_sync(
+            self,
+            local_path=videos_dest,
+            remote_path=remote,
+            log_file=log_file,
+            title_name="Google Drive Videos Sync",
+            win_title="Google Drive Videos Backup Monitor (tail -f rclone-videos-error.log)",
+        )
 
     def check_git_newer_version(self, verbose=False):
         """Check if a newer version of movie_Scraper or the database exists in git repository."""
@@ -2195,14 +2415,14 @@ if __name__ == "__main__":
 
     # Configuration for entire folder selection read with filepaths
     if sys.platform == 'linux':
-        default_dict = {'path': {"db_folder": '/home/daveg/Documents/GitHub/myComputer', "db_name": 'myMovies.db', "movies_dir": '/media/daveg/Lib/Movies'},
-                        'rclone': {"remote": 'gdrive:Movies'}}
+        default_dict = {'path': {"db_folder": '/home/daveg/Documents/GitHub/myComputer', "db_name": 'myMovies.db', "lib_folder": '/media/daveg/Lib', "movies_dir": '/media/daveg/Lib/Movies'},
+                        'rclone': {"remote": 'gdrive:Movies', "remote_music": 'gdrive:Music', "remote_tv_shows": 'gdrive:TV Shows', "remote_videos": 'gdrive:Videos'}}
     elif sys.platform == 'darwin':
-        default_dict = {'path': {"db_folder": '/Users/daveg/Library/CloudStorage/GoogleDrive-davegutz2006@gmail.com/My Drive/Movies Stuff', "db_name": 'myMovies.db', "movies_dir": '/media/daveg/Lib/Movies'},
-                        'rclone': {"remote": 'gdrive:Movies'}}
+        default_dict = {'path': {"db_folder": '/Users/daveg/Library/CloudStorage/GoogleDrive-davegutz2006@gmail.com/My Drive/Movies Stuff', "db_name": 'myMovies.db', "lib_folder": '/Users/daveg/Library/CloudStorage/GoogleDrive-davegutz2006@gmail.com/My Drive', "movies_dir": '/media/daveg/Lib/Movies'},
+                        'rclone': {"remote": 'gdrive:Movies', "remote_music": 'gdrive:Music', "remote_tv_shows": 'gdrive:TV Shows', "remote_videos": 'gdrive:Videos'}}
     else:
-        default_dict = {'path': {"db_folder": 'G:/My Drive/Movies Stuff', "db_name": 'myMovies.db', "movies_dir": 'G:/Movies'},
-                        'rclone': {"remote": 'gdrive:Movies'}}
+        default_dict = {'path': {"db_folder": 'G:/My Drive/Movies Stuff', "db_name": 'myMovies.db', "lib_folder": 'G:/', "movies_dir": 'G:/Movies'},
+                        'rclone': {"remote": 'gdrive:Movies', "remote_music": 'gdrive:Music', "remote_tv_shows": 'gdrive:TV Shows', "remote_videos": 'gdrive:Videos'}}
 
     cf = Begini(__file__, default_dict)
     imdb = IMDBdataBase(cf_=cf)

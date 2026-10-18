@@ -5,8 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0cae84e8-8944-4574-befa-511288ccf470" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/GUI_sqlite_scrape.py" beforeDir="false" afterPath="$PROJECT_DIR$/GUI_sqlite_scrape.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/rclone-error.log" beforeDir="false" afterPath="$PROJECT_DIR$/rclone-error.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resample_library.py" beforeDir="false" afterPath="$PROJECT_DIR$/resample_library.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/test_gdrive_backup.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_gdrive_backup.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -22,23 +26,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.4774087202779094" />
-      <entry key="MS500" value="3.849429512247821" />
-      <entry key="S2" value="6.550573170992351" />
-      <entry key="S5" value="14.168472781675304" />
-      <entry key="S10" value="29.45969865619971" />
-      <entry key="S30" value="62.799250388350806" />
-      <entry key="S60" value="79.25651383886324" />
-      <entry key="M2" value="89.68919815665008" />
-      <entry key="M5" value="97.98628008290918" />
-      <entry key="M10" value="110.19413627564919" />
-      <entry key="M15" value="123.0243763718282" />
-      <entry key="M30" value="149.08724879869587" />
-      <entry key="H1" value="171.1637844570222" />
-      <entry key="H2" value="185.62520875517112" />
-      <entry key="H4" value="194.04480866689616" />
-      <entry key="D1" value="392.9300942733476" />
-      <entry key="W1" value="3633.219469275214" />
+      <entry key="MS100" value="1.0" />
+      <entry key="MS500" value="1.0" />
+      <entry key="S2" value="1.0" />
+      <entry key="S5" value="1.0" />
+      <entry key="S10" value="1.0" />
+      <entry key="S30" value="1.0" />
+      <entry key="S60" value="1.0" />
+      <entry key="M2" value="1.0" />
+      <entry key="M5" value="1.0" />
+      <entry key="M10" value="1.0000000079064388" />
+      <entry key="M15" value="1.000012395307731" />
+      <entry key="M30" value="1.0233395496877666" />
+      <entry key="H1" value="2.71164155994438" />
+      <entry key="H2" value="33.75134145950244" />
+      <entry key="H4" value="211.0297252441474" />
+      <entry key="D1" value="1273.2425727866696" />
+      <entry key="W1" value="4787.1171980156805" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -60,23 +64,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.4444281800459993" />
-      <entry key="MS500" value="3.8307786438122298" />
-      <entry key="S2" value="6.542537705996029" />
-      <entry key="S5" value="14.161398972489224" />
-      <entry key="S10" value="29.45208608226846" />
-      <entry key="S30" value="62.793619609263395" />
-      <entry key="S60" value="79.25291662137602" />
-      <entry key="M2" value="89.68714963088544" />
-      <entry key="M5" value="97.98537985204909" />
-      <entry key="M10" value="110.19362326553639" />
-      <entry key="M15" value="123.023989741987" />
-      <entry key="M30" value="149.08700999970134" />
-      <entry key="H1" value="171.16364576133086" />
-      <entry key="H2" value="185.62513308289286" />
-      <entry key="H4" value="194.0447689775052" />
-      <entry key="D1" value="392.9300798875369" />
-      <entry key="W1" value="3633.2194495693325" />
+      <entry key="MS100" value="0.21464135910943843" />
+      <entry key="MS500" value="0.7350936681945205" />
+      <entry key="S2" value="0.925946022527324" />
+      <entry key="S5" value="0.9696930170746177" />
+      <entry key="S10" value="0.9847299208791301" />
+      <entry key="S30" value="0.9948838432045924" />
+      <entry key="S60" value="0.9974386413231605" />
+      <entry key="M2" value="0.9987184995398656" />
+      <entry key="M5" value="0.9994872026119321" />
+      <entry key="M10" value="0.9997435763336686" />
+      <entry key="M15" value="0.9998414334549042" />
+      <entry key="M30" value="1.0232539291942067" />
+      <entry key="H1" value="2.711595333511351" />
+      <entry key="H2" value="33.75129952897716" />
+      <entry key="H4" value="211.02966210961478" />
+      <entry key="D1" value="1273.24252348197" />
+      <entry key="W1" value="4787.117171983874" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -88,49 +92,49 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;KEY_CHAT_IN_TOOLWINDOW&quot;: &quot;false&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;Python.GUI_sqlite_scrape.executor&quot;: &quot;Run&quot;,
-    &quot;Python.check_database_health.executor&quot;: &quot;Run&quot;,
-    &quot;Python.checks_subtitles_vision.executor&quot;: &quot;Run&quot;,
-    &quot;Python.find_missing_videos.executor&quot;: &quot;Run&quot;,
-    &quot;Python.install.executor&quot;: &quot;Run&quot;,
-    &quot;Python.resample_library.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;ai.playground.ignore.import.keys.banner.in.settings&quot;: &quot;true&quot;,
-    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/home/daveg/Documents/GitHub/myTaylorBill&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;python.packages.toolwindow.project.migrated.to.right.top.v2&quot;: &quot;true&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;configurable.group.tools&quot;,
-    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "KEY_CHAT_IN_TOOLWINDOW": "false",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.GUI_sqlite_scrape.executor": "Run",
+    "Python.check_database_health.executor": "Run",
+    "Python.checks_subtitles_vision.executor": "Run",
+    "Python.find_missing_videos.executor": "Run",
+    "Python.install.executor": "Run",
+    "Python.resample_library.executor": "Run",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "ai.playground.ignore.import.keys.banner.in.settings": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "main",
+    "junie.onboarding.icon.badge.shown": "true",
+    "last_opened_file_path": "/home/daveg/Documents/GitHub/myTaylorBill",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "python.packages.toolwindow.project.migrated.to.right.top.v2": "true",
+    "settings.editor.selected.configurable": "ml.llm.AcpAgentsConfigurable",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
   },
-  &quot;keyToStringList&quot;: {
-    &quot;com.intellij.ide.scratch.ScratchImplUtil$2/New Scratch File&quot;: [
-      &quot;TEXT&quot;
+  "keyToStringList": {
+    "com.intellij.ide.scratch.ScratchImplUtil$2/New Scratch File": [
+      "TEXT"
     ]
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.GUI_sqlite_scrape">
+  <component name="RunManager" selected="Python.resample_library">
     <configuration name="GUI_sqlite_scrape" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="movie_Scraper" />
       <option name="ENV_FILES" value="" />

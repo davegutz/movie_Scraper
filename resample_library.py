@@ -15,9 +15,11 @@ Key Features:
     re-encoding (-c:a copy), avoiding audio quality degradation.
   - Streaming Optimization: Adds -movflags +faststart to place the MOOV atom at the
     head of the file for instantaneous playback start over networks.
-  - Direct In-Place Replacement with Automatic Backup: Encodes to an isolated temporary file
-    and atomically replaces the original file only upon successful encoding verification.
+  - Direct In-Place Replacement with Automatic Backup and Reversion: Encodes to an isolated temporary
+    file and atomically replaces the original file only upon successful encoding verification.
     A backup of the original video file (<filename>.bak) is saved by default.
+    If the new resampled file is larger than the original .bak file, the original file is restored
+    and the larger encode is discarded.
     Pass --no-backup to disable backups.
   - Subtitle Download for Bitmapped / Missing Subtitles: By default, queries and downloads
     external English .srt subtitles (.en.srt) for videos that have bitmapped DVD subtitles
@@ -1081,6 +1083,33 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
                     os.remove(temp_path)
                 return {'success': False, 'error': f"Failed to create backup file: {e}"}
 
+            bak_bytes = os.path.getsize(backup_path)
+            if new_bytes > bak_bytes:
+                # Resampled file is larger than the original .bak file: restore original file
+                try:
+                    os.replace(backup_path, src_path)
+                except Exception as e:
+                    return {'success': False, 'error': f"Failed to restore original file from backup: {e}"}
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
+                if cache is not None:
+                    update_cache_entry(cache, src_path)
+                _active_temp_path = None
+                elapsed = time.time() - t_start
+                return {
+                    'success': False,
+                    'restored': True,
+                    'old_bytes': bak_bytes,
+                    'new_bytes': new_bytes,
+                    'saved_bytes': 0,
+                    'elapsed': elapsed,
+                    'backup_path': None,
+                    'error': f"Resampled file ({new_bytes / (1024**3):.2f} GB) is larger than original .bak ({bak_bytes / (1024**3):.2f} GB); original file restored"
+                }
+
             try:
                 os.replace(temp_path, src_path)
             except Exception as e:
@@ -1088,6 +1117,52 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
                     os.replace(backup_path, src_path)
                 return {'success': False, 'error': f"Failed to replace original with resampled file: {e}"}
         else:
+            existing_bak = f"{src_path}.bak"
+            if os.path.isfile(existing_bak):
+                bak_bytes = os.path.getsize(existing_bak)
+                if new_bytes > bak_bytes:
+                    try:
+                        os.replace(existing_bak, src_path)
+                    except Exception as e:
+                        return {'success': False, 'error': f"Failed to restore original file from backup: {e}"}
+                    if os.path.exists(temp_path):
+                        try:
+                            os.remove(temp_path)
+                        except Exception:
+                            pass
+                    if cache is not None:
+                        update_cache_entry(cache, src_path)
+                    _active_temp_path = None
+                    elapsed = time.time() - t_start
+                    return {
+                        'success': False,
+                        'restored': True,
+                        'old_bytes': bak_bytes,
+                        'new_bytes': new_bytes,
+                        'saved_bytes': 0,
+                        'elapsed': elapsed,
+                        'backup_path': None,
+                        'error': f"Resampled file ({new_bytes / (1024**3):.2f} GB) is larger than original .bak ({bak_bytes / (1024**3):.2f} GB); original file restored"
+                    }
+            elif new_bytes > old_bytes:
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
+                _active_temp_path = None
+                elapsed = time.time() - t_start
+                return {
+                    'success': False,
+                    'restored': True,
+                    'old_bytes': old_bytes,
+                    'new_bytes': new_bytes,
+                    'saved_bytes': 0,
+                    'elapsed': elapsed,
+                    'backup_path': None,
+                    'error': f"Resampled file ({new_bytes / (1024**3):.2f} GB) is larger than original ({old_bytes / (1024**3):.2f} GB); original file kept"
+                }
+
             os.replace(temp_path, src_path)
 
         elapsed = time.time() - t_start
@@ -1161,6 +1236,58 @@ def cleanup_stale_temp_files(movies_dir):
                 except Exception as e:
                     print(f"  [!] Failed to remove leftover temp file {f}: {e}", file=sys.stderr)
     return cleaned
+
+
+def restore_larger_backups(movies_dir, cache=None, dry_run=False, target_file=None):
+    """
+    Scan movies_dir (or check target_file) for .bak files. If the active video file
+    is larger than its original .bak file, restore the original file from .bak
+    (overwriting the larger resampled file).
+    Returns list of dicts with details of restored files.
+    """
+    if target_file:
+        if not os.path.isfile(target_file):
+            return []
+        bak_candidates = [f"{target_file}.bak"]
+    else:
+        if not movies_dir or not os.path.isdir(movies_dir):
+            return []
+        bak_candidates = []
+        for root, _, files in os.walk(movies_dir):
+            for f in files:
+                if f.endswith('.bak'):
+                    bak_candidates.append(os.path.join(root, f))
+
+    restored = []
+    for bak_path in bak_candidates:
+        if not os.path.isfile(bak_path):
+            continue
+        orig_path = bak_path[:-4]  # strip .bak
+        if not os.path.isfile(orig_path):
+            continue
+        try:
+            bak_bytes = os.path.getsize(bak_path)
+            orig_bytes = os.path.getsize(orig_path)
+            if orig_bytes > bak_bytes:
+                item = {
+                    'path': orig_path,
+                    'bak_path': bak_path,
+                    'filename': os.path.basename(orig_path),
+                    'active_bytes': orig_bytes,
+                    'bak_bytes': bak_bytes,
+                    'active_gb': orig_bytes / (1024 ** 3),
+                    'bak_gb': bak_bytes / (1024 ** 3),
+                    'diff_mb': (orig_bytes - bak_bytes) / (1024 ** 2)
+                }
+                if not dry_run:
+                    os.replace(bak_path, orig_path)
+                    if cache is not None:
+                        update_cache_entry(cache, orig_path)
+                restored.append(item)
+        except Exception as e:
+            print(f"    [!] Error checking/restoring backup {bak_path}: {e}", file=sys.stderr)
+
+    return restored
 
 
 def prune_backups(movies_dir, max_backups=50):
@@ -1364,6 +1491,12 @@ def main(*raw_args):
         help="Alias for --no-backup: do not keep a backup of the original video file."
     )
     parser.add_argument(
+        "--restore-larger-backups",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Restore original file from .bak if the active/resampled file is larger than the original .bak file (default: True)."
+    )
+    parser.add_argument(
         "--download-srt",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -1437,6 +1570,21 @@ def main(*raw_args):
         if not os.path.isfile(args.file):
             print(f"Error: File not found: {args.file}", file=sys.stderr)
             sys.exit(1)
+
+        if args.restore_larger_backups:
+            restored_baks = restore_larger_backups(
+                os.path.dirname(args.file),
+                cache=cache,
+                dry_run=args.dry_run,
+                target_file=args.file
+            )
+            if restored_baks:
+                tag = "[DRY RUN] Would restore" if args.dry_run else "Restored"
+                print(f"{tag} original file where resampled file was larger than .bak:\n")
+                for r in restored_baks:
+                    print(f"  [↶] {r['filename']} (active {r['active_gb']:.2f} GB > .bak {r['bak_gb']:.2f} GB; restored original {r['bak_gb']:.2f} GB)")
+                print()
+
         sz = os.path.getsize(args.file)
         fmt, res, fps, time_str, sub_str, jf_str, bmp_str, srt_str = probe_file_meta(args.file, cache)
         if not time_str or time_str == '-':
@@ -1499,6 +1647,15 @@ def main(*raw_args):
             print(f"Error: Movies directory not found: {args.movies_dir}", file=sys.stderr)
             sys.exit(1)
 
+        if args.restore_larger_backups:
+            restored_baks = restore_larger_backups(args.movies_dir, cache=cache, dry_run=args.dry_run)
+            if restored_baks:
+                tag = "[DRY RUN] Would restore" if args.dry_run else "Restored"
+                print(f"{tag} {len(restored_baks)} original file(s) where resampled file was larger than .bak:\n")
+                for r in restored_baks:
+                    print(f"  [↶] {r['filename']} (active {r['active_gb']:.2f} GB > .bak {r['bak_gb']:.2f} GB; restored original {r['bak_gb']:.2f} GB)")
+                print()
+
         cleanup_stale_temp_files(args.movies_dir)
         print(f"Scanning {args.movies_dir} for video files...")
         candidates = scan_candidates(
@@ -1537,6 +1694,7 @@ def main(*raw_args):
     print(f"  Streaming Flag:           -movflags +faststart")
     bak_str = f"Enabled (.bak, max {args.max_backups})" if (args.backup and args.max_backups > 0) else ("Enabled (.bak, unlimited)" if args.backup else "Disabled (--no-backup)")
     print(f"  Backup Original:          {bak_str}")
+    print(f"  Restore Larger Backups:   {'Enabled (default)' if args.restore_larger_backups else 'Disabled'}")
     print(f"  Download SRT Subtitles:   {'Enabled (default)' if args.download_srt else 'Disabled'}")
     print(f"  Verify Subtitles:         {'Enabled (default)' if args.verify_subtitles else 'Disabled'}")
     print(f"  Estimated Space Savings:  ~75% to 85% (~{total_candidate_gb * 0.78:,.2f} GB)")
@@ -1544,7 +1702,7 @@ def main(*raw_args):
 
     # Dry-run output
     if args.dry_run:
-        print("\n[DRY RUN] The following files would be resampled (no files modified):\n")
+        print("\n[DRY RUN] The following files would be resampled (no files modified right now):\n")
         print(f"  {'Size (GB)':>9} {'Res':<6} {'Format':<6} {'Time':<7} {'Sub':<8} {'Jellyfin':<11} {'Filename'}")
         print(f"  {'-'*9:>9} {'-'*6:<6} {'-'*6:<6} {'-'*7:<7} {'-'*6:<8} {'-'*8:<11} {'-'*44}")
         for c in candidates[:50]:
@@ -1619,7 +1777,10 @@ def main(*raw_args):
 
     total_saved_bytes = 0
     success_count = 0
+    restored_count = 0
     fail_count = 0
+    successful_movies = []
+    restored_movies = []
     failed_movies = []
     overall_start = time.time()
 
@@ -1656,7 +1817,21 @@ def main(*raw_args):
 
         try:
             result = resample_single_file(file_info, crf=args.crf, preset=args.preset, cache=cache, backup=args.backup)
-            if result['success']:
+            if result.get('restored'):
+                restored_count += 1
+                orig_gb = result['old_bytes'] / (1024 ** 3)
+                new_gb = result['new_bytes'] / (1024 ** 3)
+                diff_mb = (result['new_bytes'] - result['old_bytes']) / (1024 ** 2)
+                print(f"    Result:   [!] Resampled file ({new_gb:.2f} GB) was larger than original .bak ({orig_gb:.2f} GB, +{diff_mb:.1f} MB).")
+                print(f"              Original file restored from .bak (discarded larger encode) in {format_time(result['elapsed'])}.")
+                restored_movies.append({
+                    'path': fp,
+                    'filename': file_info.get('filename', os.path.basename(fp)),
+                    'size_gb': orig_gb,
+                    'new_gb': new_gb,
+                    'reason': f"Resampled ({new_gb:.2f} GB) > Original .bak ({orig_gb:.2f} GB)"
+                })
+            elif result['success']:
                 new_gb = result['new_bytes'] / (1024 ** 3)
                 saved_gb = result['saved_bytes'] / (1024 ** 3)
                 pct = (result['saved_bytes'] / file_info['size_bytes']) * 100
@@ -1702,6 +1877,18 @@ def main(*raw_args):
                     print(f"    FAILED:   {sub_fail_reason} (new resampled file retained)", file=sys.stderr)
                 else:
                     success_count += 1
+                    successful_movies.append({
+                        'path': fp,
+                        'filename': file_info.get('filename', os.path.basename(fp)),
+                        'old_bytes': file_info['size_bytes'],
+                        'new_bytes': result['new_bytes'],
+                        'saved_bytes': result['saved_bytes'],
+                        'old_gb': file_info['size_bytes'] / (1024 ** 3),
+                        'new_gb': result['new_bytes'] / (1024 ** 3),
+                        'saved_gb': result['saved_bytes'] / (1024 ** 3),
+                        'pct': pct,
+                        'elapsed': result['elapsed']
+                    })
             else:
                 fail_count += 1
                 err_msg = result.get('error', 'Unknown error')
@@ -1719,16 +1906,45 @@ def main(*raw_args):
 
     total_saved_gb = total_saved_bytes / (1024 ** 3)
     total_elapsed = time.time() - overall_start
+    orig_resampled_bytes = sum(sm['old_bytes'] for sm in successful_movies)
+    new_resampled_bytes = sum(sm['new_bytes'] for sm in successful_movies)
+    orig_resampled_gb = orig_resampled_bytes / (1024 ** 3)
+    new_resampled_gb = new_resampled_bytes / (1024 ** 3)
+    saved_pct = (total_saved_bytes / orig_resampled_bytes * 100) if orig_resampled_bytes > 0 else 0.0
 
     print("=" * 90)
     print("  Resampling Summary")
     print("=" * 90)
     print(f"  Successfully Resampled:   {success_count:,} files")
+    if restored_count > 0:
+        print(f"  Restored (Larger Encode): {restored_count:,} files")
     if fail_count > 0:
         print(f"  Failed / Skipped:         {fail_count:,} files")
-    print(f"  Total Disk Space Freed:   {total_saved_gb:,.2f} GB")
+    if success_count > 0:
+        print(f"  Original Total Size:      {orig_resampled_gb:,.2f} GB")
+        print(f"  New Resampled Size:       {new_resampled_gb:,.2f} GB")
+        print(f"  Total Disk Space Freed:   {total_saved_gb:,.2f} GB ({saved_pct:.1f}% reduction)")
+    else:
+        print(f"  Total Disk Space Freed:   {total_saved_gb:,.2f} GB")
     print(f"  Total Time Taken:         {format_time(total_elapsed)}")
     print("=" * 90)
+
+    if successful_movies:
+        print(f"\n[✓] Successfully Resampled Files ({len(successful_movies):,}):")
+        print(f"  {'Orig (GB)':>9}  {'New (GB)':>9}  {'Saved (GB)':>10}  {'Saved %':>7}  {'Filename'}")
+        print(f"  {'-'*9:>9}  {'-'*9:>9}  {'-'*10:>10}  {'-'*7:>7}  {'-'*40}")
+        for sm in successful_movies:
+            print(f"  {sm['old_gb']:>9.2f}  {sm['new_gb']:>9.2f}  {sm['saved_gb']:>10.2f}  {sm['pct']:>6.1f}%  {sm['filename']}")
+        print()
+
+    if restored_movies:
+        print(f"\n[↶] Restored Movies ({len(restored_movies):,}):")
+        print(f"  {'Orig (GB)':>9}  {'Encode(GB)':>10}  {'Filename':<40}  {'Action'}")
+        print(f"  {'-'*9:>9}  {'-'*10:>10}  {'-'*40:<40}  {'-'*25}")
+        for rm in restored_movies:
+            action = "Restored .bak (Encode larger)"
+            print(f"  {rm['size_gb']:>9.2f}  {rm['new_gb']:>10.2f}  {rm['filename']:<40}  {action}")
+        print()
 
     if failed_movies:
         print(f"\n[!] Failed Movies ({len(failed_movies):,}):")
@@ -1747,4 +1963,14 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main()
     else:
-        main("--max-files 20 --sort-by size_desc")
+        # movies
+        # main("--max-files 20 --sort-by size_desc")
+
+        # TV Shows
+        main(
+             "--max-files 500 --sort-by size_desc "  # 20 largest files
+             "--movies-dir '/media/daveg/Lib/TV Shows' "
+             "--no-download-srt "  # There are no subtitles for TV shows
+             "--all "     # All files regardless of size to save space
+             )
+             # "--dry-run")

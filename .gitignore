@@ -9,4 +9,5 @@ IMDB_Films.db-journal
 *.pyc
 GUI_sqlite_scrape copy.py
 rclone-error.log
-rclone-error.log
+rclone-*-error.log
+
