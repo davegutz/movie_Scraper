@@ -402,30 +402,30 @@ class IMDBdataBase:
 
         self.backup_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.backup_btn_frame.pack(side='top', fill='both', pady=(20, 0))
-        self.backup_btn = tk.Button(self.backup_btn_frame, text="G-Drive rclone sync",
+        self.backup_btn = tk.Button(self.backup_btn_frame, text="G-Drive Backup Movies",
                                     font=('LilyUPC', 9, 'bold'), bg=light_purple,
                                     width=20, command=self.google_drive_backup)
         self.backup_btn.pack(side='left')
 
-        self.backup_music_btn = tk.Button(self.backup_btn_frame, text="G-Drive rclone sync music",
+        self.backup_music_btn = tk.Button(self.backup_btn_frame, text="G-Drive Backup Music",
                                           font=('LilyUPC', 9, 'bold'), bg=light_purple,
                                           width=22, command=self.google_drive_backup_music)
         self.backup_music_btn.pack(side='left', padx=(5, 0))
-        self.sync_music_btn = self.backup_music_btn
+        self.copy_music_btn = self.backup_music_btn
 
-        self.sync_media_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
-        self.sync_media_btn_frame.pack(side='top', fill='both')
-        self.backup_tv_shows_btn = tk.Button(self.sync_media_btn_frame, text="Sync TV Shows",
+        self.copy_media_btn_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.copy_media_btn_frame.pack(side='top', fill='both')
+        self.backup_tv_shows_btn = tk.Button(self.copy_media_btn_frame, text="G-drive Backup TV Shows",
                                              font=('LilyUPC', 9, 'bold'), bg=light_purple,
                                              width=20, command=self.google_drive_backup_tv_shows)
         self.backup_tv_shows_btn.pack(side='left')
-        self.sync_tv_shows_btn = self.backup_tv_shows_btn
+        self.copy_tv_shows_btn = self.backup_tv_shows_btn
 
-        self.backup_videos_btn = tk.Button(self.sync_media_btn_frame, text="Sync Videos",
+        self.backup_videos_btn = tk.Button(self.copy_media_btn_frame, text="G-drive Backup Videos",
                                            font=('LilyUPC', 9, 'bold'), bg=light_purple,
                                            width=22, command=self.google_drive_backup_videos)
         self.backup_videos_btn.pack(side='left', padx=(5, 0))
-        self.sync_videos_btn = self.backup_videos_btn
+        self.copy_videos_btn = self.backup_videos_btn
 
         self.check_db_health_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.check_db_health_frame.pack(side='top', fill='both')
@@ -1902,7 +1902,7 @@ class IMDBdataBase:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _run_rclone_bidirectional_sync(self, local_path, remote_path, log_file, title_name, win_title):
+    def _run_rclone_bidirectional_copy(self, local_path, remote_path, log_file, title_name, win_title):
         """Run safe two-way rclone copy in background and open a monitor window (tail -f log_file).
 
         Pass 1: Download from Google Drive (remote -> local) with --update (skips newer local files).
@@ -1984,7 +1984,7 @@ class IMDBdataBase:
 
         stop_btn = tk.Button(
             btn_frame,
-            text="Stop Sync",
+            text="Stop Backup",
             font=('LilyUPC', 11, 'bold'),
             bg='#e74c3c',
             fg='white',
@@ -2054,7 +2054,7 @@ class IMDBdataBase:
             if runner_state['stopped']:
                 status_lbl.config(text=f"{title_name} stopped by user.")
             elif ret_code == 0:
-                status_lbl.config(text=f"{title_name} Complete successfully (2-way synced, no deletions).")
+                status_lbl.config(text=f"{title_name} Complete successfully (2-way copied, no deletions).")
             elif ret_code in (-15, 15, 1):
                 status_lbl.config(text=f"{title_name} stopped/ended with status {ret_code}.")
             else:
@@ -2130,7 +2130,7 @@ class IMDBdataBase:
         threading.Thread(target=tail_worker, daemon=True).start()
         return win
 
-    def _run_rclone_sync(self, src_path, remote_dest, log_file, title_name, win_title):
+    def _run_rclone_copy(self, src_path, remote_dest, log_file, title_name, win_title):
         """Compatibility wrapper that maps to safe two-way rclone copy."""
         if ':' in src_path and ':' not in remote_dest:
             remote_path, local_path = src_path, remote_dest
@@ -2141,7 +2141,7 @@ class IMDBdataBase:
                 local_path, remote_path = src_path, remote_dest
             else:
                 remote_path, local_path = src_path, remote_dest
-        return self._run_rclone_bidirectional_sync(local_path, remote_path, log_file, title_name, win_title)
+        return self._run_rclone_bidirectional_copy(local_path, remote_path, log_file, title_name, win_title)
 
     def google_drive_backup(self):
         """Run safe two-way rclone copy between Movies local library and Google Drive."""
@@ -2152,12 +2152,12 @@ class IMDBdataBase:
         movies_dest = movies_dir if movies_dir.endswith('/') else f"{movies_dir}/"
         remote = getattr(self, 'rclone_remote', 'gdrive:Movies')
         log_file = getattr(self, 'rclone_log_file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-error.log'))
-        return IMDBdataBase._run_rclone_bidirectional_sync(
+        return IMDBdataBase._run_rclone_bidirectional_copy(
             self,
             local_path=movies_dest,
             remote_path=remote,
             log_file=log_file,
-            title_name="Google Drive Movies Sync",
+            title_name="Google Drive Movies Copy",
             win_title="Google Drive Movies Backup Monitor (tail -f rclone-error.log)",
         )
 
@@ -2170,12 +2170,12 @@ class IMDBdataBase:
         music_dest = music_dir if music_dir.endswith('/') else f"{music_dir}/"
         remote = getattr(self, 'rclone_music_remote', 'gdrive:Music')
         log_file = getattr(self, 'rclone_music_log_file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-music-error.log'))
-        return IMDBdataBase._run_rclone_bidirectional_sync(
+        return IMDBdataBase._run_rclone_bidirectional_copy(
             self,
             local_path=music_dest,
             remote_path=remote,
             log_file=log_file,
-            title_name="Google Drive Music Sync",
+            title_name="Google Drive Music Copy",
             win_title="Google Drive Music Backup Monitor (tail -f rclone-music-error.log)",
         )
 
@@ -2188,12 +2188,12 @@ class IMDBdataBase:
         tv_shows_dest = tv_shows_dir if tv_shows_dir.endswith('/') else f"{tv_shows_dir}/"
         remote = getattr(self, 'rclone_tv_shows_remote', 'gdrive:TV Shows')
         log_file = getattr(self, 'rclone_tv_shows_log_file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-tv-shows-error.log'))
-        return IMDBdataBase._run_rclone_bidirectional_sync(
+        return IMDBdataBase._run_rclone_bidirectional_copy(
             self,
             local_path=tv_shows_dest,
             remote_path=remote,
             log_file=log_file,
-            title_name="Google Drive TV Shows Sync",
+            title_name="Google Drive TV Shows Copy",
             win_title="Google Drive TV Shows Backup Monitor (tail -f rclone-tv-shows-error.log)",
         )
 
@@ -2206,12 +2206,12 @@ class IMDBdataBase:
         videos_dest = videos_dir if videos_dir.endswith('/') else f"{videos_dir}/"
         remote = getattr(self, 'rclone_videos_remote', 'gdrive:Videos')
         log_file = getattr(self, 'rclone_videos_log_file', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rclone-videos-error.log'))
-        return IMDBdataBase._run_rclone_bidirectional_sync(
+        return IMDBdataBase._run_rclone_bidirectional_copy(
             self,
             local_path=videos_dest,
             remote_path=remote,
             log_file=log_file,
-            title_name="Google Drive Videos Sync",
+            title_name="Google Drive Videos Copy",
             win_title="Google Drive Videos Backup Monitor (tail -f rclone-videos-error.log)",
         )
 
