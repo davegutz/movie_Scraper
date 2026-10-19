@@ -215,7 +215,9 @@ class TestResampleLibraryRestore(unittest.TestCase):
             'new_bytes': 1 * 1024 * 1024 * 1024,  # 1 GB
             'saved_bytes': 3 * 1024 * 1024 * 1024,
             'elapsed': 120.0,
-            'backup_path': None
+            'backup_path': None,
+            'format': 'H264',
+            'fps': '24'
         }
 
         f = io.StringIO()
@@ -233,6 +235,8 @@ class TestResampleLibraryRestore(unittest.TestCase):
                             )
 
         output = f.getvalue()
+        self.assertIn("Result:   1.00 GB", output)
+        self.assertIn("| H264 | 24 fps", output)
         self.assertIn("Original Total Size:      4.00 GB", output)
         self.assertIn("New Resampled Size:       1.00 GB", output)
         self.assertIn("Total Disk Space Freed:   3.00 GB (75.0% reduction)", output)
@@ -246,6 +250,111 @@ class TestResampleLibraryRestore(unittest.TestCase):
         self.assertIn("Demo (2020).mp4", output)
 
 
+class TestEquivalentRatioCriteria(unittest.TestCase):
+    def test_get_resolution_target_rate_defaults(self):
+        # <= 540p -> 1.25 GB/hr
+        self.assertEqual(rl.get_resolution_target_rate('404p'), 1.25)
+        self.assertEqual(rl.get_resolution_target_rate('480p'), 1.25)
+        self.assertEqual(rl.get_resolution_target_rate('540p'), 1.25)
+        # <= 720p -> 1.75 GB/hr
+        self.assertEqual(rl.get_resolution_target_rate('720p'), 1.75)
+        # <= 1080p -> 3.00 GB/hr
+        self.assertEqual(rl.get_resolution_target_rate('1080p'), 3.00)
+        # > 1080p -> 7.50 GB/hr
+        self.assertEqual(rl.get_resolution_target_rate('2160p'), 7.50)
+        # Unknown / missing -> 2.00 GB/hr
+        self.assertEqual(rl.get_resolution_target_rate('unknown'), 2.00)
+        self.assertEqual(rl.get_resolution_target_rate(None), 2.00)
+
+    def test_get_resolution_target_rate_custom(self):
+        # Explicit max_gb_per_hour overrides resolution tiers
+        self.assertEqual(rl.get_resolution_target_rate('480p', max_gb_per_hour=1.0), 1.0)
+        self.assertEqual(rl.get_resolution_target_rate('1080p', max_gb_per_hour=0.85), 0.85)
+
+    def test_is_oversized_equivalent_ratio(self):
+        # 45-min SD episode (404p, target 1.25 GB/hr):
+        # 1.02 GB for 47 min = 1.30 GB/hr > 1.25 -> True
+        self.assertTrue(rl.is_oversized('404p', 1.02, '00:47:00'))
+        # 0.28 GB for 47 min = 0.36 GB/hr < 1.25 -> False
+        self.assertFalse(rl.is_oversized('404p', 0.28, '00:47:00'))
+
+        # 22-min SD episode (480p, target 1.25 GB/hr):
+        # 0.50 GB for 22 min = 1.36 GB/hr > 1.25 -> True
+        self.assertTrue(rl.is_oversized('480p', 0.50, '00:22:00'))
+        # 0.20 GB for 22 min = 0.55 GB/hr < 1.25 -> False
+        self.assertFalse(rl.is_oversized('480p', 0.20, '00:22:00'))
+
+        # 120-min 1080p movie (target 3.00 GB/hr):
+        # 6.5 GB for 120 min = 3.25 GB/hr > 3.00 -> True
+        self.assertTrue(rl.is_oversized('1080p', 6.5, '02:00:00'))
+        # 5.5 GB for 120 min = 2.75 GB/hr < 3.00 -> False
+        self.assertFalse(rl.is_oversized('1080p', 5.5, '02:00:00'))
+
+    def test_is_oversized_custom_ratio(self):
+        # With custom ratio of 0.8 GB/hr:
+        # A file at 0.90 GB/hr is oversized
+        self.assertTrue(rl.is_oversized('480p', 0.60, '00:40:00', max_gb_per_hour=0.8))
+        # With custom ratio of 1.5 GB/hr:
+        # Same file at 0.90 GB/hr is not oversized
+        self.assertFalse(rl.is_oversized('480p', 0.60, '00:40:00', max_gb_per_hour=1.5))
+
+    def test_dry_run_output_displays_ratio_info_and_hints(self):
+        import io
+        from contextlib import redirect_stdout
+
+        candidates = [{
+            'path': '/tmp/test_tv.mp4',
+            'filename': 'TestShow s01e01.mp4',
+            'size_bytes': int(1.02 * (1024 ** 3)),
+            'size_gb': 1.02,
+            'format': 'H264',
+            'resolution': '404p',
+            'fps': '23.98',
+            'time': '00:47',
+            'dur_m': 47.0,
+            'rate_gb_hr': 1.30,
+            'target_rate': 1.25,
+            'sub': 'None',
+            'jellyfin': '-',
+            'bmp': 'NO',
+            'srt': 'NO',
+            'oversized': True
+        }]
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            with patch('resample_library.load_cache', return_value={}):
+                with patch('resample_library.save_cache'):
+                    with patch('resample_library.scan_candidates', return_value=candidates):
+                        with patch('os.path.isdir', return_value=True):
+                            with patch('resample_library.restore_larger_backups', return_value=[]):
+                                with patch('resample_library.cleanup_stale_temp_files'):
+                                    with self.assertRaises(SystemExit):
+                                        rl.main(
+                                            "--movies-dir", "/tmp",
+                                            "--no-download-srt",
+                                            "--dry-run"
+                                        )
+
+        output = f.getvalue()
+        # Verify resolution explanation and GB/hr in header
+        self.assertIn("Equivalent Ratio Criteria (Size / Length Ratio by Resolution Tier)", output)
+        self.assertIn("► <= 540p (SD/DVD):  1.25 GB/hr", output)
+        self.assertIn("[RUNNING THIS INSTANCE: 1 file (404p)]", output)
+        self.assertIn("• <= 720p (HD):      1.75 GB/hr", output)
+        self.assertIn("• <= 1080p (FHD):    3.00 GB/hr", output)
+        self.assertIn("Hint: Pass --ratio <FLOAT> or --max-gb-per-hour <FLOAT>", output)
+
+        # Verify table columns
+        self.assertIn("Rate(GB/h)", output)
+        self.assertIn("Thresh", output)
+        self.assertIn("1.30", output)
+        self.assertIn("1.25", output)
+        self.assertIn("404p", output)
+        self.assertIn("TestShow s01e01.mp4", output)
+
+
 if __name__ == '__main__':
     unittest.main()
+
 

@@ -5,12 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0cae84e8-8944-4574-befa-511288ccf470" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/GUI_sqlite_scrape.py" beforeDir="false" afterPath="$PROJECT_DIR$/GUI_sqlite_scrape.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/rclone-error.log" beforeDir="false" afterPath="$PROJECT_DIR$/rclone-error.log" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/check_database_health.py" beforeDir="false" afterPath="$PROJECT_DIR$/check_database_health.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/resample_library.py" beforeDir="false" afterPath="$PROJECT_DIR$/resample_library.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test_gdrive_backup.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_gdrive_backup.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/test_resample_library.py" beforeDir="false" afterPath="$PROJECT_DIR$/test_resample_library.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -134,7 +132,7 @@
       <recent name="$PROJECT_DIR$" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.resample_library">
+  <component name="RunManager" selected="Python.check_database_health">
     <configuration name="GUI_sqlite_scrape" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="movie_Scraper" />
       <option name="ENV_FILES" value="" />

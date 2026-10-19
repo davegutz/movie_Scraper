@@ -31,6 +31,16 @@ Key Features:
     Extracts dialogue cues and renders 2-3 proof snapshots with burned-in subtitles into
     the subtitle_proof/ subfolder for user quality control.
     Pass --no-verify-subtitles or --skip-sub-verify to disable.
+  - Equivalent Ratio Criteria (Default): Evaluates candidate files by their size / length ratio
+    (GB/hr) tailored by resolution tier (..p size):
+      • <= 540p (SD/DVD):  1.25 GB/hr (equiv. 2.50 GB / 2 hr movie, ~20.8 MB/min)
+      • <= 720p (HD):      1.75 GB/hr (equiv. 3.50 GB / 2 hr movie, ~29.2 MB/min)
+      • <= 1080p (FHD):    3.00 GB/hr (equiv. 6.00 GB / 2 hr movie, ~50.0 MB/min)
+      • > 1080p (4K):      7.50 GB/hr (equiv. 15.00 GB / 2 hr movie, ~125.0 MB/min)
+      • Unknown / other:   2.00 GB/hr (equiv. 4.00 GB / 2 hr movie, ~33.3 MB/min)
+    Naturally supports both full-length movies and shorter TV episodes (20-50 min).
+  - Custom Ratio Option: Pass --ratio <FLOAT> or --max-gb-per-hour <FLOAT> (e.g. --ratio 1.0)
+    to enforce a specific target GB/hr across all resolutions.
   - Cache Synchronization: Automatically updates the ffprobe cache in
     ~/.cache/movie_scraper/video_res_cache.json so check_database_health.py stays current.
 
@@ -38,13 +48,19 @@ Usage Examples:
     # Dry-run: preview oversized files, subtitle status, and estimated space savings
     python3 resample_library.py --dry-run
 
-    # Process only the first oversized movie as a test (backup enabled by default)
+    # Resample TV shows using default Equivalent Ratio Criteria
+    python3 resample_library.py --movies-dir "/media/daveg/Lib/TV Shows" --no-download-srt
+
+    # Resample with a custom ratio of 1.0 GB/hour across all files
+    python3 resample_library.py --movies-dir "/media/daveg/Lib/TV Shows" --ratio 1.0
+
+    # Process only the first oversized video as a test (backup enabled by default)
     python3 resample_library.py --max-files 1
 
-    # Process only 5 movies, starting with the largest files
-    python3 resample_library.py --max-files 5 --sort-by size_desc
+    # Process only 5 videos, starting with highest GB/hr rate
+    python3 resample_library.py --max-files 5 --sort-by rate_desc
 
-    # Process a single specific movie file
+    # Process a single specific movie or episode file
     python3 resample_library.py --file "/media/daveg/Lib/Movies/West Side Story (1961).m4v"
 
     # Disable automatic backup
@@ -58,6 +74,7 @@ Usage Examples:
 """
 
 import argparse
+import collections
 from concurrent.futures import ThreadPoolExecutor
 import atexit
 import json
@@ -315,7 +332,7 @@ def update_cache_entry(cache, file_path):
                     pass
 
         sub_type, jf_status, raw_sub, raw_bmp, raw_srt = check_subtitles_info(file_path)
-        cache[cache_key] = {
+        entry = {
             'format': codec_str,
             'res': res_str,
             'fps': fps_str,
@@ -326,9 +343,12 @@ def update_cache_entry(cache, file_path):
             'bmp': raw_bmp,
             'srt': raw_srt
         }
-        save_cache(cache)
+        if cache is not None:
+            cache[cache_key] = entry
+            save_cache(cache)
+        return entry
     except Exception:
-        pass
+        return {'format': 'H264', 'fps': '-'}
 
 
 def parse_duration_minutes(val):
@@ -374,33 +394,80 @@ def parse_fps(val_str):
         return '-'
 
 
-def is_oversized(res_str, size_gb, duration=None):
-    """Check if file exceeds target bitrate/size threshold, scaled by duration."""
-    if not isinstance(size_gb, (int, float)):
-        return False
+def get_resolution_tier(res_str):
+    """Return resolution tier key ('540p', '720p', '1080p', '4k', 'unknown') for a resolution string."""
     height = None
     if res_str and res_str.endswith('p') and res_str[:-1].isdigit():
-        height = int(res_str[:-1])
+        try:
+            height = int(res_str[:-1])
+        except ValueError:
+            pass
 
     if height is None:
-        base_thresh = 4.0
+        return 'unknown'
     elif height <= 540:
-        base_thresh = 2.5
+        return '540p'
     elif height <= 720:
-        base_thresh = 3.5
+        return '720p'
     elif height <= 1080:
-        base_thresh = 6.0
+        return '1080p'
     else:
-        base_thresh = 15.0
+        return '4k'
 
+
+def get_resolution_target_rate(res_str, max_gb_per_hour=None):
+    """Return target ratio threshold in GB/hour based on resolution tier or custom ratio.
+
+    Default Equivalent Ratio Criteria (based on 120-minute baseline):
+      - <= 540p (SD/DVD):  1.25 GB/hr (equiv. 2.50 GB / 2 hr movie, ~20.8 MB/min)
+      - <= 720p (HD):      1.75 GB/hr (equiv. 3.50 GB / 2 hr movie, ~29.2 MB/min)
+      - <= 1080p (FHD):    3.00 GB/hr (equiv. 6.00 GB / 2 hr movie, ~50.0 MB/min)
+      - > 1080p (4K):      7.50 GB/hr (equiv. 15.00 GB / 2 hr movie, ~125.0 MB/min)
+      - Unknown / other:   2.00 GB/hr (equiv. 4.00 GB / 2 hr movie, ~33.3 MB/min)
+
+    If max_gb_per_hour is specified, returns that explicit ratio for all resolutions.
+    """
+    if max_gb_per_hour is not None:
+        try:
+            val = float(max_gb_per_hour)
+            if val > 0:
+                return val
+        except (ValueError, TypeError):
+            pass
+
+    tier = get_resolution_tier(res_str)
+    if tier == '540p':
+        return 1.25
+    elif tier == '720p':
+        return 1.75
+    elif tier == '1080p':
+        return 3.00
+    elif tier == '4k':
+        return 7.50
+    else:
+        return 2.00
+
+
+def is_oversized(res_str, size_gb, duration=None, max_gb_per_hour=None):
+    """Check if file exceeds target size/length ratio threshold (in GB/hr).
+
+    By default uses the Equivalent Ratio Criteria proportional to duration (no artificial 60-min floor).
+    If max_gb_per_hour is provided, uses that custom ratio in GB/hr.
+    """
+    if not isinstance(size_gb, (int, float)):
+        return False
+
+    target_rate = get_resolution_target_rate(res_str, max_gb_per_hour=max_gb_per_hour)
     dur_m = parse_duration_minutes(duration)
-    if dur_m and dur_m > 0:
-        scale = max(dur_m / 120.0, 0.5)
-        thresh = base_thresh * scale
-    else:
-        thresh = base_thresh
 
-    return size_gb > thresh
+    if dur_m and dur_m > 0:
+        actual_rate = size_gb / (dur_m / 60.0)
+        return actual_rate > target_rate
+    else:
+        # If duration cannot be parsed, evaluate against standard 2.0-hour movie baseline
+        thresh = target_rate * 2.0
+        return size_gb > thresh
+
 
 
 def format_duration_hr_min(seconds):
@@ -1191,8 +1258,13 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
                 pass
 
         # Update cache
-        if cache is not None:
-            update_cache_entry(cache, src_path)
+        new_meta = update_cache_entry(cache, src_path)
+        if isinstance(new_meta, dict):
+            new_fmt = new_meta.get('format', 'H264')
+            new_fps = new_meta.get('fps', file_info.get('fps', '-'))
+        else:
+            new_fmt = 'H264'
+            new_fps = file_info.get('fps', '-')
 
         _active_temp_path = None
         return {
@@ -1201,7 +1273,9 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
             'new_bytes': new_bytes,
             'saved_bytes': old_bytes - new_bytes,
             'elapsed': elapsed,
-            'backup_path': backup_path
+            'backup_path': backup_path,
+            'format': new_fmt,
+            'fps': new_fps
         }
 
     except KeyboardInterrupt:
@@ -1364,7 +1438,7 @@ def prompt_caffeine_check(movie_count):
             return False
 
 
-def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size_gb=0.0):
+def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size_gb=0.0, max_gb_per_hour=None):
     """Scan directory and filter for candidate files."""
     candidates = []
     if not os.path.isdir(movies_dir):
@@ -1388,7 +1462,14 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
             continue
 
         fmt, res, fps, time_str, sub_str, jf_str, bmp_str, srt_str = probe_file_meta(path, cache)
-        oversized = is_oversized(res, sz_gb, time_str)
+        dur_m = parse_duration_minutes(time_str)
+        target_rate = get_resolution_target_rate(res, max_gb_per_hour=max_gb_per_hour)
+        if dur_m and dur_m > 0:
+            actual_rate = round(sz_gb / (dur_m / 60.0), 2)
+        else:
+            actual_rate = None
+
+        oversized = is_oversized(res, sz_gb, time_str, max_gb_per_hour=max_gb_per_hour)
 
         if oversized_only and not oversized:
             continue
@@ -1403,6 +1484,9 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
             'resolution': res,
             'fps': fps,
             'time': time_str,
+            'dur_m': dur_m,
+            'rate_gb_hr': actual_rate,
+            'target_rate': target_rate,
             'sub': sub_str,
             'jellyfin': jf_str,
             'bmp': bmp_str,
@@ -1467,10 +1551,17 @@ def main(*raw_args):
         help="Maximum number of files to process before exiting (e.g. 1 or 5 for testing)."
     )
     parser.add_argument(
+        "--ratio", "--max-gb-per-hour",
+        dest="max_gb_per_hour",
+        type=float,
+        default=None,
+        help="Specify an explicit size/length ratio threshold in GB per hour (e.g. --ratio 1.0 or --max-gb-per-hour 0.85). If omitted, the default Equivalent Ratio Criteria is used based on ..p resolution tier (<=540p: 1.25, <=720p: 1.75, <=1080p: 3.00, >1080p: 7.50 GB/hr)."
+    )
+    parser.add_argument(
         "--sort-by",
-        choices=['size_desc', 'size_asc', 'name'],
+        choices=['size_desc', 'size_asc', 'rate_desc', 'rate_asc', 'name'],
         default='size_desc',
-        help="Order to process files: size_desc (largest first, default), size_asc, or name."
+        help="Order to process files: size_desc (largest first, default), size_asc, rate_desc (highest GB/hr first), rate_asc, or name."
     )
     parser.add_argument(
         "--backup",
@@ -1590,7 +1681,13 @@ def main(*raw_args):
         if not time_str or time_str == '-':
             time_str = get_file_duration_hr_min(args.file, cache)
         sz_gb = round(sz / (1024 ** 3), 2)
-        oversized = is_oversized(res, sz_gb, time_str)
+        dur_m = parse_duration_minutes(time_str)
+        target_rate = get_resolution_target_rate(res, max_gb_per_hour=args.max_gb_per_hour)
+        if dur_m and dur_m > 0:
+            actual_rate = round(sz_gb / (dur_m / 60.0), 2)
+        else:
+            actual_rate = None
+        oversized = is_oversized(res, sz_gb, time_str, max_gb_per_hour=args.max_gb_per_hour)
 
         file_info = {
             'path': args.file,
@@ -1602,6 +1699,9 @@ def main(*raw_args):
             'resolution': res,
             'fps': fps,
             'time': time_str,
+            'dur_m': dur_m,
+            'rate_gb_hr': actual_rate,
+            'target_rate': target_rate,
             'sub': sub_str,
             'jellyfin': jf_str,
             'bmp': bmp_str,
@@ -1609,9 +1709,12 @@ def main(*raw_args):
             'oversized': oversized
         }
 
+        rate_val = file_info.get('rate_gb_hr')
+        thresh_val = file_info.get('target_rate')
+        rate_note = f", Rate: {rate_val:.2f} GB/hr vs Target: {thresh_val:.2f} GB/hr" if rate_val is not None else ""
         if not args.all and not oversized:
-            print(f"File '{os.path.basename(args.file)}' is already within optimal bounds ({sz_gb} GB, {res}, Sized: YES).")
-            print("Skipping re-encoding. (Pass --all to re-encode anyway.)")
+            print(f"File '{os.path.basename(args.file)}' is already within optimal bounds ({sz_gb:.2f} GB, {res}{rate_note}, Sized: YES).")
+            print("Skipping re-encoding. (Pass --all to re-encode anyway, or --ratio <FLOAT> to set a custom ratio threshold.)")
             # If subtitle download is enabled, check and download subtitles even if re-encoding was skipped
             if args.download_srt and ((bmp_str == 'YES' or sub_str in ('NO', 'None', 'Bitmap') or jf_str == 'TRANSCODE') and srt_str != 'YES'):
                 sub_status, sub_msg = download_srt_if_needed(
@@ -1663,7 +1766,8 @@ def main(*raw_args):
             DEFAULT_VIDEO_EXTS,
             cache,
             oversized_only=(not args.all),
-            min_size_gb=args.min_size_gb
+            min_size_gb=args.min_size_gb,
+            max_gb_per_hour=args.max_gb_per_hour
         )
         save_cache(cache)
 
@@ -1676,6 +1780,10 @@ def main(*raw_args):
         candidates.sort(key=lambda c: c['size_bytes'], reverse=True)
     elif args.sort_by == 'size_asc':
         candidates.sort(key=lambda c: c['size_bytes'])
+    elif args.sort_by == 'rate_desc':
+        candidates.sort(key=lambda c: (c.get('rate_gb_hr') or 0.0), reverse=True)
+    elif args.sort_by == 'rate_asc':
+        candidates.sort(key=lambda c: (c.get('rate_gb_hr') or 0.0))
     else:
         candidates.sort(key=lambda c: c['filename'].lower())
 
@@ -1692,6 +1800,56 @@ def main(*raw_args):
     print(f"  Encoding Configuration:   libx264, CRF {args.crf}, preset '{args.preset}', yuv420p")
     print(f"  Audio Configuration:      -c:a copy (lossless stream copy)")
     print(f"  Streaming Flag:           -movflags +faststart")
+    # Map candidates to resolution tiers to identify active tiers for this instance
+    tier_candidates = collections.defaultdict(list)
+    for c in candidates:
+        tier_key = get_resolution_tier(c.get('resolution'))
+        tier_candidates[tier_key].append(c.get('resolution') or 'unknown')
+
+    def _format_res_breakdown(items):
+        counts_by_res = collections.Counter(items)
+        sorted_res = sorted(counts_by_res.items(), key=lambda x: (-x[1], x[0]))
+        if len(sorted_res) > 4:
+            top_res = sorted_res[:4]
+            remainder_count = sum(v for _, v in sorted_res[4:])
+            return ", ".join(f"{k}: {v}" for k, v in top_res) + f", +{len(sorted_res) - 4} more ({remainder_count} files)"
+        return ", ".join(f"{k}: {v}" if len(sorted_res) > 1 else f"{k}" for k, v in sorted_res)
+
+    def format_tier_status(tier_key):
+        items = tier_candidates.get(tier_key, [])
+        if not items:
+            return ""
+        count = len(items)
+        file_lbl = "file" if count == 1 else "files"
+        detail = _format_res_breakdown(items)
+        return f"  <-- [RUNNING THIS INSTANCE: {count} {file_lbl} ({detail})]"
+
+    if args.max_gb_per_hour is not None:
+        print(f"  Resampling Criteria:      Custom Ratio: {args.max_gb_per_hour:.2f} GB/hr across all resolutions")
+        if candidates:
+            detail = _format_res_breakdown(c.get('resolution') or 'unknown' for c in candidates)
+            file_lbl = "file" if len(candidates) == 1 else "files"
+            print(f"                            ► Running this instance: {len(candidates)} {file_lbl} ({detail})")
+    else:
+        t_540 = format_tier_status('540p')
+        t_720 = format_tier_status('720p')
+        t_1080 = format_tier_status('1080p')
+        t_4k = format_tier_status('4k')
+        t_unk = format_tier_status('unknown')
+
+        m_540 = "►" if t_540 else "•"
+        m_720 = "►" if t_720 else "•"
+        m_1080 = "►" if t_1080 else "•"
+        m_4k = "►" if t_4k else "•"
+        m_unk = "►" if t_unk else "•"
+
+        print(f"  Resampling Criteria:      Equivalent Ratio Criteria (Size / Length Ratio by Resolution Tier)")
+        print(f"                            {m_540} <= 540p (SD/DVD):  1.25 GB/hr (equiv. 2.50 GB / 2 hr movie){t_540}")
+        print(f"                            {m_720} <= 720p (HD):      1.75 GB/hr (equiv. 3.50 GB / 2 hr movie){t_720}")
+        print(f"                            {m_1080} <= 1080p (FHD):    3.00 GB/hr (equiv. 6.00 GB / 2 hr movie){t_1080}")
+        print(f"                            {m_4k} > 1080p (4K):      7.50 GB/hr (equiv. 15.00 GB / 2 hr movie){t_4k}")
+        print(f"                            {m_unk} Unknown / other:   2.00 GB/hr (equiv. 4.00 GB / 2 hr movie){t_unk}")
+        print(f"                            (Hint: Pass --ratio <FLOAT> or --max-gb-per-hour <FLOAT> to specify a custom ratio)")
     bak_str = f"Enabled (.bak, max {args.max_backups})" if (args.backup and args.max_backups > 0) else ("Enabled (.bak, unlimited)" if args.backup else "Disabled (--no-backup)")
     print(f"  Backup Original:          {bak_str}")
     print(f"  Restore Larger Backups:   {'Enabled (default)' if args.restore_larger_backups else 'Disabled'}")
@@ -1703,12 +1861,20 @@ def main(*raw_args):
     # Dry-run output
     if args.dry_run:
         print("\n[DRY RUN] The following files would be resampled (no files modified right now):\n")
-        print(f"  {'Size (GB)':>9} {'Res':<6} {'Format':<6} {'Time':<7} {'Sub':<8} {'Jellyfin':<11} {'Filename'}")
-        print(f"  {'-'*9:>9} {'-'*6:<6} {'-'*6:<6} {'-'*7:<7} {'-'*6:<8} {'-'*8:<11} {'-'*44}")
+        print(f"  {'Size(GB)':>8} {'Res':<6} {'Time':<7} {'Rate(GB/h)':>10} {'Thresh':>8} {'Format':<6} {'Sub':<8} {'Jellyfin':<10} {'Filename'}")
+        print(f"  {'-'*8:>8} {'-'*6:<6} {'-'*7:<7} {'-'*10:>10} {'-'*8:>8} {'-'*6:<6} {'-'*8:<8} {'-'*10:<10} {'-'*40}")
         for c in candidates[:50]:
-            print(f"  {c['size_gb']:>9.2f} {c['resolution']:<6} {c['format']:<6} {c.get('time', '-'):<7} {c.get('sub', '-'):<8} {c.get('jellyfin', '-'):<11} {c['filename']}")
+            rate_str = f"{c['rate_gb_hr']:.2f}" if c.get('rate_gb_hr') is not None else "-"
+            thresh_str = f"{c['target_rate']:.2f}" if c.get('target_rate') is not None else "-"
+            print(f"  {c['size_gb']:>8.2f} {c['resolution']:<6} {c.get('time', '-'):<7} {rate_str:>10} {thresh_str:>8} {c['format']:<6} {c.get('sub', '-'):<8} {c.get('jellyfin', '-'):<10} {c['filename']}")
         if len(candidates) > 50:
             print(f"  ... and {len(candidates) - 50} more files.")
+        print()
+        print("  * Criteria note: Rate = actual Size / Duration. Thresh = target GB/hr assigned by resolution tier (..p size).")
+        if args.max_gb_per_hour is None:
+            print("  * Hint: To override resolution-tiered thresholds with a custom ratio, use --ratio <GB/hr> (e.g. --ratio 1.0 or --max-gb-per-hour 0.85).")
+        else:
+            print(f"  * Custom Ratio Active: All files evaluated against {args.max_gb_per_hour:.2f} GB/hr threshold.")
 
         if args.backup and args.max_backups > 0:
             existing_baks = [os.path.join(r, f) for r, _, fs in os.walk(args.movies_dir) for f in fs if f.endswith('.bak')]
@@ -1796,8 +1962,11 @@ def main(*raw_args):
             file_info['time'] = time_str
 
         time_tail = f"  Time: {time_str}" if time_str != '-' else "Time: unknown"
+        rate_val = file_info.get('rate_gb_hr')
+        thresh_val = file_info.get('target_rate')
+        rate_info = f" | Rate: {rate_val:.2f} GB/hr (Target: {thresh_val:.2f} GB/hr)" if rate_val is not None and thresh_val is not None else ""
         print(f"[{i}/{len(candidates)}] Processing: {fp}{time_tail}")
-        print(f"    Current:  {sz_gb:.2f} GB | {res} | {fmt} | {file_info['fps']} fps")
+        print(f"    Current:  {sz_gb:.2f} GB | {res}{rate_info} | {fmt} | {file_info['fps']} fps")
 
         # Automatically download external .en.srt for videos with bitmapped or missing subtitles by default
         if args.download_srt and (file_info.get('bmp') == 'YES' or file_info.get('sub') in ('NO', 'None', 'Bitmap') or file_info.get('jellyfin') == 'TRANSCODE'):
@@ -1836,7 +2005,15 @@ def main(*raw_args):
                 saved_gb = result['saved_bytes'] / (1024 ** 3)
                 pct = (result['saved_bytes'] / file_info['size_bytes']) * 100
                 total_saved_bytes += result['saved_bytes']
-                print(f"    Result:   {new_gb:.2f} GB  (Saved: {saved_gb:.2f} GB, {pct:.1f}%) in {format_time(result['elapsed'])}")
+                dur_m = file_info.get('dur_m')
+                if not dur_m:
+                    dur_m = parse_duration_minutes(time_str)
+                new_rate = (new_gb / (dur_m / 60.0)) if dur_m and dur_m > 0 else None
+                new_rate_str = f" | New Rate: {new_rate:.2f} GB/hr" if new_rate is not None else ""
+                new_fmt = result.get('format') or file_info.get('format', 'H264')
+                new_fps = result.get('fps') or file_info.get('fps', '-')
+                fps_str = f"{new_fps} fps" if not str(new_fps).endswith("fps") and new_fps != '-' else str(new_fps)
+                print(f"    Result:   {new_gb:.2f} GB{new_rate_str}  (Saved: {saved_gb:.2f} GB, {pct:.1f}%) in {format_time(result['elapsed'])} | {new_fmt} | {fps_str}")
                 if result.get('backup_path'):
                     print(f"    Backup:   {result['backup_path']}")
                     if args.backup and args.max_backups > 0:
@@ -1886,6 +2063,10 @@ def main(*raw_args):
                         'old_gb': file_info['size_bytes'] / (1024 ** 3),
                         'new_gb': result['new_bytes'] / (1024 ** 3),
                         'saved_gb': result['saved_bytes'] / (1024 ** 3),
+                        'orig_rate': rate_val,
+                        'new_rate': new_rate,
+                        'format': new_fmt,
+                        'fps': new_fps,
                         'pct': pct,
                         'elapsed': result['elapsed']
                     })
@@ -1931,10 +2112,12 @@ def main(*raw_args):
 
     if successful_movies:
         print(f"\n[✓] Successfully Resampled Files ({len(successful_movies):,}):")
-        print(f"  {'Orig (GB)':>9}  {'New (GB)':>9}  {'Saved (GB)':>10}  {'Saved %':>7}  {'Filename'}")
-        print(f"  {'-'*9:>9}  {'-'*9:>9}  {'-'*10:>10}  {'-'*7:>7}  {'-'*40}")
+        print(f"  {'Orig (GB)':>9}  {'New (GB)':>9}  {'Saved (GB)':>10}  {'Saved %':>7}  {'Orig Rate':>11}  {'New Rate':>11}  {'Filename'}")
+        print(f"  {'-'*9:>9}  {'-'*9:>9}  {'-'*10:>10}  {'-'*7:>7}  {'-'*11:>11}  {'-'*11:>11}  {'-'*35}")
         for sm in successful_movies:
-            print(f"  {sm['old_gb']:>9.2f}  {sm['new_gb']:>9.2f}  {sm['saved_gb']:>10.2f}  {sm['pct']:>6.1f}%  {sm['filename']}")
+            orig_r = f"{sm['orig_rate']:.2f} GB/h" if sm.get('orig_rate') is not None else "-"
+            new_r = f"{sm['new_rate']:.2f} GB/h" if sm.get('new_rate') is not None else "-"
+            print(f"  {sm['old_gb']:>9.2f}  {sm['new_gb']:>9.2f}  {sm['saved_gb']:>10.2f}  {sm['pct']:>6.1f}%  {orig_r:>11}  {new_r:>11}  {sm['filename']}")
         print()
 
     if restored_movies:
@@ -1967,10 +2150,12 @@ if __name__ == "__main__":
         # main("--max-files 20 --sort-by size_desc")
 
         # TV Shows
+        # Uses default Equivalent Ratio Criteria (e.g. 1.25 GB/hr for <=540p, 3.00 GB/hr for 1080p).
+        # To specify an actual ratio across all files, pass e.g.: "--ratio 1.0 "
         main(
-             "--max-files 500 --sort-by size_desc "  # 20 largest files
+             "--max-files 500 --sort-by size_desc "  # largest files
              "--movies-dir '/media/daveg/Lib/TV Shows' "
              "--no-download-srt "  # There are no subtitles for TV shows
-             "--all "     # All files regardless of size to save space
              )
              # "--dry-run")
+
