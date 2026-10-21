@@ -353,6 +353,40 @@ class TestEquivalentRatioCriteria(unittest.TestCase):
         self.assertIn("404p", output)
         self.assertIn("TestShow s01e01.mp4", output)
 
+    def test_probe_file_meta_detects_deleted_srt(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = os.path.join(tmpdir, "My Movie (2020).m4v")
+            with open(video_path, "wb") as f:
+                f.write(b"dummy video data")
+
+            st = os.stat(video_path)
+            cache_key = f"{video_path}|{st.st_mtime}|{st.st_size}"
+            cache = {
+                cache_key: {
+                    'format': 'H264',
+                    'res': '1080p',
+                    'fps': '23.98',
+                    'time': '01:30',
+                    'sub': 'SRT',
+                    'jellyfin': 'DIRECT',
+                    'raw_sub': 'YES',
+                    'bmp': 'NO',
+                    'srt': 'YES'
+                }
+            }
+
+            self.assertEqual(rl.check_srt_file(video_path), 'NO')
+
+            with patch('resample_library.check_subtitles_info', return_value=('None', '-', 'NO', 'NO', 'NO')):
+                fmt, res, fps, time_str, sub_val, jf_val, bmp_val, srt_val = rl.probe_file_meta(video_path, cache=cache)
+
+            self.assertEqual(sub_val, 'None')
+            self.assertEqual(jf_val, '-')
+            self.assertEqual(srt_val, 'NO')
+            self.assertEqual(cache[cache_key]['sub'], 'None')
+            self.assertEqual(cache[cache_key]['jellyfin'], '-')
+            self.assertEqual(cache[cache_key]['srt'], 'NO')
+
 
 if __name__ == '__main__':
     unittest.main()

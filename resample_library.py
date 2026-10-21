@@ -591,11 +591,22 @@ def probe_file_meta(file_path, cache):
                     cached['sub'] = sub_val
                     cached['jellyfin'] = jf_val
 
-                if sub_val != 'SRT' and check_srt_file(file_path) == 'YES':
-                    sub_val = cached['sub'] = 'SRT'
-                    jf_val = cached['jellyfin'] = 'DIRECT'
-                    srt_val = cached['srt'] = 'YES'
-                    bmp_val = cached['bmp'] = 'NO'
+                srt_on_disk = (check_srt_file(file_path) == 'YES')
+                cached_has_srt = (sub_val in ('SRT', 'OVERRUN') or srt_val == 'YES' or cached.get('srt') == 'YES')
+                if not cached_has_srt and srt_on_disk:
+                    sub_val, jf_val, r_sub, bmp_flag, srt_flag = check_subtitles_info(file_path)
+                    cached['raw_sub'] = r_sub
+                    cached['bmp'] = bmp_val = bmp_flag
+                    cached['srt'] = srt_val = srt_flag
+                    cached['sub'] = sub_val
+                    cached['jellyfin'] = jf_val
+                elif cached_has_srt and not srt_on_disk:
+                    sub_val, jf_val, r_sub, bmp_flag, srt_flag = check_subtitles_info(file_path)
+                    cached['raw_sub'] = r_sub
+                    cached['bmp'] = bmp_val = bmp_flag
+                    cached['srt'] = srt_val = srt_flag
+                    cached['sub'] = sub_val
+                    cached['jellyfin'] = jf_val
 
                 return cached.get('format', '-'), cached.get('res', '-'), cached.get('fps', '-'), cached_time, sub_val, jf_val, bmp_val, srt_val
 
@@ -2154,7 +2165,8 @@ if __name__ == "__main__":
         # To specify an actual ratio across all files, pass e.g.: "--ratio 1.0 "
         main(
              "--max-files 500 --sort-by size_desc "  # largest files
-             "--movies-dir '/media/daveg/Lib/TV Shows' "
+             # "--movies-dir '/media/daveg/Lib/TV Shows' "
+             "--movies-dir '/media/daveg/Lib/Videos' "
              "--no-download-srt "  # There are no subtitles for TV shows
              )
              # "--dry-run")

@@ -289,22 +289,37 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
 
     def test_get_entry_colors_require_subtitles(self):
         c_red = '\033[91m'
+        c_blue = '\033[94m'
         c_green = '\033[92m'
         c_orange = '\033[38;5;208m'
         c_yellow = '\033[93m'
 
-        # Default require_subtitles=True (Movies): missing subtitles flag as red
+        # Default require_subtitles=True (Movies): missing subtitles flag as blue
         r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('-', '-', 'YES', require_subtitles=True)
-        self.assertEqual(r_c, c_red)
-        self.assertEqual(s_c, c_red)
-        self.assertEqual(j_c, c_red)
+        self.assertEqual(r_c, c_blue)
+        self.assertEqual(s_c, c_blue)
+        self.assertEqual(j_c, c_blue)
 
         r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('None', '-', 'YES', require_subtitles=True)
-        self.assertEqual(r_c, c_red)
-        self.assertEqual(s_c, c_red)
-        self.assertEqual(j_c, c_red)
+        self.assertEqual(r_c, c_blue)
+        self.assertEqual(s_c, c_blue)
+        self.assertEqual(j_c, c_blue)
 
-        # require_subtitles=False (TV Shows): missing subtitles are NOT red; row is clean green if sized
+        # Missing subtitles + improperly sized: Blue takes precedence over Orange
+        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('None', '-', 'NO', require_subtitles=True)
+        self.assertEqual(r_c, c_blue)
+        self.assertEqual(s_c, c_blue)
+        self.assertEqual(j_c, c_blue)
+        self.assertEqual(sz_c, c_orange)
+
+        # Missing subtitles + duration mismatch: Red takes precedence over Blue
+        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('None', '-', 'YES', dur_status='MISMATCH', require_subtitles=True)
+        self.assertEqual(r_c, c_red)
+        self.assertEqual(s_c, c_blue)
+        self.assertEqual(j_c, c_blue)
+        self.assertEqual(t_c, c_red)
+
+        # require_subtitles=False (TV Shows): missing subtitles are NOT red or blue; row is clean green if sized
         r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('-', '-', 'YES', require_subtitles=False)
         self.assertEqual(r_c, c_green)
         self.assertEqual(s_c, '')
@@ -315,7 +330,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         self.assertEqual(s_c, '')
         self.assertEqual(j_c, '')
 
-        # require_subtitles=False with oversized (NO): row is orange, subs not red
+        # require_subtitles=False with oversized (NO): row is orange, subs not red or blue
         r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('-', '-', 'NO', require_subtitles=False)
         self.assertEqual(r_c, c_orange)
         self.assertEqual(s_c, '')
@@ -342,6 +357,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         self.assertIn("Note: TV shows may not have subtitles; missing subtitles are not flagged as health check failures.", tv_out)
         self.assertIn("Fails health check (desynced/overrun timestamps, or duration mismatch/split rip)", tv_out)
         self.assertNotIn("Fails health check (no subtitles", tv_out)
+        self.assertNotIn("● Blue:", tv_out)
 
         # Movies output
         f = io.StringIO()
@@ -352,7 +368,10 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         mov_out = f.getvalue()
 
         # Movies Color Key assertions
-        self.assertIn("Fails health check (no subtitles, desynced/overrun subs, or duration mismatch/split rip)", mov_out)
+        self.assertIn("● Blue:", mov_out)
+        self.assertIn("No subtitles (fix: run fetch_subtitles)", mov_out)
+        self.assertIn("Fails health check (desynced/overrun subs, or duration mismatch/split rip)", mov_out)
+        self.assertNotIn("Fails health check (no subtitles", mov_out)
         self.assertNotIn("Note: TV shows may not have subtitles", mov_out)
 
     def test_get_resolution_tier(self):
@@ -415,6 +434,43 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         out = f.getvalue()
 
         self.assertIn("Sizing Criteria:          Custom Ratio (0.50 GB/hr)", out)
+
+    def test_cached_srt_deletion_detected(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = os.path.join(tmpdir, "My Movie (2020).m4v")
+            with open(video_path, "wb") as f:
+                f.write(b"dummy video data")
+
+            st = os.stat(video_path)
+            cache_key = f"{video_path}|{st.st_mtime}|{st.st_size}"
+            cache = {
+                cache_key: {
+                    'format': 'H264',
+                    'res': '1080p',
+                    'fps': '23.98',
+                    'time': '01:30',
+                    'sub': 'SRT',
+                    'jellyfin': 'DIRECT',
+                    'raw_sub': 'YES',
+                    'bmp': 'NO',
+                    'srt': 'YES'
+                }
+            }
+
+            # Sidecar .srt does NOT exist on disk (was deleted)
+            self.assertEqual(cdh.check_srt_file(video_path), 'NO')
+
+            with patch('check_database_health.check_subtitles_info', return_value=('None', '-', 'NO', 'NO', 'NO')):
+                meta = cdh.get_video_metadata(video_path, cache=cache)
+
+            # Metadata should reflect that subtitles are missing, not stale 'SRT'
+            self.assertEqual(meta[4], 'None')
+            self.assertEqual(meta[5], '-')
+            self.assertEqual(cache[cache_key]['sub'], 'None')
+            self.assertEqual(cache[cache_key]['jellyfin'], '-')
+            self.assertEqual(cache[cache_key]['srt'], 'NO')
 
 
 if __name__ == '__main__':

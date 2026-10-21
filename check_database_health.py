@@ -690,13 +690,27 @@ def get_video_metadata(file_path, cache=None):
                             cached_val['sub'] = sub_type
                             cached_val['jellyfin'] = jf_status
 
-                        # Check if an external .srt has been added to disk since caching
+                        # Check if an external .srt has been added or removed from disk since caching
                         c_dur_m = parse_duration_minutes(cached_val.get('time', '-'))
                         c_dur_s = (c_dur_m * 60.0) if c_dur_m else None
-                        if cached_val.get('sub') != 'SRT' and check_srt_file(file_path) == 'YES':
+                        srt_on_disk = (check_srt_file(file_path) == 'YES')
+                        cached_has_srt = (cached_val.get('sub') in ('SRT', 'OVERRUN') or cached_val.get('srt') == 'YES')
+
+                        if not cached_has_srt and srt_on_disk:
+                            # External .srt was added since caching
                             sub_type, jf_status, r_sub, r_bmp, r_srt = check_subtitles_info(file_path, video_duration_sec=c_dur_s)
                             cached_val['sub'] = sub_type
                             cached_val['jellyfin'] = jf_status
+                            cached_val['raw_sub'] = r_sub
+                            cached_val['bmp'] = r_bmp
+                            cached_val['srt'] = r_srt
+                        elif cached_has_srt and not srt_on_disk:
+                            # External .srt was deleted since caching
+                            sub_type, jf_status, r_sub, r_bmp, r_srt = check_subtitles_info(file_path, video_duration_sec=c_dur_s)
+                            cached_val['sub'] = sub_type
+                            cached_val['jellyfin'] = jf_status
+                            cached_val['raw_sub'] = r_sub
+                            cached_val['bmp'] = r_bmp
                             cached_val['srt'] = r_srt
                         elif cached_val.get('sub') in ('SRT', 'OVERRUN') and c_dur_s:
                             srt_f = find_srt_file(file_path)
@@ -768,8 +782,8 @@ def get_video_metadata(file_path, cache=None):
 def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=False, has_video=True, use_color=True, require_subtitles=True):
     """
     Determine row color and column colors:
-      - If desynced/overrun or (require_subtitles and no subtitles), code it red.
-      - If duration mismatch (or incomplete multi-part), code it red.
+      - If desynced/overrun, or duration mismatch (or incomplete multi-part), code it red.
+      - If (require_subtitles and no subtitles), code it blue.
       - If improperly sized (Sized=NO), code it orange.
       - If jellyfin is loaded heavily code it yellow.
       - If clean code green.
@@ -780,6 +794,7 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
         return ('', '', '', '', '', '')
 
     c_red = '\033[91m'
+    c_blue = '\033[94m'
     c_orange = '\033[38;5;208m'
     c_yellow = '\033[93m'
     c_green = '\033[92m'
@@ -792,7 +807,7 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
     if sub_val in ('OVERRUN', 'DESYNC'):
         sub_c = c_red
     elif sub_val in ('None', '-'):
-        sub_c = c_red if require_subtitles else ''
+        sub_c = c_blue if require_subtitles else ''
     elif sub_val == 'Bitmap':
         sub_c = c_yellow
     else:
@@ -802,7 +817,7 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
     if jf_val == 'DESYNC':
         jf_c = c_red
     elif jf_val == '-':
-        jf_c = c_red if require_subtitles else ''
+        jf_c = c_blue if require_subtitles else ''
     elif jf_val == 'TRANSCODE':
         jf_c = c_yellow
     else:
@@ -824,11 +839,13 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
     else:
         time_c = ''
 
-    # Overall row color (priority: Red (Fail: No subs / Overrun / Dur Mismatch) > Orange (Improperly sized) > Yellow (Transcode) > Green (Clean))
-    is_sub_fail = (sub_val in ('OVERRUN', 'DESYNC') or jf_val == 'DESYNC') or (require_subtitles and (sub_val in ('None', '-') or jf_val == '-'))
-    is_dur_fail = (dur_status == 'MISMATCH' or (dur_status != 'OK' and is_multipart))
-    if is_sub_fail or is_dur_fail:
+    # Overall row color (priority: Red (Fail: Overrun / Desync / Dur Mismatch) > Blue (No subs when required) > Orange (Improperly sized) > Yellow (Transcode) > Green (Clean))
+    is_red_fail = (sub_val in ('OVERRUN', 'DESYNC') or jf_val == 'DESYNC') or (dur_status == 'MISMATCH' or (dur_status != 'OK' and is_multipart))
+    is_no_sub = require_subtitles and (sub_val in ('None', '-') or jf_val == '-')
+    if is_red_fail:
         row_c = c_red
+    elif is_no_sub:
+        row_c = c_blue
     elif sized_val == 'NO':
         row_c = c_orange
     elif jf_val == 'TRANSCODE':
@@ -1687,6 +1704,7 @@ def main(*raw_args):
         use_color = sys.stdout.isatty() or os.getenv('FORCE_COLOR') == '1'
 
     c_red = '\033[91m' if use_color else ''
+    c_blue = '\033[94m' if use_color else ''
     c_orange = '\033[38;5;208m' if use_color else ''
     c_yellow = '\033[93m' if use_color else ''
     c_green = '\033[92m' if use_color else ''
@@ -1967,10 +1985,44 @@ def main(*raw_args):
                             v['format'] = c_entry['format']
                         if c_entry.get('fps') and c_entry['fps'] != '-':
                             v['fps'] = c_entry['fps']
-                        if c_entry.get('sub') and c_entry['sub'] != '-':
-                            v['sub'] = c_entry['sub']
-                        if c_entry.get('jellyfin') and c_entry['jellyfin'] != '-':
-                            v['jellyfin'] = c_entry['jellyfin']
+                        sub_v = c_entry.get('sub', '-')
+                        jf_v = c_entry.get('jellyfin', '-')
+                        if (sub_v in ('SRT', 'OVERRUN') or c_entry.get('srt') == 'YES') and check_srt_file(v['path']) != 'YES':
+                            sub_v = 'None'
+                            jf_v = '-'
+                        elif sub_v != 'SRT' and check_srt_file(v['path']) == 'YES':
+                            sub_v = 'SRT'
+                            jf_v = 'DIRECT'
+                        v['sub'] = sub_v
+                        v['jellyfin'] = jf_v
+                except Exception:
+                    pass
+        if is_movies:
+            for movie_item, match_item in matched:
+                try:
+                    p = match_item['path']
+                    st = os.stat(p)
+                    k = f"{p}|{st.st_mtime}|{st.st_size}"
+                    if k in cache and isinstance(cache[k], dict):
+                        c_entry = cache[k]
+                        if c_entry.get('res') and c_entry['res'] != '-':
+                            match_item['resolution'] = c_entry['res']
+                        if c_entry.get('format') and c_entry['format'] != '-':
+                            match_item['format'] = c_entry['format']
+                        if c_entry.get('fps') and c_entry['fps'] != '-':
+                            match_item['fps'] = c_entry['fps']
+                        sub_v = c_entry.get('sub', '-')
+                        jf_v = c_entry.get('jellyfin', '-')
+                        if (sub_v in ('SRT', 'OVERRUN') or c_entry.get('srt') == 'YES') and check_srt_file(p) != 'YES':
+                            sub_v = 'None'
+                            jf_v = '-'
+                        elif sub_v != 'SRT' and check_srt_file(p) == 'YES':
+                            sub_v = 'SRT'
+                            jf_v = 'DIRECT'
+                        match_item['sub'] = movie_item['sub'] = sub_v
+                        match_item['jellyfin'] = movie_item['jellyfin'] = jf_v
+                        if c_entry.get('time') and c_entry['time'] != '-':
+                            match_item['file_time'] = c_entry['time']
                 except Exception:
                     pass
 
@@ -2269,7 +2321,8 @@ def main(*raw_args):
                 print(f"    {c_green}● Green:{c_reset}   Clean (Sized=YES, matched duration & Jellyfin DIRECT text subtitles)")
                 print(f"    {c_yellow}● Yellow:{c_reset}  Heavy Jellyfin load (TRANSCODE for bitmap subs; fix: run resample_library or fetch_subtitles)")
                 print(f"    {c_orange}● Orange:{c_reset}  Improperly Sized (Sized=NO; fix: run resample_library)")
-                print(f"    {c_red}● Red:{c_reset}     Fails health check (no subtitles, desynced/overrun subs, or duration mismatch/split rip)")
+                print(f"    {c_blue}● Blue:{c_reset}    No subtitles (fix: run fetch_subtitles)")
+                print(f"    {c_red}● Red:{c_reset}     Fails health check (desynced/overrun subs, or duration mismatch/split rip)")
             else:
                 print(f"    {c_green}● Green:{c_reset}   Clean (Sized=YES, matched duration)")
                 print(f"    {c_yellow}● Yellow:{c_reset}  Heavy Jellyfin load (TRANSCODE for bitmap subs; fix: run resample_library or fetch_subtitles)")
