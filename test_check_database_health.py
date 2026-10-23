@@ -205,7 +205,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
 
     def test_main_library_cli_arguments(self):
         import io
-        from contextlib import redirect_stdout
+        from contextlib import redirect_stdout, redirect_stderr
         from unittest.mock import patch
 
         dummy_movies = [{
@@ -268,7 +268,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
 
     def test_non_movies_library_skips_database(self):
         import io
-        from contextlib import redirect_stdout
+        from contextlib import redirect_stdout, redirect_stderr
         from unittest.mock import patch, MagicMock
 
         mock_load_db = MagicMock()
@@ -344,7 +344,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
 
     def test_tv_shows_color_key_and_subtitles(self):
         import io
-        from contextlib import redirect_stdout
+        from contextlib import redirect_stdout, redirect_stderr
         from unittest.mock import patch
 
         # TV Shows output
@@ -426,7 +426,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
 
     def test_main_ratio_cli_flag(self):
         import io
-        from contextlib import redirect_stdout
+        from contextlib import redirect_stdout, redirect_stderr
 
         f = io.StringIO()
         with redirect_stdout(f):
@@ -471,6 +471,161 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
             self.assertEqual(cache[cache_key]['sub'], 'None')
             self.assertEqual(cache[cache_key]['jellyfin'], '-')
             self.assertEqual(cache[cache_key]['srt'], 'NO')
+
+    def test_is_entry_non_green(self):
+        # 1. Clean green entry: Sized=YES, DIRECT subs, matched duration
+        self.assertFalse(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', dur_status='OK', require_subtitles=True))
+        self.assertFalse(cdh.is_entry_non_green('Text', 'DIRECT', 'YES', dur_status='OK', require_subtitles=True))
+
+        # 2. Orange entry: Improperly sized (NO)
+        self.assertTrue(cdh.is_entry_non_green('SRT', 'DIRECT', 'NO', dur_status='OK', require_subtitles=True))
+
+        # 3. Yellow entry: Jellyfin transcode required (Bitmap subs)
+        self.assertTrue(cdh.is_entry_non_green('Bitmap', 'TRANSCODE', 'YES', dur_status='OK', require_subtitles=True))
+
+        # 4. Blue entry: Missing subtitles (require_subtitles=True)
+        self.assertTrue(cdh.is_entry_non_green('None', '-', 'YES', dur_status='OK', require_subtitles=True))
+        self.assertTrue(cdh.is_entry_non_green('-', '-', 'YES', dur_status='OK', require_subtitles=True))
+
+        # 5. Blue bypassed for TV Shows (require_subtitles=False): clean if sized
+        self.assertFalse(cdh.is_entry_non_green('None', '-', 'YES', dur_status='OK', require_subtitles=False))
+        self.assertFalse(cdh.is_entry_non_green('-', '-', 'YES', dur_status='OK', require_subtitles=False))
+
+        # 6. Red entry: Duration mismatch
+        self.assertTrue(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', dur_status='MISMATCH', require_subtitles=True))
+
+        # 7. Red entry: Subtitle overrun / desync
+        self.assertTrue(cdh.is_entry_non_green('OVERRUN', 'DESYNC', 'YES', dur_status='OK', require_subtitles=True))
+
+        # 8. Red entry: Incomplete multi-part
+        self.assertTrue(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', dur_status='PART_1', is_multipart=True, require_subtitles=True))
+
+        # 9. Red entry: Missing video (has_video=False)
+        self.assertTrue(cdh.is_entry_non_green('-', '-', '-', has_video=False, require_subtitles=True))
+
+    def test_main_non_green_cli_flag(self):
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+        from unittest.mock import patch
+
+        dummy_movies = [
+            {
+                'imdb_id': 'tt001',
+                'title': 'Green Movie',
+                'norm_title': 'green movie',
+                'display_title': 'Green Movie',
+                'display_title_year': 'Green Movie (2020)',
+                'year': 2020,
+                'rating': 8.0,
+                'my_rating': 8.0,
+                'dvd': 1,
+                'watched': 'NO',
+                'certification': 'R',
+                'time': '01:30',
+                'db_time': '01:30',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '1080p',
+                'fps': '23.98',
+                'sub': 'SRT',
+                'jellyfin': 'DIRECT',
+                'sized': 'YES',
+                'oversized': 'NO',
+                'size_bytes': 1024 * 1024 * 500,
+                'size_gb': 0.5,
+                'compact_title': 'greenmovie',
+                'no_art_title': 'green movie'
+            },
+            {
+                'imdb_id': 'tt002',
+                'title': 'Orange Movie',
+                'norm_title': 'orange movie',
+                'display_title': 'Orange Movie',
+                'display_title_year': 'Orange Movie (2021)',
+                'year': 2021,
+                'rating': 7.5,
+                'my_rating': 7.5,
+                'dvd': 2,
+                'watched': 'NO',
+                'certification': 'PG',
+                'time': '01:30',
+                'db_time': '01:30',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '1080p',
+                'fps': '23.98',
+                'sub': 'SRT',
+                'jellyfin': 'DIRECT',
+                'sized': 'NO',
+                'oversized': 'YES',
+                'size_bytes': 1024 * 1024 * 1024 * 6,
+                'size_gb': 6.0,
+                'compact_title': 'orangemovie',
+                'no_art_title': 'orange movie'
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            movies_dir = os.path.join(tmpdir, "Movies")
+            os.makedirs(movies_dir)
+            f1 = os.path.join(movies_dir, "Green Movie (2020).mp4")
+            s1 = os.path.join(movies_dir, "Green Movie (2020).en.srt")
+            f2 = os.path.join(movies_dir, "Orange Movie (2021).mp4")
+            s2 = os.path.join(movies_dir, "Orange Movie (2021).en.srt")
+            with open(f1, "wb") as f:
+                f.write(b"data")
+            with open(s1, "w") as f:
+                f.write("1\n00:00:01,000 --> 00:01:00,000\nHello\n")
+            with open(f2, "wb") as f:
+                f.write(b"data")
+            with open(s2, "w") as f:
+                f.write("1\n00:00:01,000 --> 00:01:00,000\nHello\n")
+
+            # 1. With --non-green: Green Movie must be omitted, Orange Movie must appear
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=[
+                            ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '720p', '23.98', '01:30', 'SRT', 'DIRECT')
+                        ]):
+                            with patch('check_database_health.check_sized', side_effect=lambda res, sz, tm, **kw: 'NO' if res == '720p' else 'YES'):
+                                cdh.main("--library", movies_dir, "--non-green", "--show-only", "matched", "--quiet")
+            out = buf.getvalue()
+            self.assertIn("Orange Movie", out)
+            self.assertNotIn("Green Movie", out)
+
+            # 2. Without --non-green: Both Green Movie and Orange Movie must appear
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=[
+                            ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '720p', '23.98', '01:30', 'SRT', 'DIRECT')
+                        ]):
+                            with patch('check_database_health.check_sized', side_effect=lambda res, sz, tm, **kw: 'NO' if res == '720p' else 'YES'):
+                                cdh.main("--library", movies_dir, "--show-only", "matched", "--quiet")
+            out = buf.getvalue()
+            self.assertIn("Orange Movie", out)
+            self.assertIn("Green Movie", out)
+
+            # 3. Test standard tabular output header displays [NON-GREEN / ISSUES ONLY]
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=[
+                            ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '720p', '23.98', '01:30', 'SRT', 'DIRECT')
+                        ]):
+                            with patch('check_database_health.check_sized', side_effect=lambda res, sz, tm, **kw: 'NO' if res == '720p' else 'YES'):
+                                cdh.main("--library", movies_dir, "--non-green", "--show-only", "matched")
+            out = buf.getvalue()
+            self.assertIn("Orange Movie", out)
+            self.assertNotIn("Green Movie (2020)", out)
+            self.assertIn("[NON-GREEN / ISSUES ONLY]", out)
 
 
 if __name__ == '__main__':

@@ -48,6 +48,8 @@ Examples:
     python3 check_database_health.py --show-only matched
     python3 check_database_health.py --show-only missing
     python3 check_database_health.py --show-only unmatched
+    python3 check_database_health.py --non-green
+    python3 check_database_health.py --non-green-only
     python3 check_database_health.py --oversized-only
     python3 check_database_health.py --output-matched matched.csv --format csv
     python3 check_database_health.py -o missing.csv --format csv
@@ -856,6 +858,27 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
     return (row_c, sub_c, jf_c, sized_c, time_c, c_reset)
 
 
+def is_entry_non_green(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=False, has_video=True, require_subtitles=True):
+    """
+    Determine if an entry has a non-green (non-clean) status:
+      - Red: Overrun/desync subtitles, duration mismatch, incomplete multi-part, or missing video (has_video=False).
+      - Blue: Missing subtitles (when require_subtitles is True).
+      - Orange: Improperly sized (sized_val == 'NO').
+      - Yellow: Heavy Jellyfin load / transcoding required (jf_val == 'TRANSCODE').
+      - Green: Clean (none of the above).
+    Returns True if non-green (needs attention); False if clean (green).
+    """
+    row_c, _, _, _, _, _ = get_entry_colors(
+        sub_val, jf_val, sized_val,
+        dur_status=dur_status,
+        is_multipart=is_multipart,
+        has_video=has_video,
+        use_color=True,
+        require_subtitles=require_subtitles
+    )
+    return row_c != '\033[92m'
+
+
 def status_msg(msg, advance=False):
     """
     Print status message using \r without advancing the line if advance=False.
@@ -1608,6 +1631,12 @@ def main(*raw_args):
         help="Filter output to display/export only improperly sized (Sized=NO) video files."
     )
     parser.add_argument(
+        "--non-green", "--non-green-only", "--issues-only",
+        dest="non_green_only",
+        action="store_true",
+        help="Filter output to display/export only non-green entries (health issues, warnings, missing subtitles, oversized files, transcoding bitmap subtitles, or duration mismatches)."
+    )
+    parser.add_argument(
         "--ratio", "--max-gb-per-hour",
         dest="max_gb_per_hour",
         type=float,
@@ -2092,6 +2121,40 @@ def main(*raw_args):
             missing_db = []
         unmatched_videos = [v for v in unmatched_videos if check_multipart(v.get('filename')) or v.get('dur_status') == 'MISMATCH' or v.get('sub') == 'OVERRUN' or v.get('jellyfin') == 'DESYNC']
 
+    # Filter for non-green-only if requested
+    is_filtered_non_green = getattr(args, 'non_green_only', False)
+    if is_filtered_non_green:
+        if is_movies:
+            matched = [
+                (mov, mat) for mov, mat in matched
+                if is_entry_non_green(
+                    mat.get('sub', '-'),
+                    mat.get('jellyfin', '-'),
+                    mat.get('sized', '-'),
+                    dur_status=mov.get('dur_status', 'OK'),
+                    is_multipart=mov.get('is_multipart', False),
+                    has_video=True,
+                    require_subtitles=True
+                )
+            ]
+            matched_bytes = sum(mat.get('size_bytes') or int((mat.get('size_gb') or 0) * (1024 ** 3)) for _, mat in matched)
+            matched_gb = matched_bytes / (1024 ** 3)
+            # missing_db entries have has_video=False, which are inherently red (non-green), so they are preserved
+        unmatched_videos = [
+            v for v in unmatched_videos
+            if is_entry_non_green(
+                v.get('sub', '-'),
+                v.get('jellyfin', '-'),
+                v.get('sized', '-'),
+                dur_status=v.get('dur_status', 'OK'),
+                is_multipart=bool(check_multipart(v.get('filename'))),
+                has_video=True,
+                require_subtitles=is_movies
+            )
+        ]
+        unmatched_bytes = sum(v.get('size_bytes') or int((v.get('size_gb') or 0) * (1024 ** 3)) for v in unmatched_videos)
+        unmatched_gb = unmatched_bytes / (1024 ** 3)
+
     # Determine output format for primary output file
     fmt = args.format
     if args.output and not fmt:
@@ -2332,7 +2395,14 @@ def main(*raw_args):
             print("=" * banner_len)
 
             if not is_movies:
-                sized_label = f", {unmatched_not_sized_count:,} improperly sized" if not is_filtered_not_sized else " [ALL IMPROPERLY SIZED]"
+                if is_filtered_non_green:
+                    sized_label = " [NON-GREEN / ISSUES ONLY]"
+                elif is_filtered_not_sized:
+                    sized_label = " [ALL IMPROPERLY SIZED]"
+                elif is_filtered_mismatched:
+                    sized_label = " [ALL DURATION MISMATCHES / DESYNC]"
+                else:
+                    sized_label = f", {unmatched_not_sized_count:,} improperly sized"
                 sort_suffix = f", sorted by {sort_desc}" if (sort_by_mtime or sort_by_size) else ""
                 print(f"\nVideo Library Files ({len(unmatched_videos):,} video files, {unmatched_gb:,.2f} GB{sized_label}{sort_suffix}):\n")
                 if sort_by_mtime:
@@ -2370,7 +2440,15 @@ def main(*raw_args):
             else:
                 # Section 1: Matched Titles (Output before Missing Titles)
                 if args.show_only in ('all', 'matched'):
-                    sized_label = f", {matched_not_sized_count:,} improperly sized" if not is_filtered_not_sized else " [ALL IMPROPERLY SIZED]"
+                    if is_filtered_non_green:
+                        sized_label = " [NON-GREEN / ISSUES ONLY]"
+                    elif is_filtered_not_sized:
+                        sized_label = " [ALL IMPROPERLY SIZED]"
+                    elif is_filtered_mismatched:
+                        dur_mismatch_label = f" ({matched_dur_mismatch_count:,} duration mismatches, {matched_desync_count:,} desync)"
+                        sized_label = f" [ALL MISMATCHED DURATION / DESYNC{dur_mismatch_label}]"
+                    else:
+                        sized_label = f", {matched_not_sized_count:,} improperly sized"
                     sort_suffix = f", sorted by {sort_desc}" if (sort_by_mtime or sort_by_size) else ""
                     print(f"\n[1] Matched Titles in Video Library ({len(matched):,} items, {matched_gb:,.2f} GB{sized_label}{sort_suffix}):\n")
                     if sort_by_mtime:
@@ -2439,7 +2517,14 @@ def main(*raw_args):
                 # Section 3: Unmatched Library Video Files
                 if args.show_only in ('all', 'unmatched', 'both'):
                     sec_num = 3 if (args.show_only == 'all' and not is_filtered_not_sized) else (2 if args.show_only in ('all', 'both') else 1)
-                    sized_label = f", {unmatched_not_sized_count:,} improperly sized" if not is_filtered_not_sized else " [ALL IMPROPERLY SIZED]"
+                    if is_filtered_non_green:
+                        sized_label = " [NON-GREEN / ISSUES ONLY]"
+                    elif is_filtered_not_sized:
+                        sized_label = " [ALL IMPROPERLY SIZED]"
+                    elif is_filtered_mismatched:
+                        sized_label = " [ALL DURATION MISMATCHES / DESYNC]"
+                    else:
+                        sized_label = f", {unmatched_not_sized_count:,} improperly sized"
                     sort_suffix = f", sorted by {sort_desc}" if (sort_by_mtime or sort_by_size) else ""
                     print(f"\n[{sec_num}] Unmatched Titles in Video Library ({len(unmatched_videos):,} video files not in DB, {unmatched_gb:,.2f} GB{sized_label}{sort_suffix}):\n")
                     if sort_by_mtime:
@@ -2497,7 +2582,7 @@ if __name__ == "__main__":
         main()
     else:
         # Default: Movies library (/media/daveg/Lib/Movies)
-        main("--recent", "--show-only", "matched")
+        main("--non-green", "--show-only", "matched")
 
         # TV Shows library (/media/daveg/Lib/TV Shows):
         # main("--library", "TV Shows")
