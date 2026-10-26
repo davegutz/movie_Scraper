@@ -363,6 +363,10 @@
         <option value="imdb_desc">Sort: IMDb (High-Low)</option>
         <option value="year_desc">Sort: Year (Newest)</option>
         <option value="year_asc">Sort: Year (Oldest)</option>
+        <option value="watched_desc">Sort: Watched (Recent)</option>
+        <option value="watched_asc">Sort: Watched (Oldest)</option>
+        <option value="added_desc">Sort: Entered (Recent)</option>
+        <option value="added_asc">Sort: Entered (Oldest)</option>
       </select>
 
       <select id="dvdFilter" class="filter-select">
@@ -371,6 +375,12 @@
         <option value="dvd_only">DVD Only (1)</option>
         <option value="screencast_only">Screencast Only (2)</option>
         <option value="both_only">Both DVD & Screencast (3)</option>
+      </select>
+
+      <select id="watchedFilter" class="filter-select">
+        <option value="all">Watched: All</option>
+        <option value="watched_only">Watched Only</option>
+        <option value="unwatched_only">Unwatched Only</option>
       </select>
 
       <select id="genreFilter" class="filter-select">
@@ -401,6 +411,7 @@
     const clearBtn = document.getElementById('clearBtn');
     const sortSelect = document.getElementById('sortSelect');
     const dvdFilter = document.getElementById('dvdFilter');
+    const watchedFilter = document.getElementById('watchedFilter');
     const genreFilter = document.getElementById('genreFilter');
     const countBadge = document.getElementById('countBadge');
     const statusBox = document.getElementById('statusBox');
@@ -473,6 +484,7 @@
       const query = searchInput.value.trim().toLowerCase();
       const sortVal = sortSelect.value;
       const dvdVal = dvdFilter.value;
+      const watchedVal = watchedFilter ? watchedFilter.value : 'all';
       const genreVal = genreFilter.value;
 
       clearBtn.style.display = query ? 'block' : 'none';
@@ -490,6 +502,14 @@
           return false;
         }
 
+        // Watched Filter
+        const isWatched = Boolean(m.watched && m.watched.trim());
+        if (watchedVal === 'watched_only' && !isWatched) {
+          return false;
+        } else if (watchedVal === 'unwatched_only' && isWatched) {
+          return false;
+        }
+
         // Genre Filter
         if (genreVal !== 'all') {
           if (!m.genres || !m.genres.toLowerCase().includes(genreVal.toLowerCase())) {
@@ -497,7 +517,7 @@
           }
         }
 
-        // Search Query (matches Title, Director, Actors, Summary, Year, Genres)
+        // Search Query (matches Title, Director, Actors, Summary, Year, Genres, Added, Watched)
         if (query) {
           const title = (m.title || '').toLowerCase();
           const director = (m.director || '').toLowerCase();
@@ -505,12 +525,16 @@
           const genres = (m.genres || '').toLowerCase();
           const summary = (m.summary || '').toLowerCase();
           const year = String(m.year || '');
+          const added = String(m.added || '').toLowerCase();
+          const watched = String(m.watched || '').toLowerCase();
           return title.includes(query) ||
                  director.includes(query) ||
                  actors.includes(query) ||
                  genres.includes(query) ||
                  summary.includes(query) ||
-                 year.includes(query);
+                 year.includes(query) ||
+                 added.includes(query) ||
+                 watched.includes(query);
         }
 
         return true;
@@ -524,6 +548,20 @@
         if (sortVal === 'imdb_desc') return (b.rating || 0) - (a.rating || 0);
         if (sortVal === 'year_desc') return (b.year || 0) - (a.year || 0);
         if (sortVal === 'year_asc') return (a.year || 0) - (b.year || 0);
+        if (sortVal === 'watched_desc') return (b.watched || '').localeCompare(a.watched || '');
+        if (sortVal === 'watched_asc') {
+          if (!a.watched && !b.watched) return 0;
+          if (!a.watched) return 1;
+          if (!b.watched) return -1;
+          return (a.watched || '').localeCompare(b.watched || '');
+        }
+        if (sortVal === 'added_desc') return (b.added || '').localeCompare(a.added || '');
+        if (sortVal === 'added_asc') {
+          if (!a.added && !b.added) return 0;
+          if (!a.added) return 1;
+          if (!b.added) return -1;
+          return (a.added || '').localeCompare(b.added || '');
+        }
         return 0;
       });
 
@@ -561,6 +599,23 @@
         }
         const director = m.director ? `<div class="meta-line"><strong>Dir:</strong> ${m.director}</div>` : '';
         const actors = m.actors ? `<div class="meta-line"><strong>Cast:</strong> ${m.actors}</div>` : '';
+
+        const dateEnteredVal = (m.added || m.date_entered || '').trim();
+        const dateWatchedVal = (m.watched || m.date_watched || '').trim();
+
+        let datesHtml = '';
+        const dateParts = [];
+        if (dateEnteredVal) {
+          dateParts.push(`<strong>Entered:</strong> ${dateEnteredVal}`);
+        }
+        if (dateWatchedVal) {
+          dateParts.push(`<strong>Watched:</strong> ${dateWatchedVal}`);
+        } else if (dateEnteredVal) {
+          dateParts.push(`<strong>Watched:</strong> <span style="opacity: 0.5;">—</span>`);
+        }
+        if (dateParts.length > 0) {
+          datesHtml = `<div class="meta-line dates-line">${dateParts.join('&nbsp;&nbsp;•&nbsp;&nbsp;')}</div>`;
+        }
         
         let genresHtml = '';
         if (m.genres) {
@@ -592,6 +647,7 @@
               </div>
               ${director}
               ${actors}
+              ${datesHtml}
               ${genresHtml}
               ${summary}
               ${imdbId}
@@ -612,6 +668,7 @@
     });
     sortSelect.addEventListener('change', applyFilters);
     dvdFilter.addEventListener('change', applyFilters);
+    if (watchedFilter) watchedFilter.addEventListener('change', applyFilters);
     genreFilter.addEventListener('change', applyFilters);
     reloadBtn.addEventListener('click', () => loadMovies(rawUrlInput.value.trim()));
 

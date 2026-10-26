@@ -41,8 +41,17 @@ def export_json(db_path=None, output_path=None):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, DVD, runtime, certification 
+    cur.execute("PRAGMA table_info(My_Films);")
+    cols = [c[1] for c in cur.fetchall()]
+    has_added = "ADDED" in cols
+    has_watched = "WATCHED" in cols
+
+    cols_select = "IMDB_ID, title, year, rating, my_rating, director, actors, generes, summary, cover, DVD, runtime, certification"
+    cols_select += ", ADDED" if has_added else ", NULL"
+    cols_select += ", WATCHED" if has_watched else ", NULL"
+
+    cur.execute(f"""
+        SELECT {cols_select} 
         FROM My_Films
         ORDER BY title COLLATE NOCASE ASC;
     """)
@@ -50,7 +59,7 @@ def export_json(db_path=None, output_path=None):
 
     movies = []
     for r in rows:
-        imdb_id, title, year, rating, my_rating, director, actors, genres, summary, cover, dvd, runtime, cert = r
+        imdb_id, title, year, rating, my_rating, director, actors, genres, summary, cover, dvd, runtime, cert, added, watched = r
         movies.append({
             "id": imdb_id,
             "title": (title or "").strip(),
@@ -64,7 +73,9 @@ def export_json(db_path=None, output_path=None):
             "cover": (cover or "").strip(),
             "dvd": dvd,
             "runtime": (runtime or "").strip(),
-            "cert": (cert or "").strip()
+            "cert": (cert or "").strip(),
+            "added": (added or "").strip(),
+            "watched": (watched or "").strip()
         })
 
     with open(output_path, "w", encoding="utf-8") as f:
