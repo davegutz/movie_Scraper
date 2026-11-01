@@ -35,6 +35,7 @@
 #  result found in dist folder
 #
 import io
+import json
 import re
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[([0-9;]+)m')
 import os
@@ -1910,6 +1911,23 @@ class IMDBdataBase:
         No files are ever deleted at either end.
         """
         local_dir = local_path if local_path.endswith('/') else f"{local_path}/"
+
+        # Ensure local destination directory exists or attempt auto-mount if it is on the Lib drive
+        if not os.path.isdir(local_dir):
+            if "/media/daveg/Lib" in local_dir or os.path.exists("/dev/disk/by-label/Lib"):
+                try:
+                    subprocess.run(["udisksctl", "mount", "-b", "/dev/disk/by-label/Lib"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                except Exception:
+                    pass
+            if not os.path.isdir(local_dir):
+                err_msg = f"Local library directory does not exist or is not mounted:\n{local_dir}\n\nPlease mount the storage drive and try again."
+                try:
+                    tk.messagebox.showerror("Backup Error", err_msg, parent=getattr(self, "root", None))
+                except Exception:
+                    print(err_msg)
+                return None
+
         common_flags = [
             "--update",
             "--tpslimit", str(getattr(self, 'rclone_tpslimit', '8')),
@@ -2066,6 +2084,7 @@ class IMDBdataBase:
                 ("Pass 2/2: Upload (Local -> Remote)", cmd_upload),
             ]
             last_ret = 0
+            recovered_auth = False
             for pass_title, cmd in passes:
                 if runner_state['stopped'] or stop_tail_event.is_set():
                     break
@@ -2089,6 +2108,40 @@ class IMDBdataBase:
                     ))
                     proc.wait()
                     last_ret = proc.returncode
+
+                    if last_ret != 0 and not recovered_auth:
+                        auth_error = False
+                        try:
+                            if os.path.exists(log_file):
+                                with open(log_file, 'r', encoding='utf-8', errors='replace') as lf:
+                                    tail_log = lf.read()[-4000:].lower()
+                                    if 'invalid credentials' in tail_log or 'error 401' in tail_log or 'autherror' in tail_log:
+                                        auth_error = True
+                        except Exception:
+                            pass
+
+                        if auth_error:
+                            recovered_auth = True
+                            try:
+                                with open(log_file, 'a', encoding='utf-8') as lf:
+                                    lf.write("\n[Auth Recovery]: Invalid/stale credentials detected. Refreshing OAuth token and retrying pass...\n\n")
+                            except Exception:
+                                pass
+                            IMDBdataBase._reset_rclone_token_expiry(remote_path)
+                            status_lbl.after(0, lambda pt=pass_title: status_lbl.config(
+                                text=f"Refreshing token & retrying {pt}..."
+                            ))
+                            proc = subprocess.Popen(
+                                cmd,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                stdin=subprocess.DEVNULL,
+                                close_fds=True
+                            )
+                            runner_state['proc'] = proc
+                            proc.wait()
+                            last_ret = proc.returncode
+
                     if last_ret != 0:
                         break
                 except Exception as ex:
@@ -2129,6 +2182,47 @@ class IMDBdataBase:
 
         threading.Thread(target=tail_worker, daemon=True).start()
         return win
+
+    @staticmethod
+    def _reset_rclone_token_expiry(remote_path, conf_path=None):
+        """Reset token expiry in rclone.conf so rclone is forced to refresh its OAuth token."""
+        if conf_path is None:
+            conf_path = os.path.expanduser("~/.config/rclone/rclone.conf")
+        if not os.path.exists(conf_path):
+            return False
+        remote_section = remote_path.split(":", 1)[0].strip()
+        try:
+            with open(conf_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            in_section = False
+            modified = False
+            new_lines = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    sec = stripped[1:-1].strip()
+                    in_section = (sec == remote_section)
+                    new_lines.append(line)
+                    continue
+                if in_section and line.startswith("token ="):
+                    try:
+                        val = line.split("=", 1)[1].strip()
+                        token_data = json.loads(val)
+                        if "expiry" in token_data:
+                            token_data["expiry"] = "2000-01-01T00:00:00Z"
+                            new_lines.append(f"token = {json.dumps(token_data)}\n")
+                            modified = True
+                            continue
+                    except Exception:
+                        pass
+                new_lines.append(line)
+            if modified:
+                with open(conf_path, "w", encoding="utf-8") as f:
+                    f.writelines(new_lines)
+                return True
+        except Exception:
+            pass
+        return False
 
     def _run_rclone_copy(self, src_path, remote_dest, log_file, title_name, win_title):
         """Compatibility wrapper that maps to safe two-way rclone copy."""
