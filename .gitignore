@@ -4,6 +4,7 @@
 .idea/movie_Scraper.iml
 /build
 /dist
+IMDB_Films.db
 GUI_sqlite_scrape.spec
 IMDB_Films.db-journal
 *.pyc

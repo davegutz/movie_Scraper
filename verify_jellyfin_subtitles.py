@@ -49,7 +49,7 @@ except ImportError:
 # Default paths
 DEFAULT_MOVIES_DIR = "/media/daveg/Lib/Movies"
 DEFAULT_PROOF_DIR = "/media/daveg/Lib/Movies/subtitle_proof"
-DEFAULT_DB_PATH = "/home/daveg/Documents/GitHub/movie_Scraper/IMDB_Films.db"
+DEFAULT_DB_PATH = "/home/daveg/Documents/GitHub/myComputer/IMDB_Films.db"
 DEFAULT_CACHE_DIR = DEFAULT_PROOF_DIR
 VIDEO_EXTS = {'.m4v', '.mp4', '.mkv', '.avi', '.mov', '.ts', '.m2ts', '.webm'}
 
