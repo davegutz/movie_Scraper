@@ -627,6 +627,428 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
             self.assertNotIn("Green Movie (2020)", out)
             self.assertIn("[NON-GREEN / ISSUES ONLY]", out)
 
+    def test_is_entry_error(self):
+        # 1. Clean green entry
+        self.assertFalse(cdh.is_entry_error('SRT', 'DIRECT', 'YES', dur_status='OK'))
+        self.assertFalse(cdh.is_entry_error('Text', 'DIRECT', 'YES', dur_status='OK'))
+
+        # 2. Orange entry: Improperly sized (NO) -> non-green, but not an error/red
+        self.assertFalse(cdh.is_entry_error('SRT', 'DIRECT', 'NO', dur_status='OK'))
+
+        # 3. Yellow entry: Jellyfin transcode required -> non-green, but not an error/red
+        self.assertFalse(cdh.is_entry_error('Bitmap', 'TRANSCODE', 'YES', dur_status='OK'))
+
+        # 4. Blue entry: Missing subtitles -> warning/blue, but not an error/red
+        self.assertFalse(cdh.is_entry_error('None', '-', 'YES', dur_status='OK'))
+        self.assertFalse(cdh.is_entry_error('-', '-', 'YES', dur_status='OK'))
+
+        # 5. Red entry: Duration mismatch
+        self.assertTrue(cdh.is_entry_error('SRT', 'DIRECT', 'YES', dur_status='MISMATCH'))
+
+        # 6. Red entry: Subtitle overrun / desync
+        self.assertTrue(cdh.is_entry_error('OVERRUN', 'DESYNC', 'YES', dur_status='OK'))
+        self.assertTrue(cdh.is_entry_error('SRT', 'DESYNC', 'YES', dur_status='OK'))
+
+        # 7. Red entry: Incomplete multi-part
+        self.assertTrue(cdh.is_entry_error('SRT', 'DIRECT', 'YES', dur_status='PART_1', is_multipart=True))
+
+        # 8. Red entry: Missing video (has_video=False)
+        self.assertTrue(cdh.is_entry_error('-', '-', '-', has_video=False))
+
+    def test_is_entry_warning(self):
+        # 1. Clean green entry -> False
+        self.assertFalse(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', dur_status='OK'))
+        self.assertFalse(cdh.is_entry_warning('Text', 'DIRECT', 'YES', dur_status='OK'))
+
+        # 2. Blue entry: Missing subtitles -> False (warnings are orange, yellow, and red)
+        self.assertFalse(cdh.is_entry_warning('None', '-', 'YES', dur_status='OK'))
+        self.assertFalse(cdh.is_entry_warning('-', '-', 'YES', dur_status='OK'))
+
+        # 3. Orange entry: Improperly sized (NO) -> True
+        self.assertTrue(cdh.is_entry_warning('SRT', 'DIRECT', 'NO', dur_status='OK'))
+
+        # 4. Yellow entry: Jellyfin transcode required -> True
+        self.assertTrue(cdh.is_entry_warning('Bitmap', 'TRANSCODE', 'YES', dur_status='OK'))
+
+        # 5. Red entry: Duration mismatch -> True
+        self.assertTrue(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', dur_status='MISMATCH'))
+
+        # 6. Red entry: Subtitle overrun / desync -> True
+        self.assertTrue(cdh.is_entry_warning('OVERRUN', 'DESYNC', 'YES', dur_status='OK'))
+        self.assertTrue(cdh.is_entry_warning('SRT', 'DESYNC', 'YES', dur_status='OK'))
+
+        # 7. Red entry: Incomplete multi-part -> True
+        self.assertTrue(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', dur_status='PART_1', is_multipart=True))
+
+        # 8. Red entry: Missing video (has_video=False) -> True
+        self.assertTrue(cdh.is_entry_warning('-', '-', '-', has_video=False))
+
+    def test_main_show_errors_cli_flag(self):
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        dummy_movies = [
+            {
+                'imdb_id': 'tt001',
+                'title': 'Green Movie',
+                'norm_title': 'green movie',
+                'display_title': 'Green Movie',
+                'display_title_year': 'Green Movie (2020)',
+                'year': 2020,
+                'rating': 8.0,
+                'my_rating': 8.0,
+                'dvd': 1,
+                'watched': 'NO',
+                'certification': 'R',
+                'time': '01:30',
+                'db_time': '01:30',
+                'dur_status': 'OK',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '1080p',
+                'fps': '23.98',
+                'sub': 'SRT',
+                'jellyfin': 'DIRECT',
+                'sized': 'YES',
+                'oversized': 'NO',
+                'size_bytes': 1024 * 1024 * 500,
+                'size_gb': 0.5,
+                'compact_title': 'greenmovie',
+                'no_art_title': 'green movie'
+            },
+            {
+                'imdb_id': 'tt002',
+                'title': 'Blue Movie',
+                'norm_title': 'blue movie',
+                'display_title': 'Blue Movie',
+                'display_title_year': 'Blue Movie (2021)',
+                'year': 2021,
+                'rating': 7.0,
+                'my_rating': 7.0,
+                'dvd': 2,
+                'watched': 'NO',
+                'certification': 'PG',
+                'time': '01:30',
+                'db_time': '01:30',
+                'dur_status': 'OK',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '1080p',
+                'fps': '23.98',
+                'sub': 'None',
+                'jellyfin': '-',
+                'sized': 'YES',
+                'oversized': 'NO',
+                'size_bytes': 1024 * 1024 * 500,
+                'size_gb': 0.5,
+                'compact_title': 'bluemovie',
+                'no_art_title': 'blue movie'
+            },
+            {
+                'imdb_id': 'tt003',
+                'title': 'Orange Movie',
+                'norm_title': 'orange movie',
+                'display_title': 'Orange Movie',
+                'display_title_year': 'Orange Movie (2022)',
+                'year': 2022,
+                'rating': 7.5,
+                'my_rating': 7.5,
+                'dvd': 3,
+                'watched': 'NO',
+                'certification': 'PG',
+                'time': '01:30',
+                'db_time': '01:30',
+                'dur_status': 'OK',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '720p',
+                'fps': '23.98',
+                'sub': 'SRT',
+                'jellyfin': 'DIRECT',
+                'sized': 'NO',
+                'oversized': 'YES',
+                'size_bytes': 1024 * 1024 * 1024 * 6,
+                'size_gb': 6.0,
+                'compact_title': 'orangemovie',
+                'no_art_title': 'orange movie'
+            },
+            {
+                'imdb_id': 'tt004',
+                'title': 'Red Movie',
+                'norm_title': 'red movie',
+                'display_title': 'Red Movie',
+                'display_title_year': 'Red Movie (2023)',
+                'year': 2023,
+                'rating': 9.0,
+                'my_rating': 9.0,
+                'dvd': 4,
+                'watched': 'NO',
+                'certification': 'R',
+                'time': '01:30',
+                'db_time': '01:30',
+                'dur_status': 'MISMATCH',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '1080p',
+                'fps': '23.98',
+                'sub': 'SRT',
+                'jellyfin': 'DIRECT',
+                'sized': 'YES',
+                'oversized': 'NO',
+                'size_bytes': 1024 * 1024 * 500,
+                'size_gb': 0.5,
+                'compact_title': 'redmovie',
+                'no_art_title': 'red movie'
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            movies_dir = os.path.join(tmpdir, "Movies")
+            os.makedirs(movies_dir)
+            for title in ['Green Movie (2020)', 'Blue Movie (2021)', 'Orange Movie (2022)', 'Red Movie (2023)']:
+                f = os.path.join(movies_dir, f"{title}.mp4")
+                with open(f, "wb") as fp:
+                    fp.write(b"data")
+
+            # 1. With --show-errors: Red Movie must appear; Green, Blue, and Orange must NOT appear
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=[
+                            ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '1080p', '23.98', '01:30', 'None', '-'),
+                            ('H264', '720p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '1080p', '23.98', '03:00', 'OVERRUN', 'DESYNC')
+                        ]):
+                            with patch('check_database_health.check_sized', side_effect=lambda res, sz, tm, **kw: 'NO' if res == '720p' else 'YES'):
+                                cdh.main("--library", movies_dir, "--show-errors", "--show-only", "matched", "--quiet")
+            out = buf.getvalue()
+            self.assertIn("Red Movie", out)
+            self.assertNotIn("Green Movie", out)
+            self.assertNotIn("Blue Movie", out)
+            self.assertNotIn("Orange Movie", out)
+
+            # 2. Test standard tabular header displays [ERRORS / RED-FLAGGED ONLY]
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=[
+                            ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '1080p', '23.98', '01:30', 'None', '-'),
+                            ('H264', '720p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '1080p', '23.98', '03:00', 'OVERRUN', 'DESYNC')
+                        ]):
+                            with patch('check_database_health.check_sized', side_effect=lambda res, sz, tm, **kw: 'NO' if res == '720p' else 'YES'):
+                                cdh.main("--library", movies_dir, "--show-errors", "--show-only", "matched")
+            out = buf.getvalue()
+            self.assertIn("Red Movie", out)
+            self.assertNotIn("Green Movie (2020)", out)
+            self.assertNotIn("Blue Movie (2021)", out)
+            self.assertNotIn("Orange Movie (2022)", out)
+            self.assertIn("[ERRORS / RED-FLAGGED ONLY]", out)
+
+    def test_main_show_warnings_cli_flag(self):
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        dummy_movies = [
+            {
+                'imdb_id': 'tt001',
+                'title': 'Green Movie',
+                'norm_title': 'green movie',
+                'display_title': 'Green Movie',
+                'display_title_year': 'Green Movie (2020)',
+                'year': 2020,
+                'rating': 8.0,
+                'my_rating': 8.0,
+                'dvd': 1,
+                'watched': 'NO',
+                'certification': 'R',
+                'time': '01:30',
+                'db_time': '01:30',
+                'dur_status': 'OK',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '1080p',
+                'fps': '23.98',
+                'sub': 'SRT',
+                'jellyfin': 'DIRECT',
+                'sized': 'YES',
+                'oversized': 'NO',
+                'size_bytes': 1024 * 1024 * 500,
+                'size_gb': 0.5,
+                'compact_title': 'greenmovie',
+                'no_art_title': 'green movie'
+            },
+            {
+                'imdb_id': 'tt002',
+                'title': 'Blue Movie',
+                'norm_title': 'blue movie',
+                'display_title': 'Blue Movie',
+                'display_title_year': 'Blue Movie (2021)',
+                'year': 2021,
+                'rating': 7.0,
+                'my_rating': 7.0,
+                'dvd': 2,
+                'watched': 'NO',
+                'certification': 'PG',
+                'time': '01:30',
+                'db_time': '01:30',
+                'dur_status': 'OK',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '1080p',
+                'fps': '23.98',
+                'sub': 'None',
+                'jellyfin': '-',
+                'sized': 'YES',
+                'oversized': 'NO',
+                'size_bytes': 1024 * 1024 * 500,
+                'size_gb': 0.5,
+                'compact_title': 'bluemovie',
+                'no_art_title': 'blue movie'
+            },
+            {
+                'imdb_id': 'tt003',
+                'title': 'Orange Movie',
+                'norm_title': 'orange movie',
+                'display_title': 'Orange Movie',
+                'display_title_year': 'Orange Movie (2022)',
+                'year': 2022,
+                'rating': 7.5,
+                'my_rating': 7.5,
+                'dvd': 3,
+                'watched': 'NO',
+                'certification': 'PG',
+                'time': '01:30',
+                'db_time': '01:30',
+                'dur_status': 'OK',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '720p',
+                'fps': '23.98',
+                'sub': 'SRT',
+                'jellyfin': 'DIRECT',
+                'sized': 'NO',
+                'oversized': 'YES',
+                'size_bytes': 1024 * 1024 * 1024 * 6,
+                'size_gb': 6.0,
+                'compact_title': 'orangemovie',
+                'no_art_title': 'orange movie'
+            },
+            {
+                'imdb_id': 'tt004',
+                'title': 'Yellow Movie',
+                'norm_title': 'yellow movie',
+                'display_title': 'Yellow Movie',
+                'display_title_year': 'Yellow Movie (2023)',
+                'year': 2023,
+                'rating': 7.8,
+                'my_rating': 7.8,
+                'dvd': 4,
+                'watched': 'NO',
+                'certification': 'PG',
+                'time': '01:30',
+                'db_time': '01:30',
+                'dur_status': 'OK',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '1080p',
+                'fps': '23.98',
+                'sub': 'Bitmap',
+                'jellyfin': 'TRANSCODE',
+                'sized': 'YES',
+                'oversized': 'NO',
+                'size_bytes': 1024 * 1024 * 500,
+                'size_gb': 0.5,
+                'compact_title': 'yellowmovie',
+                'no_art_title': 'yellow movie'
+            },
+            {
+                'imdb_id': 'tt005',
+                'title': 'Red Movie',
+                'norm_title': 'red movie',
+                'display_title': 'Red Movie',
+                'display_title_year': 'Red Movie (2024)',
+                'year': 2024,
+                'rating': 9.0,
+                'my_rating': 9.0,
+                'dvd': 5,
+                'watched': 'NO',
+                'certification': 'R',
+                'time': '01:30',
+                'db_time': '01:30',
+                'dur_status': 'MISMATCH',
+                'ext': '.mp4',
+                'format': 'H264',
+                'resolution': '1080p',
+                'fps': '23.98',
+                'sub': 'SRT',
+                'jellyfin': 'DIRECT',
+                'sized': 'YES',
+                'oversized': 'NO',
+                'size_bytes': 1024 * 1024 * 500,
+                'size_gb': 0.5,
+                'compact_title': 'redmovie',
+                'no_art_title': 'red movie'
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            movies_dir = os.path.join(tmpdir, "Movies")
+            os.makedirs(movies_dir)
+            for title in ['Green Movie (2020)', 'Blue Movie (2021)', 'Orange Movie (2022)', 'Yellow Movie (2023)', 'Red Movie (2024)']:
+                f = os.path.join(movies_dir, f"{title}.mp4")
+                with open(f, "wb") as fp:
+                    fp.write(b"data")
+
+            # 1. With --show-warnings: Orange, Yellow, and Red must appear; Green and Blue must NOT appear
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=[
+                            ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '1080p', '23.98', '01:30', 'None', '-'),
+                            ('H264', '720p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '1080p', '23.98', '01:30', 'Bitmap', 'TRANSCODE'),
+                            ('H264', '1080p', '23.98', '03:00', 'OVERRUN', 'DESYNC')
+                        ]):
+                            with patch('check_database_health.check_sized', side_effect=lambda res, sz, tm, **kw: 'NO' if res == '720p' else 'YES'):
+                                cdh.main("--library", movies_dir, "--show-warnings", "--show-only", "matched", "--quiet")
+            out = buf.getvalue()
+            self.assertIn("Orange Movie", out)
+            self.assertIn("Yellow Movie", out)
+            self.assertIn("Red Movie", out)
+            self.assertNotIn("Green Movie", out)
+            self.assertNotIn("Blue Movie", out)
+
+            # 2. Test standard tabular header displays [WARNINGS / ORANGE, YELLOW, RED ONLY]
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=[
+                            ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '1080p', '23.98', '01:30', 'None', '-'),
+                            ('H264', '720p', '23.98', '01:30', 'SRT', 'DIRECT'),
+                            ('H264', '1080p', '23.98', '01:30', 'Bitmap', 'TRANSCODE'),
+                            ('H264', '1080p', '23.98', '03:00', 'OVERRUN', 'DESYNC')
+                        ]):
+                            with patch('check_database_health.check_sized', side_effect=lambda res, sz, tm, **kw: 'NO' if res == '720p' else 'YES'):
+                                cdh.main("--library", movies_dir, "--show-warnings", "--show-only", "matched")
+            out = buf.getvalue()
+            self.assertIn("Orange Movie (2022)", out)
+            self.assertIn("Yellow Movie (2023)", out)
+            self.assertIn("Red Movie (2024)", out)
+            self.assertNotIn("Green Movie (2020)", out)
+            self.assertNotIn("Blue Movie (2021)", out)
+            self.assertIn("[WARNINGS / ORANGE, YELLOW, RED ONLY]", out)
+
 
 if __name__ == '__main__':
     unittest.main()

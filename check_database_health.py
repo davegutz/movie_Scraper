@@ -879,6 +879,45 @@ def is_entry_non_green(sub_val, jf_val, sized_val, dur_status='OK', is_multipart
     return row_c != '\033[92m'
 
 
+def is_entry_error(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multipart=False, has_video=True):
+    """
+    Determine if an entry has a red-flagged error/failure status:
+      - Missing video in DB (has_video=False).
+      - Overrun or desynced subtitles (sub_val in ('OVERRUN', 'DESYNC') or jf_val == 'DESYNC').
+      - Duration mismatch vs DB or incomplete multi-part split rip (dur_status == 'MISMATCH' or (dur_status != 'OK' and is_multipart)).
+    Returns True if red (fail/error); False otherwise.
+    """
+    row_c, _, _, _, _, _ = get_entry_colors(
+        sub_val, jf_val, sized_val,
+        dur_status=dur_status,
+        is_multipart=is_multipart,
+        has_video=has_video,
+        use_color=True,
+        require_subtitles=False
+    )
+    return row_c == '\033[91m'
+
+
+def is_entry_warning(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multipart=False, has_video=True):
+    """
+    Determine if an entry has a warning or error status (Orange, Yellow, or Red):
+      - Red: Overrun/desync subtitles, duration mismatch, incomplete multi-part, or missing video (has_video=False).
+      - Orange: Improperly sized (sized_val == 'NO').
+      - Yellow: Heavy Jellyfin load / transcoding required (jf_val == 'TRANSCODE').
+    Excludes clean entries (Green) and movies merely missing subtitles (Blue).
+    Returns True if orange, yellow, or red; False otherwise.
+    """
+    row_c, _, _, _, _, _ = get_entry_colors(
+        sub_val, jf_val, sized_val,
+        dur_status=dur_status,
+        is_multipart=is_multipart,
+        has_video=has_video,
+        use_color=True,
+        require_subtitles=False
+    )
+    return row_c in ('\033[91m', '\033[38;5;208m', '\033[93m')
+
+
 def status_msg(msg, advance=False):
     """
     Print status message using \r without advancing the line if advance=False.
@@ -1637,6 +1676,18 @@ def main(*raw_args):
         help="Filter output to display/export only non-green entries (health issues, warnings, missing subtitles, oversized files, transcoding bitmap subtitles, or duration mismatches)."
     )
     parser.add_argument(
+        "--show-errors", "--errors-only", "--red-only",
+        dest="show_errors",
+        action="store_true",
+        help="Filter output to display/export only red-flagged entries (health check errors/fails: duration mismatches, split multi-disc rips, overrun/desynced subtitles, or missing video files)."
+    )
+    parser.add_argument(
+        "--show-warnings", "--warnings-only",
+        dest="show_warnings",
+        action="store_true",
+        help="Filter output to display/export entries with warnings or errors (orange: improperly sized, yellow: transcoding required, red: health check failures/missing video; excludes blue missing subtitles and green clean)."
+    )
+    parser.add_argument(
         "--ratio", "--max-gb-per-hour",
         dest="max_gb_per_hour",
         type=float,
@@ -2121,6 +2172,72 @@ def main(*raw_args):
             missing_db = []
         unmatched_videos = [v for v in unmatched_videos if check_multipart(v.get('filename')) or v.get('dur_status') == 'MISMATCH' or v.get('sub') == 'OVERRUN' or v.get('jellyfin') == 'DESYNC']
 
+    # Filter for show-errors (red-only) if requested
+    is_filtered_errors = getattr(args, 'show_errors', False)
+    if is_filtered_errors:
+        if is_movies:
+            matched = [
+                (mov, mat) for mov, mat in matched
+                if is_entry_error(
+                    mat.get('sub', '-'),
+                    mat.get('jellyfin', '-'),
+                    mat.get('sized', '-'),
+                    dur_status=mov.get('dur_status', 'OK'),
+                    is_multipart=mov.get('is_multipart', False),
+                    has_video=True
+                )
+            ]
+            matched_bytes = sum(mat.get('size_bytes') or int((mat.get('size_gb') or 0) * (1024 ** 3)) for _, mat in matched)
+            matched_gb = matched_bytes / (1024 ** 3)
+            # missing_db entries have has_video=False, which are inherently red (errors), so they are preserved
+            missing_db = [m for m in missing_db if is_entry_error('-', '-', has_video=False)]
+        unmatched_videos = [
+            v for v in unmatched_videos
+            if is_entry_error(
+                v.get('sub', '-'),
+                v.get('jellyfin', '-'),
+                v.get('sized', '-'),
+                dur_status=v.get('dur_status', 'OK'),
+                is_multipart=bool(check_multipart(v.get('filename'))),
+                has_video=True
+            )
+        ]
+        unmatched_bytes = sum(v.get('size_bytes') or int((v.get('size_gb') or 0) * (1024 ** 3)) for v in unmatched_videos)
+        unmatched_gb = unmatched_bytes / (1024 ** 3)
+
+    # Filter for show-warnings (orange, yellow, red) if requested
+    is_filtered_warnings = getattr(args, 'show_warnings', False)
+    if is_filtered_warnings:
+        if is_movies:
+            matched = [
+                (mov, mat) for mov, mat in matched
+                if is_entry_warning(
+                    mat.get('sub', '-'),
+                    mat.get('jellyfin', '-'),
+                    mat.get('sized', '-'),
+                    dur_status=mov.get('dur_status', 'OK'),
+                    is_multipart=mov.get('is_multipart', False),
+                    has_video=True
+                )
+            ]
+            matched_bytes = sum(mat.get('size_bytes') or int((mat.get('size_gb') or 0) * (1024 ** 3)) for _, mat in matched)
+            matched_gb = matched_bytes / (1024 ** 3)
+            # missing_db entries have has_video=False, which are inherently red (warnings/errors), so they are preserved
+            missing_db = [m for m in missing_db if is_entry_warning('-', '-', has_video=False)]
+        unmatched_videos = [
+            v for v in unmatched_videos
+            if is_entry_warning(
+                v.get('sub', '-'),
+                v.get('jellyfin', '-'),
+                v.get('sized', '-'),
+                dur_status=v.get('dur_status', 'OK'),
+                is_multipart=bool(check_multipart(v.get('filename'))),
+                has_video=True
+            )
+        ]
+        unmatched_bytes = sum(v.get('size_bytes') or int((v.get('size_gb') or 0) * (1024 ** 3)) for v in unmatched_videos)
+        unmatched_gb = unmatched_bytes / (1024 ** 3)
+
     # Filter for non-green-only if requested
     is_filtered_non_green = getattr(args, 'non_green_only', False)
     if is_filtered_non_green:
@@ -2395,7 +2512,11 @@ def main(*raw_args):
             print("=" * banner_len)
 
             if not is_movies:
-                if is_filtered_non_green:
+                if is_filtered_errors:
+                    sized_label = " [ERRORS / RED-FLAGGED ONLY]"
+                elif is_filtered_warnings:
+                    sized_label = " [WARNINGS / ORANGE, YELLOW, RED ONLY]"
+                elif is_filtered_non_green:
                     sized_label = " [NON-GREEN / ISSUES ONLY]"
                 elif is_filtered_not_sized:
                     sized_label = " [ALL IMPROPERLY SIZED]"
@@ -2440,7 +2561,11 @@ def main(*raw_args):
             else:
                 # Section 1: Matched Titles (Output before Missing Titles)
                 if args.show_only in ('all', 'matched'):
-                    if is_filtered_non_green:
+                    if is_filtered_errors:
+                        sized_label = " [ERRORS / RED-FLAGGED ONLY]"
+                    elif is_filtered_warnings:
+                        sized_label = " [WARNINGS / ORANGE, YELLOW, RED ONLY]"
+                    elif is_filtered_non_green:
                         sized_label = " [NON-GREEN / ISSUES ONLY]"
                     elif is_filtered_not_sized:
                         sized_label = " [ALL IMPROPERLY SIZED]"
@@ -2517,7 +2642,11 @@ def main(*raw_args):
                 # Section 3: Unmatched Library Video Files
                 if args.show_only in ('all', 'unmatched', 'both'):
                     sec_num = 3 if (args.show_only == 'all' and not is_filtered_not_sized) else (2 if args.show_only in ('all', 'both') else 1)
-                    if is_filtered_non_green:
+                    if is_filtered_errors:
+                        sized_label = " [ERRORS / RED-FLAGGED ONLY]"
+                    elif is_filtered_warnings:
+                        sized_label = " [WARNINGS / ORANGE, YELLOW, RED ONLY]"
+                    elif is_filtered_non_green:
                         sized_label = " [NON-GREEN / ISSUES ONLY]"
                     elif is_filtered_not_sized:
                         sized_label = " [ALL IMPROPERLY SIZED]"
@@ -2582,7 +2711,9 @@ if __name__ == "__main__":
         main()
     else:
         # Default: Movies library (/media/daveg/Lib/Movies)
-        main("--non-green", "--show-only", "matched")
+        # main("--non-green", "--show-only", "matched")
+        # main("--show-errors", "--show-only", "matched")
+        main("--show-warnings", "--show-only", "matched")
 
         # TV Shows library (/media/daveg/Lib/TV Shows):
         # main("--library", "TV Shows")

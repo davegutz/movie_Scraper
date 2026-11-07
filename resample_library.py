@@ -2164,10 +2164,10 @@ if __name__ == "__main__":
         # Uses default Equivalent Ratio Criteria (e.g. 1.25 GB/hr for <=540p, 3.00 GB/hr for 1080p).
         # To specify an actual ratio across all files, pass e.g.: "--ratio 1.0 "
         main(
-             "--max-files 500 --sort-by size_desc "  # largest files
+             "--max-files 5 --sort-by size_desc "  # largest files
              # "--movies-dir '/media/daveg/Lib/TV Shows' "
-             "--movies-dir '/media/daveg/Lib/Videos' "
-             "--no-download-srt "  # There are no subtitles for TV shows
+             # "--movies-dir '/media/daveg/Lib/Videos' "
+             # "--no-download-srt "  # There are no subtitles for TV shows
              )
              # "--dry-run")
 

@@ -434,6 +434,40 @@ class IMDBdataBase:
                                              font=('LilyUPC', 9, 'bold'), bg=light_purple,
                                              width=25, command=self.run_check_database_health)
         self.check_db_health_btn.pack(side='left')
+        self.check_db_health_errors_var = tk.BooleanVar(value=False)
+        self.check_db_health_warnings_var = tk.BooleanVar(value=False)
+
+        def _on_error_toggle():
+            if self.check_db_health_errors_var.get():
+                self.check_db_health_warnings_var.set(False)
+
+        def _on_warning_toggle():
+            if self.check_db_health_warnings_var.get():
+                self.check_db_health_errors_var.set(False)
+
+        self.check_db_health_errors_chk = tk.Checkbutton(
+            self.check_db_health_frame,
+            text="Errors only",
+            variable=self.check_db_health_errors_var,
+            command=_on_error_toggle,
+            font=('LilyUPC', 9, 'bold'),
+            bg=bg_color,
+            selectcolor=bg_color,
+            activebackground=bg_color
+        )
+        self.check_db_health_errors_chk.pack(side='left', padx=(5, 0))
+
+        self.check_db_health_warnings_chk = tk.Checkbutton(
+            self.check_db_health_frame,
+            text="Warnings",
+            variable=self.check_db_health_warnings_var,
+            command=_on_warning_toggle,
+            font=('LilyUPC', 9, 'bold'),
+            bg=bg_color,
+            selectcolor=bg_color,
+            activebackground=bg_color
+        )
+        self.check_db_health_warnings_chk.pack(side='left', padx=(5, 0))
 
         self.check_git_db_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
         self.check_git_db_frame.pack(side='top', fill='both')
@@ -1562,12 +1596,27 @@ class IMDBdataBase:
             tk.messagebox.showerror("Error", f"Could not find script: {script_path}")
             return
 
+        errors_only = bool(getattr(self, 'check_db_health_errors_var', None) and self.check_db_health_errors_var.get())
+        warnings_only = bool(getattr(self, 'check_db_health_warnings_var', None) and self.check_db_health_warnings_var.get())
         cmd = [sys.executable, script_path, '--color', 'always']
+        if errors_only:
+            cmd.append('--show-errors')
+        elif warnings_only:
+            cmd.append('--show-warnings')
         if self.db_path and os.path.isfile(self.db_path):
             cmd.extend(['--db', self.db_path])
 
         win = tk.Toplevel(self.root)
-        win.title("Check Database Health")
+        if errors_only:
+            win.title("Check Database Health (Errors Only)")
+            status_text = "Running database health check (Errors Only)..."
+        elif warnings_only:
+            win.title("Check Database Health (Warnings - Orange, Yellow, Red)")
+            status_text = "Running database health check (Warnings - Orange, Yellow, Red)..."
+        else:
+            win.title("Check Database Health")
+            status_text = "Running database health check..."
+
         win.geometry("1150x650")
         win.config(bg=bg_color, padx=10, pady=10)
 
@@ -1575,7 +1624,7 @@ class IMDBdataBase:
         header_frame.pack(side='top', fill='x', pady=(0, 5))
         status_lbl = tk.Label(
             header_frame,
-            text="Running database health check...",
+            text=status_text,
             font=('David', 12, 'bold'),
             bg=bg_color,
             fg=blue_back_color
@@ -1599,6 +1648,7 @@ class IMDBdataBase:
         txt.tag_config('red', foreground='#ff6b6b')
         txt.tag_config('orange', foreground='#ff9f43')
         txt.tag_config('yellow', foreground='#feca57')
+        txt.tag_config('blue', foreground='#54a0ff')
         txt.tag_config('green', foreground='#1dd1a1')
 
         h_scroll = tk.Scrollbar(win, orient='horizontal', command=txt.xview)
@@ -1634,6 +1684,8 @@ class IMDBdataBase:
                     curr_tag = 'orange'
                 elif code in ('93',):
                     curr_tag = 'yellow'
+                elif code in ('94', '34'):
+                    curr_tag = 'blue'
                 elif code in ('92', '32'):
                     curr_tag = 'green'
                 last_idx = match.end()

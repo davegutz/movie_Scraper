@@ -265,5 +265,94 @@ class TestGoogleDriveBackup(unittest.TestCase):
         self.app.destination_lib_butt.config.assert_not_called()
 
 
+    def test_reset_rclone_token_expiry(self):
+        import tempfile
+        sample_conf = """[gdrive]
+type = drive
+scope = drive
+#token = {"access_token":"old","expiry":"2026-10-22T07:32:52"}
+client_id = test_id
+token = {"access_token": "abc", "expiry": "2026-10-29T15:00:00Z", "refresh_token": "xyz"}
+
+[other]
+type = drive
+token = {"access_token": "def", "expiry": "2026-10-29T15:00:00Z"}
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write(sample_conf)
+            tname = f.name
+        try:
+            res = GUI_sqlite_scrape.IMDBdataBase._reset_rclone_token_expiry("gdrive:Movies", tname)
+            self.assertTrue(res)
+            with open(tname) as f:
+                new_text = f.read()
+            self.assertIn('"expiry": "2000-01-01T00:00:00Z"', new_text)
+            self.assertIn('[other]\ntype = drive\ntoken = {"access_token": "def", "expiry": "2026-10-29T15:00:00Z"}', new_text)
+        finally:
+            if os.path.exists(tname):
+                os.unlink(tname)
+
+    @patch('GUI_sqlite_scrape.IMDBdataBase._reset_rclone_token_expiry')
+    @patch('subprocess.Popen')
+    @patch('GUI_sqlite_scrape.tk.Toplevel')
+    @patch('GUI_sqlite_scrape.scrolledtext.ScrolledText')
+    @patch('GUI_sqlite_scrape.tk.Label')
+    @patch('GUI_sqlite_scrape.tk.Button')
+    @patch('GUI_sqlite_scrape.tk.Frame')
+    @patch('GUI_sqlite_scrape.tk.Scrollbar')
+    def test_auth_error_auto_recovery_retries(
+            self, mock_scrollbar, mock_frame, mock_btn, mock_lbl, mock_scrolled, mock_toplevel, mock_popen, mock_reset_expiry):
+        proc_fail = MagicMock()
+        proc_fail.pid = 1111
+        def fake_wait():
+            with open(test_log, "a") as f:
+                f.write("\nError 401: Request had invalid authentication credentials. authError Invalid Credentials\n")
+            return 1
+        proc_fail.wait.side_effect = fake_wait
+        proc_fail.returncode = 1
+
+        proc_pass1 = MagicMock()
+        proc_pass1.pid = 2222
+        proc_pass1.wait.return_value = 0
+        proc_pass1.returncode = 0
+
+        proc_pass2 = MagicMock()
+        proc_pass2.pid = 3333
+        proc_pass2.wait.return_value = 0
+        proc_pass2.returncode = 0
+
+        mock_popen.side_effect = [proc_fail, proc_pass1, proc_pass2]
+
+        mock_win = MagicMock()
+        mock_toplevel.return_value = mock_win
+
+        test_log = "/tmp/test_rclone_auth_recovery.log"
+        with open(test_log, "w") as f:
+            f.write("Some log before\nError 401: Invalid Credentials authError\n")
+
+        self.app.rclone_log_file = test_log
+
+        try:
+            win = GUI_sqlite_scrape.IMDBdataBase.google_drive_backup(self.app)
+            if hasattr(win, "runner_thread"):
+                win.runner_thread.join(timeout=1.0)
+
+            self.assertEqual(mock_popen.call_count, 3)
+            mock_reset_expiry.assert_called_once_with("gdrive:Movies")
+        finally:
+            if os.path.exists(test_log):
+                os.unlink(test_log)
+
+    @patch("GUI_sqlite_scrape.tk.messagebox.showerror")
+    @patch("os.path.isdir", return_value=False)
+    @patch("os.path.exists", return_value=False)
+    @patch("subprocess.run")
+    @patch("subprocess.Popen")
+    def test_backup_aborts_cleanly_when_directory_unmounted(self, mock_popen, mock_run, mock_exists, mock_isdir, mock_showerror):
+        res = GUI_sqlite_scrape.IMDBdataBase.google_drive_backup(self.app)
+        self.assertIsNone(res)
+        mock_popen.assert_not_called()
+        mock_showerror.assert_called_once()
+
 if __name__ == '__main__':
     unittest.main()
