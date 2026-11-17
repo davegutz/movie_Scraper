@@ -295,52 +295,68 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         c_yellow = '\033[93m'
 
         # Default require_subtitles=True (Movies): missing subtitles flag as blue
-        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('-', '-', 'YES', require_subtitles=True)
+        r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('-', '-', 'YES', require_subtitles=True)
         self.assertEqual(r_c, c_blue)
         self.assertEqual(s_c, c_blue)
         self.assertEqual(j_c, c_blue)
 
-        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('None', '-', 'YES', require_subtitles=True)
+        r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('None', '-', 'YES', require_subtitles=True)
         self.assertEqual(r_c, c_blue)
         self.assertEqual(s_c, c_blue)
         self.assertEqual(j_c, c_blue)
 
         # Missing subtitles + improperly sized: Blue takes precedence over Orange
-        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('None', '-', 'NO', require_subtitles=True)
+        r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('None', '-', 'NO', require_subtitles=True)
         self.assertEqual(r_c, c_blue)
         self.assertEqual(s_c, c_blue)
         self.assertEqual(j_c, c_blue)
         self.assertEqual(sz_c, c_orange)
 
         # Missing subtitles + duration mismatch: Red takes precedence over Blue
-        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('None', '-', 'YES', dur_status='MISMATCH', require_subtitles=True)
+        r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('None', '-', 'YES', dur_status='MISMATCH', require_subtitles=True)
         self.assertEqual(r_c, c_red)
         self.assertEqual(s_c, c_blue)
         self.assertEqual(j_c, c_blue)
         self.assertEqual(t_c, c_red)
 
         # require_subtitles=False (TV Shows): missing subtitles are NOT red or blue; row is clean green if sized
-        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('-', '-', 'YES', require_subtitles=False)
+        r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('-', '-', 'YES', require_subtitles=False)
         self.assertEqual(r_c, c_green)
         self.assertEqual(s_c, '')
         self.assertEqual(j_c, '')
 
-        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('None', '-', 'YES', require_subtitles=False)
+        r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('None', '-', 'YES', require_subtitles=False)
         self.assertEqual(r_c, c_green)
         self.assertEqual(s_c, '')
         self.assertEqual(j_c, '')
 
         # require_subtitles=False with oversized (NO): row is orange, subs not red or blue
-        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('-', '-', 'NO', require_subtitles=False)
+        r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('-', '-', 'NO', require_subtitles=False)
         self.assertEqual(r_c, c_orange)
         self.assertEqual(s_c, '')
         self.assertEqual(j_c, '')
 
         # require_subtitles=False with genuine desync/overrun: still flags red
-        r_c, s_c, j_c, sz_c, t_c, rst = cdh.get_entry_colors('OVERRUN', 'DESYNC', 'YES', require_subtitles=False)
+        r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('OVERRUN', 'DESYNC', 'YES', require_subtitles=False)
         self.assertEqual(r_c, c_red)
         self.assertEqual(s_c, c_red)
         self.assertEqual(j_c, c_red)
+
+        # Supported audio formats on Roku (AAC, MP3, WAV/AIFF, FLAC, ALAC, AC3, E-AC3, DTS pass-through) are clean green
+        for codec in ('AAC', 'aac', 'MP3', 'mp3', 'WAV', 'AIFF', 'WAV/AIFF', 'PCM', 'FLAC', 'flac', 'ALAC', 'alac', 'AC3', 'ac3', 'E-AC3', 'EAC3', 'DTS', 'DTS-HD', 'DTS pass-through'):
+            r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', sound_val=codec)
+            self.assertEqual(r_c, c_green, f"Expected {codec} to be green row")
+            self.assertEqual(snd_c, c_green, f"Expected {codec} to be green sound")
+            self.assertFalse(cdh.is_entry_error('SRT', 'DIRECT', 'YES', sound_val=codec))
+
+        # Unsupported audio formats on Roku (Opus, MP2, TrueHD, Vorbis, WMA, etc.) flag RED
+        for bad_codec in ('Opus', 'opus', 'MP2', 'mp2', 'TrueHD', 'Vorbis', 'WMA', 'unknown'):
+            r_c, s_c, j_c, sz_c, t_c, snd_c, rst = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', sound_val=bad_codec)
+            self.assertEqual(r_c, c_red, f"Expected {bad_codec} to be red row")
+            self.assertEqual(snd_c, c_red, f"Expected {bad_codec} to be red sound")
+            self.assertTrue(cdh.is_entry_error('SRT', 'DIRECT', 'YES', sound_val=bad_codec))
+            self.assertTrue(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', sound_val=bad_codec))
+            self.assertTrue(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', sound_val=bad_codec))
 
     def test_tv_shows_color_key_and_subtitles(self):
         import io
@@ -355,7 +371,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
 
         # TV Shows Color Key assertions
         self.assertIn("Note: TV shows may not have subtitles; missing subtitles are not flagged as health check failures.", tv_out)
-        self.assertIn("Fails health check (desynced/overrun timestamps, or duration mismatch/split rip)", tv_out)
+        self.assertIn("Fails health check (unsupported audio, desynced/overrun timestamps, or duration mismatch/split rip)", tv_out)
         self.assertNotIn("Fails health check (no subtitles", tv_out)
         self.assertNotIn("● Blue:", tv_out)
 
@@ -370,7 +386,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         # Movies Color Key assertions
         self.assertIn("● Blue:", mov_out)
         self.assertIn("No subtitles (fix: run fetch_subtitles)", mov_out)
-        self.assertIn("Fails health check (desynced/overrun subs, or duration mismatch/split rip)", mov_out)
+        self.assertIn("Fails health check (unsupported audio, desynced/overrun subs, or duration mismatch/split rip)", mov_out)
         self.assertNotIn("Fails health check (no subtitles", mov_out)
         self.assertNotIn("Note: TV shows may not have subtitles", mov_out)
 
@@ -1048,6 +1064,114 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
             self.assertNotIn("Green Movie (2020)", out)
             self.assertNotIn("Blue Movie (2021)", out)
             self.assertIn("[WARNINGS / ORANGE, YELLOW, RED ONLY]", out)
+
+    def test_sound_codec_and_column(self):
+        import io
+        import csv
+        import shutil
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        # 1. Test format_sound helper and is_supported_audio
+        self.assertEqual(cdh.format_sound('aac'), 'AAC')
+        self.assertEqual(cdh.format_sound('mp4a-40-2'), 'AAC')
+        self.assertEqual(cdh.format_sound('opus'), 'Opus')
+        self.assertEqual(cdh.format_sound('ac-3'), 'AC3')
+        self.assertEqual(cdh.format_sound('eac3'), 'E-AC3')
+        self.assertEqual(cdh.format_sound('ec-3'), 'E-AC3')
+        self.assertEqual(cdh.format_sound('dts'), 'DTS')
+        self.assertEqual(cdh.format_sound('mp3'), 'MP3')
+        self.assertEqual(cdh.format_sound('flac'), 'FLAC')
+        self.assertEqual(cdh.format_sound('alac'), 'ALAC')
+        self.assertEqual(cdh.format_sound('wav'), 'WAV')
+        self.assertEqual(cdh.format_sound('aiff'), 'AIFF')
+        self.assertEqual(cdh.format_sound('pcm_s16le'), 'PCM')
+        self.assertEqual(cdh.format_sound('truehd'), 'TrueHD')
+        self.assertEqual(cdh.format_sound('-'), '-')
+        self.assertEqual(cdh.format_sound(None), '-')
+
+        # Test is_supported_audio
+        for sup in ('AAC', 'MP3', 'WAV', 'AIFF', 'WAV/AIFF', 'PCM', 'FLAC', 'ALAC', 'AC3', 'E-AC3', 'EAC3', 'DTS', 'DTS-HD', 'DTS pass-through'):
+            self.assertTrue(cdh.is_supported_audio(sup), f"Expected {sup} to be supported")
+        for unsup in ('Opus', 'MP2', 'TrueHD', 'Vorbis', 'WMA', 'speex'):
+            self.assertFalse(cdh.is_supported_audio(unsup), f"Expected {unsup} to be unsupported")
+
+        # 2. Test CLI output has Sound column and flags Opus as red
+        tmpdir = tempfile.mkdtemp()
+        movies_dir = os.path.join(tmpdir, "Movies")
+        os.makedirs(movies_dir, exist_ok=True)
+        try:
+            aac_file = os.path.join(movies_dir, "AAC Film (2021).mp4")
+            opus_file = os.path.join(movies_dir, "Opus Film (2020).mp4")
+            open(aac_file, 'a').close()
+            open(opus_file, 'a').close()
+
+            dummy_movies = [
+                {
+                    'imdb_id': 'tt2222222', 'title': 'AAC Film', 'year': 2021, 'dvd': 2, 'my_rating': 7.5,
+                    'norm_title': 'aac film', 'display_title': 'AAC Film', 'display_title_year': 'AAC Film (2021)',
+                    'compact_title': 'aacfilm', 'no_art_title': 'aac film', 'time': '01:30', 'db_time': '01:30',
+                    'dur_status': 'OK', 'watched': 'NO', 'certification': 'PG-13', 'rating': 7.5
+                },
+                {
+                    'imdb_id': 'tt1111111', 'title': 'Opus Film', 'year': 2020, 'dvd': 1, 'my_rating': 8.0,
+                    'norm_title': 'opus film', 'display_title': 'Opus Film', 'display_title_year': 'Opus Film (2020)',
+                    'compact_title': 'opusfilm', 'no_art_title': 'opus film', 'time': '01:30', 'db_time': '01:30',
+                    'dur_status': 'OK', 'watched': 'NO', 'certification': 'R', 'rating': 8.0
+                }
+            ]
+
+            # In alphabetical order: AAC Film (2021), Opus Film (2020)
+            mock_probe_results = [
+                ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT', 'AAC'),
+                ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT', 'Opus')
+            ]
+
+            # Run with --color always to verify red ANSI tag on Opus
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=mock_probe_results):
+                            cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "always")
+            out = buf.getvalue()
+            # Sound column in header
+            self.assertIn("Sound", out)
+            # Opus flagged with red ANSI code \033[91m
+            self.assertIn("\033[91mOpus", out)
+            # AAC present in clean green
+            self.assertIn("\033[92mAAC", out)
+
+            # 3. Test --show-errors filters in Opus and filters out AAC
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=mock_probe_results):
+                            cdh.main("--library", movies_dir, "--show-errors", "--show-only", "matched")
+            out = buf.getvalue()
+            self.assertIn("Opus Film (2020)", out)
+            self.assertNotIn("AAC Film (2021)", out)
+
+            # 4. Test CSV export includes Sound column
+            csv_path = os.path.join(tmpdir, "test_sound_export.csv")
+            matched_records = [
+                (dummy_movies[1], {'ext': '.mp4', 'format': 'H264', 'sound': 'Opus', 'resolution': '1080p', 'fps': '23.98', 'size_gb': 1.5, 'sub': 'SRT', 'jellyfin': 'DIRECT', 'sized': 'YES', 'filename': 'Opus Film (2020).mp4', 'path': opus_file}),
+                (dummy_movies[0], {'ext': '.mp4', 'format': 'H264', 'sound': 'AAC', 'resolution': '1080p', 'fps': '23.98', 'size_gb': 1.5, 'sub': 'SRT', 'jellyfin': 'DIRECT', 'sized': 'YES', 'filename': 'AAC Film (2021).mp4', 'path': aac_file}),
+            ]
+            cdh.write_matched_file(csv_path, matched_records, 'csv')
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                header = next(reader)
+                self.assertIn('Sound', header)
+                sound_idx = header.index('Sound')
+                row1 = next(reader)
+                row2 = next(reader)
+                self.assertEqual(row1[sound_idx], 'Opus')
+                self.assertEqual(row2[sound_idx], 'AAC')
+
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 if __name__ == '__main__':

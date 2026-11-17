@@ -1617,7 +1617,7 @@ class IMDBdataBase:
             win.title("Check Database Health")
             status_text = "Running database health check..."
 
-        win.geometry("1150x650")
+        win.geometry("1220x650")
         win.config(bg=bg_color, padx=10, pady=10)
 
         header_frame = tk.Frame(win, bg=bg_color)
