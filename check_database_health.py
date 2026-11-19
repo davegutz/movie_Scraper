@@ -2712,6 +2712,7 @@ def main(*raw_args):
             print("=" * banner_len)
 
             if not is_movies:
+                red_tv_lines = []
                 if is_filtered_errors:
                     sized_label = " [ERRORS / RED-FLAGGED ONLY]"
                 elif is_filtered_warnings:
@@ -2757,10 +2758,19 @@ def main(*raw_args):
                     sound_p = f"{snd_c}{sound_display:<6}{r_c}" if use_color else f"{sound_display:<6}"
                     if sort_by_mtime:
                         mod_display = v.get('modified', '-')
-                        print(f"{r_c}  {subfolder_display:<24} {v['ext']:<6} {fmt_display:<6} {sound_p} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {fn_display}{rst}")
+                        row_line = f"{r_c}  {subfolder_display:<24} {v['ext']:<6} {fmt_display:<6} {sound_p} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {fn_display}{rst}"
                     else:
-                        print(f"{r_c}  {subfolder_display:<24} {v['ext']:<6} {fmt_display:<6} {sound_p} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {fn_display}{rst}")
+                        row_line = f"{r_c}  {subfolder_display:<24} {v['ext']:<6} {fmt_display:<6} {sound_p} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {fn_display}{rst}"
+                    print(row_line)
+                    is_red = (r_c == c_red) if use_color else is_entry_error(
+                        sub_display, jf_display, sized_display,
+                        is_multipart=is_mp_unmatched, has_video=True, sound_val=sound_display
+                    )
+                    if is_red:
+                        red_tv_lines.append(row_line)
             else:
+                red_matched_lines = []
+                red_unmatched_lines = []
                 # Section 1: Matched Titles (Output before Missing Titles)
                 if args.show_only in ('all', 'matched'):
                     if is_filtered_errors:
@@ -2814,9 +2824,16 @@ def main(*raw_args):
                         rate_display = format_rate(movie_item.get('my_rating'))
                         if sort_by_mtime:
                             mod_display = match_item.get('modified', '-')
-                            print(f"{r_c}  {movie_item['imdb_id']:<10} {rate_display:<5} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {sound_p} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {title_display}{rst}")
+                            row_line = f"{r_c}  {movie_item['imdb_id']:<10} {rate_display:<5} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {sound_p} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {title_display}{rst}"
                         else:
-                            print(f"{r_c}  {movie_item['imdb_id']:<10} {rate_display:<5} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {sound_p} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {title_display}{rst}")
+                            row_line = f"{r_c}  {movie_item['imdb_id']:<10} {rate_display:<5} {dvd_display:<5} {ext_display:<6} {fmt_display:<6} {sound_p} {res_display:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {title_display}{rst}"
+                        print(row_line)
+                        is_red = (r_c == c_red) if use_color else is_entry_error(
+                            sub_display, jf_display, sized_display,
+                            dur_status=dur_stat, is_multipart=is_mp, has_video=True, sound_val=sound_display
+                        )
+                        if is_red:
+                            red_matched_lines.append(row_line)
 
                 # Section 2: Missing DB Titles
                 if args.show_only in ('all', 'missing', 'both') and not is_filtered_not_sized:
@@ -2893,9 +2910,16 @@ def main(*raw_args):
                         rate_display = "-"
                         if sort_by_mtime:
                             mod_display = v.get('modified', '-')
-                            print(f"{r_c}  {subfolder_display:<16} {rate_display:<5} {v['ext']:<6} {fmt_display:<6} {sound_p} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {fn_display}{rst}")
+                            row_line = f"{r_c}  {subfolder_display:<16} {rate_display:<5} {v['ext']:<6} {fmt_display:<6} {sound_p} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {mod_display:<17} {fn_display}{rst}"
                         else:
-                            print(f"{r_c}  {subfolder_display:<16} {rate_display:<5} {v['ext']:<6} {fmt_display:<6} {sound_p} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {fn_display}{rst}")
+                            row_line = f"{r_c}  {subfolder_display:<16} {rate_display:<5} {v['ext']:<6} {fmt_display:<6} {sound_p} {v['resolution']:<7} {fps_display:<6} {sz_display:>6}   {time_p} {rate_gb_display:>6} {sub_p} {jf_p} {sized_p} {fn_display}{rst}"
+                        print(row_line)
+                        is_red = (r_c == c_red) if use_color else is_entry_error(
+                            sub_display, jf_display, sized_display,
+                            is_multipart=is_mp_unmatched, has_video=True, sound_val=sound_display
+                        )
+                        if is_red:
+                            red_unmatched_lines.append(row_line)
 
             if not is_movies:
                 if args.output:
@@ -2909,6 +2933,55 @@ def main(*raw_args):
                     print(f"[+] Missing list saved to: {os.path.abspath(args.output)} ({fmt.upper()} format)")
                 if args.output_unmatched:
                     print(f"[+] Unmatched list saved to: {os.path.abspath(args.output_unmatched)}")
+
+            # Tail end: Print all entries with red lettering
+            if not is_movies:
+                print(f"\n{'=' * banner_len}")
+                if red_tv_lines:
+                    print(f"  {c_red}Entries with Red Lettering (Health Check Failures):{c_reset} {len(red_tv_lines):,} item(s)")
+                    print(f"{'=' * banner_len}")
+                    if sort_by_mtime:
+                        print(f"  {'Subfolder':<24} {'Ext':<6} {'Fmt':<6} {'Sound':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'GB/hr':>6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Filename'}")
+                        print(f"  {'-'*22:<24} {'-'*4:<6} {'-'*4:<6} {'-'*5:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*5:>6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*15:<17} {'-'*46}")
+                    else:
+                        print(f"  {'Subfolder':<24} {'Ext':<6} {'Fmt':<6} {'Sound':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'GB/hr':>6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Filename'}")
+                        print(f"  {'-'*22:<24} {'-'*4:<6} {'-'*4:<6} {'-'*5:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*5:>6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
+                    for line in red_tv_lines:
+                        print(line)
+                else:
+                    print("  Entries with Red Lettering: 0 items")
+                print("=" * banner_len)
+            else:
+                total_red = len(red_matched_lines) + len(red_unmatched_lines)
+                print(f"\n{'=' * banner_len}")
+                if total_red > 0:
+                    print(f"  {c_red}Entries with Red Lettering (Health Check Failures):{c_reset} {total_red:,} item(s)")
+                    print(f"{'=' * banner_len}")
+                    if red_matched_lines:
+                        if red_unmatched_lines:
+                            print(f"\n  Matched Titles ({len(red_matched_lines):,} items):")
+                        if sort_by_mtime:
+                            print(f"  {'IMDB ID':<10} {'Rate':<5} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Sound':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'GB/hr':>6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Title'}")
+                            print(f"  {'-'*8:<10} {'-'*4:<5} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*5:>6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*15:<17} {'-'*46}")
+                        else:
+                            print(f"  {'IMDB ID':<10} {'Rate':<5} {'DVD':<5} {'Ext':<6} {'Fmt':<6} {'Sound':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'GB/hr':>6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Title'}")
+                            print(f"  {'-'*8:<10} {'-'*4:<5} {'-'*3:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*5:>6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
+                        for line in red_matched_lines:
+                            print(line)
+                    if red_unmatched_lines:
+                        if red_matched_lines:
+                            print(f"\n  Unmatched Titles ({len(red_unmatched_lines):,} items):")
+                        if sort_by_mtime:
+                            print(f"  {'Subfolder':<16} {'Rate':<5} {'Ext':<6} {'Fmt':<6} {'Sound':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'GB/hr':>6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Filename'}")
+                            print(f"  {'-'*14:<16} {'-'*4:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*5:>6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*15:<17} {'-'*46}")
+                        else:
+                            print(f"  {'Subfolder':<16} {'Rate':<5} {'Ext':<6} {'Fmt':<6} {'Sound':<6} {'Res':<7} {'FPS':<6} {'Size':>6}   {'Time':<6} {'GB/hr':>6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Filename'}")
+                            print(f"  {'-'*14:<16} {'-'*4:<5} {'-'*4:<6} {'-'*4:<6} {'-'*5:<6} {'-'*5:<7} {'-'*4:<6} {'-'*5:>6}   {'-'*5:<6} {'-'*5:>6} {'-'*6:<8} {'-'*8:<11} {'-'*5:<7} {'-'*46}")
+                        for line in red_unmatched_lines:
+                            print(line)
+                else:
+                    print("  Entries with Red Lettering: 0 items")
+                print("=" * banner_len)
             print()
     except BrokenPipeError:
         pass

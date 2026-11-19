@@ -1173,6 +1173,73 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
+    def test_tail_end_red_entries_collection(self):
+        """Test that entries with red lettering are collected and printed at the tail end of the output."""
+        import io
+        import shutil
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        tmpdir = tempfile.mkdtemp()
+        movies_dir = os.path.join(tmpdir, "Movies")
+        os.makedirs(movies_dir, exist_ok=True)
+        try:
+            aac_file = os.path.join(movies_dir, "Clean Movie (2021).mp4")
+            opus_file = os.path.join(movies_dir, "Red Opus Movie (2020).mp4")
+            open(aac_file, 'a').close()
+            open(opus_file, 'a').close()
+
+            dummy_movies = [
+                {
+                    'imdb_id': 'tt1111111', 'title': 'Clean Movie', 'year': 2021, 'dvd': 1, 'my_rating': 8.0,
+                    'norm_title': 'clean movie', 'display_title': 'Clean Movie', 'display_title_year': 'Clean Movie (2021)',
+                    'compact_title': 'cleanmovie', 'no_art_title': 'clean movie', 'time': '01:30', 'db_time': '01:30',
+                    'dur_status': 'OK', 'watched': 'NO', 'certification': 'PG-13', 'rating': 8.0
+                },
+                {
+                    'imdb_id': 'tt2222222', 'title': 'Red Opus Movie', 'year': 2020, 'dvd': 2, 'my_rating': 7.5,
+                    'norm_title': 'red opus movie', 'display_title': 'Red Opus Movie', 'display_title_year': 'Red Opus Movie (2020)',
+                    'compact_title': 'redopusmovie', 'no_art_title': 'red opus movie', 'time': '01:30', 'db_time': '01:30',
+                    'dur_status': 'OK', 'watched': 'NO', 'certification': 'R', 'rating': 7.5
+                }
+            ]
+
+            mock_probe_results = [
+                ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT', 'AAC'),
+                ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT', 'Opus')
+            ]
+
+            # 1. Run with red entry present
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=mock_probe_results):
+                            cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "always")
+            out = buf.getvalue()
+            self.assertIn("Entries with Red Lettering (Health Check Failures):", out)
+            self.assertIn("1 item(s)", out)
+            tail_part = out.split("Entries with Red Lettering (Health Check Failures):")[1]
+            self.assertIn("Red Opus Movie (2020)", tail_part)
+            self.assertNotIn("Clean Movie (2021)", tail_part)
+
+            # 2. Run with all clean entries (0 red entries)
+            clean_probe_results = [
+                ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT', 'AAC'),
+                ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT', 'AAC')
+            ]
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=clean_probe_results):
+                            cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "always")
+            out = buf.getvalue()
+            self.assertIn("Entries with Red Lettering: 0 items", out)
+
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 if __name__ == '__main__':
     unittest.main()
