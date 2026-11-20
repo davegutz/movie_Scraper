@@ -4,6 +4,7 @@ export_movies_json.py
 
 Exports My_Films database table to a compact JSON file ('movies.json')
 that can be committed to GitHub and fetched live by the movie search web app.
+Supports filtering by DVD number and sorting by my_rating (or title, year, rating, etc.).
 Optionally stages, commits, and pushes to GitHub with --push or -p.
 """
 
@@ -29,7 +30,98 @@ def get_db_path():
     return os.path.join(SCRIPT_DIR, "IMDB_Films.db")
 
 
-def export_json(db_path=None, output_path=None):
+def parse_dvd_filter(dvd):
+    """
+    Parse dvd parameter into (values_list, include_null_zero_bool).
+    Returns None if dvd is None or 'all'.
+    """
+    if dvd is None:
+        return None
+
+    if isinstance(dvd, str):
+        val_str = dvd.strip().lower()
+        if not val_str or val_str == 'all':
+            return None
+        if val_str in ('owned', 'owned_only', 'any'):
+            return ([1, 2, 3, 4], False)
+        if val_str in ('dvd', 'dvd_only'):
+            return ([1], False)
+        if val_str in ('screencast', 'screencast_only'):
+            return ([2, 4], False)
+        if val_str in ('both', 'both_only'):
+            return ([3], False)
+        if val_str in ('none', 'not_owned', 'not_owned_only', 'unowned'):
+            return ([0], True)
+
+        raw_parts = [p.strip() for p in dvd.split(',') if p.strip()]
+        vals = []
+        include_zero = False
+        for p in raw_parts:
+            try:
+                num = int(p)
+                vals.append(num)
+                if num == 0:
+                    include_zero = True
+            except ValueError:
+                vals.append(p)
+        return (vals, include_zero)
+
+    if isinstance(dvd, (int, float)):
+        num = int(dvd)
+        return ([num], num == 0)
+
+    if isinstance(dvd, (list, tuple, set)):
+        vals = []
+        include_zero = False
+        for item in dvd:
+            try:
+                num = int(item)
+                vals.append(num)
+                if num == 0:
+                    include_zero = True
+            except (ValueError, TypeError):
+                vals.append(item)
+        return (vals, include_zero)
+
+    return ([dvd], False)
+
+
+def build_order_clause(sort_by="title", order=None):
+    """
+    Build SQL ORDER BY clause given sort_by field and order ('asc'/'desc').
+    """
+    s = str(sort_by or 'title').strip().lower().replace('-', '_')
+    if order is not None:
+        order_dir = str(order).strip().upper()
+        if order_dir not in ('ASC', 'DESC'):
+            order_dir = 'ASC'
+    else:
+        order_dir = None
+
+    if s in ('my_rating', 'my_rate', 'rating_mine', 'myrate'):
+        direction = order_dir if order_dir else 'DESC'
+        return f"CASE WHEN my_rating IS NULL OR my_rating = '' THEN 1 ELSE 0 END, my_rating {direction}, title COLLATE NOCASE ASC"
+    elif s in ('rating', 'imdb_rating', 'imdb'):
+        direction = order_dir if order_dir else 'DESC'
+        return f"CASE WHEN rating IS NULL OR rating = '' THEN 1 ELSE 0 END, rating {direction}, title COLLATE NOCASE ASC"
+    elif s in ('year', 'release_year'):
+        direction = order_dir if order_dir else 'DESC'
+        return f"CASE WHEN year IS NULL OR year = '' THEN 1 ELSE 0 END, year {direction}, title COLLATE NOCASE ASC"
+    elif s in ('added', 'date_added'):
+        direction = order_dir if order_dir else 'DESC'
+        return f"CASE WHEN ADDED IS NULL OR ADDED = '' THEN 1 ELSE 0 END, ADDED {direction}, title COLLATE NOCASE ASC"
+    elif s in ('watched', 'date_watched'):
+        direction = order_dir if order_dir else 'DESC'
+        return f"CASE WHEN WATCHED IS NULL OR WATCHED = '' THEN 1 ELSE 0 END, WATCHED {direction}, title COLLATE NOCASE ASC"
+    elif s in ('dvd', 'dvd_number'):
+        direction = order_dir if order_dir else 'ASC'
+        return f"CASE WHEN DVD IS NULL OR DVD = '' THEN 1 ELSE 0 END, CAST(DVD AS INTEGER) {direction}, title COLLATE NOCASE ASC"
+    else:
+        direction = order_dir if order_dir else 'ASC'
+        return f"title COLLATE NOCASE {direction}"
+
+
+def export_json(db_path=None, output_path=None, dvd=None, sort_by="title", order=None):
     db_path = db_path or get_db_path()
     output_path = output_path or OUTPUT_JSON
 
@@ -50,16 +142,57 @@ def export_json(db_path=None, output_path=None):
     cols_select += ", ADDED" if has_added else ", NULL"
     cols_select += ", WATCHED" if has_watched else ", NULL"
 
-    cur.execute(f"""
+    # WHERE clause for DVD filter
+    where_parts = []
+    params = []
+    dvd_spec = parse_dvd_filter(dvd)
+    if dvd_spec is not None:
+        vals, include_null_zero = dvd_spec
+        non_zero_vals = [v for v in vals if v != 0 and v != '0']
+        clause_items = []
+        if non_zero_vals:
+            placeholders = ", ".join("?" for _ in non_zero_vals)
+            clause_items.append(f"DVD IN ({placeholders})")
+            params.extend(non_zero_vals)
+            clause_items.append(f"CAST(DVD AS INTEGER) IN ({placeholders})")
+            params.extend(non_zero_vals)
+        if include_null_zero:
+            clause_items.append("DVD = 0")
+            clause_items.append("DVD = '0'")
+            clause_items.append("DVD = ''")
+            clause_items.append("DVD IS NULL")
+            clause_items.append("CAST(DVD AS INTEGER) = 0")
+
+        if clause_items:
+            combined = " OR ".join(clause_items)
+            if not include_null_zero:
+                where_parts.append(f"({combined}) AND DVD IS NOT NULL AND DVD != ''")
+            else:
+                where_parts.append(f"({combined})")
+
+    where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+    # Check if requested sort column exists in database schema
+    norm_sort = str(sort_by or 'title').strip().lower().replace('-', '_')
+    if norm_sort in ('added', 'date_added') and not has_added:
+        sort_by = 'title'
+    elif norm_sort in ('watched', 'date_watched') and not has_watched:
+        sort_by = 'title'
+
+    order_sql = build_order_clause(sort_by=sort_by, order=order)
+
+    query = f"""
         SELECT {cols_select} 
         FROM My_Films
-        ORDER BY title COLLATE NOCASE ASC;
-    """)
+        {where_sql}
+        ORDER BY {order_sql};
+    """
+    cur.execute(query, params)
     rows = cur.fetchall()
 
     movies = []
     for r in rows:
-        imdb_id, title, year, rating, my_rating, director, actors, genres, summary, cover, dvd, runtime, cert, added, watched = r
+        imdb_id, title, year, rating, my_rating, director, actors, genres, summary, cover, dvd_val, runtime, cert, added, watched = r
         movies.append({
             "id": imdb_id,
             "title": (title or "").strip(),
@@ -71,7 +204,7 @@ def export_json(db_path=None, output_path=None):
             "genres": (genres or "").strip(),
             "summary": (summary or "").strip(),
             "cover": (cover or "").strip(),
-            "dvd": dvd,
+            "dvd": dvd_val,
             "runtime": (runtime or "").strip(),
             "cert": (cert or "").strip(),
             "added": (added or "").strip(),
@@ -82,7 +215,13 @@ def export_json(db_path=None, output_path=None):
         json.dump(movies, f, separators=(',', ':'), ensure_ascii=False)
 
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
-    print(f"  [✓] Exported {len(movies):,} movies to: {output_path} ({size_mb:.2f} MB)")
+    info_parts = []
+    if dvd_spec is not None:
+        info_parts.append(f"DVD: {dvd}")
+    if norm_sort not in ('title', ''):
+        info_parts.append(f"Sorted by: {sort_by}")
+    info_str = f" ({', '.join(info_parts)})" if info_parts else ""
+    print(f"  [✓] Exported {len(movies):,} movies{info_str} to: {output_path} ({size_mb:.2f} MB)")
     return len(movies), output_path
 
 
@@ -132,10 +271,26 @@ def main():
     parser = argparse.ArgumentParser(description="Export My_Films database table to JSON for web app.")
     parser.add_argument("--db", default=None, help="Path to SQLite database file.")
     parser.add_argument("--output", "-o", default=None, help="Output JSON path (default: movies.json).")
+    parser.add_argument("--dvd", "--dvd-number", dest="dvd", default=None,
+                        help="Filter by DVD number (e.g. 1, 2, '1,2', or 'owned'). Default: all.")
+    parser.add_argument("--sort", "--sort-by", dest="sort_by", default="title",
+                        choices=["title", "my_rating", "rating", "year", "added", "watched", "dvd"],
+                        help="Sort field (default: title).")
+    parser.add_argument("--sort-my-rating", dest="sort_my_rating", action="store_true",
+                        help="Shortcut to sort by my_rating descending.")
+    parser.add_argument("--order", choices=["asc", "desc"], default=None,
+                        help="Sort direction (asc or desc).")
     parser.add_argument("--push", "-p", action="store_true", help="Automatically commit and push movies.json to GitHub.")
     args = parser.parse_args()
 
-    count, out_file = export_json(args.db, args.output)
+    sort_field = "my_rating" if args.sort_my_rating else args.sort_by
+    count, out_file = export_json(
+        db_path=args.db,
+        output_path=args.output,
+        dvd=args.dvd,
+        sort_by=sort_field,
+        order=args.order
+    )
     if args.push:
         git_commit_and_push(out_file)
 

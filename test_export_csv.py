@@ -128,6 +128,46 @@ class TestExportMoviesCSV(unittest.TestCase):
             mock_top.return_value.title.assert_called_with("Export Movies.csv")
             mock_thread.return_value.start.assert_called_once()
 
+    def test_export_csv_filter_by_dvd(self):
+        """Verify export_csv filters correctly by DVD number."""
+        count, out_file = export_movies_csv.export_csv(db_path=self.db_path, output_path=self.csv_path, dvd=1)
+        self.assertEqual(count, 2)
+        with open(out_file, "r", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual([r["title"] for r in rows], ["Alien", "Godfather, The"])
+
+    def test_export_csv_sort_by_my_rating(self):
+        """Verify export_csv sorts correctly by my_rating."""
+        count, out_file = export_movies_csv.export_csv(
+            db_path=self.db_path, output_path=self.csv_path, sort_by="my_rating"
+        )
+        self.assertEqual(count, 4)
+        with open(out_file, "r", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        # Ratings: 9.5 (Godfather), 9.0 (Alien), 8.5 (Beautiful Mind, Casablanca)
+        self.assertEqual(rows[0]["title"], "Godfather, The")
+        self.assertEqual(rows[0]["my_rating"], "9.5")
+        self.assertEqual(rows[1]["title"], "Alien")
+        self.assertEqual(rows[1]["my_rating"], "9.0")
+
+    def test_cli_csv_dvd_and_sort_my_rating(self):
+        """Verify export_movies_csv CLI handles --dvd and --sort-my-rating options."""
+        test_args = [
+            "export_movies_csv.py",
+            "--db", self.db_path,
+            "-o", self.csv_path,
+            "--dvd", "1",
+            "--sort-my-rating"
+        ]
+        with patch('sys.argv', test_args):
+            export_movies_csv.main()
+
+        self.assertTrue(os.path.isfile(self.csv_path))
+        with open(self.csv_path, "r", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual([r["title"] for r in rows], ["Godfather, The", "Alien"])
+
 
 if __name__ == '__main__':
     unittest.main()

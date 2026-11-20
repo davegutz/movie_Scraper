@@ -489,6 +489,31 @@ class IMDBdataBase:
         self.export_csv_btn.pack(side='left', padx=(5, 0))
         self.export_movies_csv_btn = self.export_csv_btn
 
+        self.export_options_frame = tk.Frame(self.bot_frame_left, bg=bg_color)
+        self.export_options_frame.pack(side='top', fill='both', pady=(2, 0))
+
+        self.export_dvd_lbl = tk.Label(self.export_options_frame, text="DVD #:",
+                                       font=('LilyUPC', 9, 'bold'), bg=bg_color, fg=blue_front_color)
+        self.export_dvd_lbl.pack(side='left')
+
+        self.export_dvd_var = tk.StringVar(value="")
+        self.export_dvd_entry = tk.Entry(self.export_options_frame, textvariable=self.export_dvd_var,
+                                         width=6, font=('LilyUPC', 9, 'bold'),
+                                         fg=blue_front_color, bg=entry_color)
+        self.export_dvd_entry.pack(side='left', padx=(2, 10))
+
+        self.export_sort_rating_var = tk.BooleanVar(value=False)
+        self.export_sort_rating_chk = tk.Checkbutton(
+            self.export_options_frame,
+            text="Sort by My Rating",
+            variable=self.export_sort_rating_var,
+            font=('LilyUPC', 9, 'bold'),
+            bg=bg_color,
+            selectcolor=bg_color,
+            activebackground=bg_color
+        )
+        self.export_sort_rating_chk.pack(side='left')
+
         # Database
         self.scroll = tk.Scrollbar(self.top_frame, orient=tk.VERTICAL)
         try:
@@ -1746,6 +1771,37 @@ class IMDBdataBase:
         if self.db_path and os.path.isfile(self.db_path):
             cmd.extend(["--db", self.db_path])
 
+        dvd_val = ""
+        if hasattr(self, 'export_dvd_var') and self.export_dvd_var:
+            try:
+                dvd_val = self.export_dvd_var.get().strip()
+            except Exception:
+                dvd_val = ""
+        elif hasattr(self, 'export_dvd_entry') and self.export_dvd_entry:
+            try:
+                dvd_val = self.export_dvd_entry.get().strip()
+            except Exception:
+                dvd_val = ""
+
+        sort_rating = False
+        if hasattr(self, 'export_sort_rating_var') and self.export_sort_rating_var:
+            try:
+                sort_rating = bool(self.export_sort_rating_var.get())
+            except Exception:
+                sort_rating = False
+
+        if dvd_val and dvd_val.lower() != 'all':
+            cmd.extend(["--dvd", dvd_val])
+        if sort_rating:
+            cmd.extend(["--sort-my-rating"])
+
+        details = []
+        if dvd_val and dvd_val.lower() != 'all':
+            details.append(f"DVD: {dvd_val}")
+        if sort_rating:
+            details.append("Sorted by My Rating")
+        extra_info = f" ({', '.join(details)})" if details else ""
+
         win = tk.Toplevel(self.root)
         win.title("Export movies.json")
         win.geometry("750x350")
@@ -1755,7 +1811,7 @@ class IMDBdataBase:
         header_frame.pack(side='top', fill='x', pady=(0, 5))
         status_lbl = tk.Label(
             header_frame,
-            text="Exporting database to movies.json...",
+            text=f"Exporting database{extra_info} to movies.json...",
             font=('David', 12, 'bold'),
             bg=bg_color,
             fg=blue_back_color
@@ -1816,8 +1872,8 @@ class IMDBdataBase:
 
         def on_done(ret_code):
             if ret_code == 0:
-                status_lbl.config(text="Export to movies.json Complete (Success)!")
-                append_text("\n[✓] movies.json is updated. You can now commit and push via your normal git workflow.\n")
+                status_lbl.config(text=f"Export to movies.json Complete{extra_info} (Success)!")
+                append_text(f"\n[✓] movies.json is updated{extra_info}. You can now commit and push via your normal git workflow.\n")
             else:
                 status_lbl.config(text=f"Export finished with exit code {ret_code}.")
 
@@ -1856,6 +1912,37 @@ class IMDBdataBase:
         if self.db_path and os.path.isfile(self.db_path):
             cmd.extend(["--db", self.db_path])
 
+        dvd_val = ""
+        if hasattr(self, 'export_dvd_var') and self.export_dvd_var:
+            try:
+                dvd_val = self.export_dvd_var.get().strip()
+            except Exception:
+                dvd_val = ""
+        elif hasattr(self, 'export_dvd_entry') and self.export_dvd_entry:
+            try:
+                dvd_val = self.export_dvd_entry.get().strip()
+            except Exception:
+                dvd_val = ""
+
+        sort_rating = False
+        if hasattr(self, 'export_sort_rating_var') and self.export_sort_rating_var:
+            try:
+                sort_rating = bool(self.export_sort_rating_var.get())
+            except Exception:
+                sort_rating = False
+
+        if dvd_val and dvd_val.lower() != 'all':
+            cmd.extend(["--dvd", dvd_val])
+        if sort_rating:
+            cmd.extend(["--sort-my-rating"])
+
+        details = []
+        if dvd_val and dvd_val.lower() != 'all':
+            details.append(f"DVD: {dvd_val}")
+        if sort_rating:
+            details.append("Sorted by My Rating")
+        extra_info = f" ({', '.join(details)})" if details else ""
+
         win = tk.Toplevel(self.root)
         win.title("Export Movies.csv")
         win.geometry("750x350")
@@ -1865,7 +1952,7 @@ class IMDBdataBase:
         header_frame.pack(side='top', fill='x', pady=(0, 5))
         status_lbl = tk.Label(
             header_frame,
-            text="Exporting database to movies.csv...",
+            text=f"Exporting database{extra_info} to movies.csv...",
             font=('David', 12, 'bold'),
             bg=bg_color,
             fg=blue_back_color
@@ -1926,8 +2013,8 @@ class IMDBdataBase:
 
         def on_done(ret_code):
             if ret_code == 0:
-                status_lbl.config(text="Export to movies.csv Complete (Success)!")
-                append_text("\n[✓] movies.csv is updated in alphabetical order.\n")
+                status_lbl.config(text=f"Export to movies.csv Complete{extra_info} (Success)!")
+                append_text(f"\n[✓] movies.csv is updated{extra_info}.\n")
             else:
                 status_lbl.config(text=f"Export finished with exit code {ret_code}.")
 

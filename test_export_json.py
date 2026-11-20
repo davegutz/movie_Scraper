@@ -150,6 +150,107 @@ class TestExportMoviesJSON(unittest.TestCase):
             mock_top.return_value.title.assert_called_with("Export movies.json")
             mock_thread.return_value.start.assert_called_once()
 
+    def test_export_json_filter_by_dvd_number(self):
+        """Verify export_json filters correctly by DVD number."""
+        # DVD=1 (The Godfather, Alien)
+        count, out_file = export_movies_json.export_json(db_path=self.db_path, output_path=self.json_path, dvd=1)
+        self.assertEqual(count, 2)
+        with open(out_file, "r", encoding="utf-8") as f:
+            movies = json.load(f)
+        self.assertEqual([m["title"] for m in movies], ["Alien", "The Godfather"])
+
+        # DVD=0 (A Beautiful Mind)
+        count, out_file = export_movies_json.export_json(db_path=self.db_path, output_path=self.json_path, dvd=0)
+        self.assertEqual(count, 1)
+        with open(out_file, "r", encoding="utf-8") as f:
+            movies = json.load(f)
+        self.assertEqual(movies[0]["title"], "A Beautiful Mind")
+
+        # DVD=2 (None exist)
+        count, out_file = export_movies_json.export_json(db_path=self.db_path, output_path=self.json_path, dvd=2)
+        self.assertEqual(count, 0)
+
+    def test_export_json_sort_by_my_rating(self):
+        """Verify export_json sorts correctly by my_rating (descending and ascending)."""
+        # Descending (default for ratings: 9.5 -> 9.0 -> 8.5)
+        count, out_file = export_movies_json.export_json(
+            db_path=self.db_path, output_path=self.json_path, sort_by="my_rating"
+        )
+        self.assertEqual(count, 3)
+        with open(out_file, "r", encoding="utf-8") as f:
+            movies = json.load(f)
+        self.assertEqual([m["title"] for m in movies], ["The Godfather", "Alien", "A Beautiful Mind"])
+        self.assertEqual([m["my_rating"] for m in movies], [9.5, 9.0, 8.5])
+
+        # Ascending (8.5 -> 9.0 -> 9.5)
+        count, out_file = export_movies_json.export_json(
+            db_path=self.db_path, output_path=self.json_path, sort_by="my_rating", order="asc"
+        )
+        self.assertEqual(count, 3)
+        with open(out_file, "r", encoding="utf-8") as f:
+            movies = json.load(f)
+        self.assertEqual([m["title"] for m in movies], ["A Beautiful Mind", "Alien", "The Godfather"])
+        self.assertEqual([m["my_rating"] for m in movies], [8.5, 9.0, 9.5])
+
+    def test_export_json_filter_dvd_and_sort_my_rating_combined(self):
+        """Verify export_json correctly filters by DVD and sorts by my_rating simultaneously."""
+        count, out_file = export_movies_json.export_json(
+            db_path=self.db_path, output_path=self.json_path, dvd=1, sort_by="my_rating"
+        )
+        self.assertEqual(count, 2)
+        with open(out_file, "r", encoding="utf-8") as f:
+            movies = json.load(f)
+        self.assertEqual([m["title"] for m in movies], ["The Godfather", "Alien"])
+        self.assertEqual(movies[0]["dvd"], 1)
+        self.assertEqual(movies[1]["dvd"], 1)
+        self.assertGreater(movies[0]["my_rating"], movies[1]["my_rating"])
+
+    def test_cli_dvd_and_sort_my_rating(self):
+        """Verify export_movies_json CLI handles --dvd and --sort-my-rating options."""
+        test_args = [
+            "export_movies_json.py",
+            "--db", self.db_path,
+            "-o", self.json_path,
+            "--dvd", "1",
+            "--sort-my-rating"
+        ]
+        with patch('sys.argv', test_args):
+            export_movies_json.main()
+
+        self.assertTrue(os.path.isfile(self.json_path))
+        with open(self.json_path, "r", encoding="utf-8") as f:
+            movies = json.load(f)
+        self.assertEqual(len(movies), 2)
+        self.assertEqual([m["title"] for m in movies], ["The Godfather", "Alien"])
+
+    def test_gui_export_movies_to_web_passes_filter_and_sort(self):
+        """Verify GUI export_movies_to_web reads export_dvd_var and export_sort_rating_var."""
+        app = MagicMock()
+        app.root = MagicMock()
+        app.db_path = self.db_path
+        app.export_dvd_var = MagicMock(get=lambda: "1")
+        app.export_sort_rating_var = MagicMock(get=lambda: True)
+
+        with patch('GUI_sqlite_scrape.tk.Toplevel') as mock_top, \
+             patch('GUI_sqlite_scrape.scrolledtext.ScrolledText') as mock_st, \
+             patch('threading.Thread') as mock_thread, \
+             patch('subprocess.Popen') as mock_popen:
+
+            mock_inst = MagicMock()
+            mock_thread.return_value = mock_inst
+            mock_inst.start.side_effect = lambda: mock_thread.call_args[1]['target']()
+            mock_proc = MagicMock()
+            mock_proc.stdout.readline.side_effect = ['']
+            mock_proc.returncode = 0
+            mock_popen.return_value = mock_proc
+
+            GUI_sqlite_scrape.IMDBdataBase.export_movies_to_web(app)
+
+            call_args = mock_popen.call_args[0][0]
+            self.assertIn('--dvd', call_args)
+            self.assertIn('1', call_args)
+            self.assertIn('--sort-my-rating', call_args)
+
 
 if __name__ == '__main__':
     unittest.main()

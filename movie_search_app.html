@@ -375,6 +375,7 @@
         <option value="dvd_only">DVD Only (1)</option>
         <option value="screencast_only">Screencast Only (2)</option>
         <option value="both_only">Both DVD & Screencast (3)</option>
+        <option value="not_owned_only">Not Owned (0)</option>
       </select>
 
       <select id="watchedFilter" class="filter-select">
@@ -499,6 +500,8 @@
         } else if (dvdVal === 'screencast_only' && dVal !== 2 && dVal !== 4) {
           return false;
         } else if (dvdVal === 'both_only' && dVal !== 3) {
+          return false;
+        } else if (dvdVal === 'not_owned_only' && dVal !== 0 && m.dvd !== '' && m.dvd !== null && m.dvd !== undefined) {
           return false;
         }
 
