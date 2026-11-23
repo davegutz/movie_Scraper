@@ -85,6 +85,12 @@ class TestCheckDatabaseHealthRate(unittest.TestCase):
             self.assertIn('GB_per_hr', rows[0])
             gb_idx = rows[0].index('GB_per_hr')
             self.assertEqual(rows[1][gb_idx], '0.86')
+            self.assertIn('fHz', rows[0])
+            self.assertIn('FPS', rows[0])
+            fhz_idx = rows[0].index('fHz')
+            fps_idx = rows[0].index('FPS')
+            self.assertEqual(rows[1][fhz_idx], '23.98')
+            self.assertEqual(rows[1][fps_idx], '23.98')
 
             # JSON export
             json_path = os.path.join(tmpdir, "matched.json")
@@ -93,6 +99,8 @@ class TestCheckDatabaseHealthRate(unittest.TestCase):
                 data = json.load(f)
             self.assertEqual(data[0]['gb_per_hr'], '0.86')
             self.assertEqual(data[0]['rate_gb_hr'], 0.86)
+            self.assertEqual(data[0]['fhz'], '23.98')
+            self.assertEqual(data[0]['fps'], '23.98')
 
             # TXT export
             txt_path = os.path.join(tmpdir, "matched.txt")
@@ -100,6 +108,8 @@ class TestCheckDatabaseHealthRate(unittest.TestCase):
             with open(txt_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             self.assertIn("[0.86 GB/h]", content)
+            self.assertIn("[23.98 Hz]", content)
+            self.assertIn("[23.98 fps]", content)
 
     def test_export_missing_file_csv_json_txt(self):
         missing_movies = [
@@ -518,6 +528,28 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
 
         # 9. Red entry: Missing video (has_video=False)
         self.assertTrue(cdh.is_entry_non_green('-', '-', '-', has_video=False, require_subtitles=True))
+
+        # 10. Orange entry: Download judder / stutter (sized=YES, but judder='24 fps')
+        self.assertTrue(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', dur_status='OK', require_subtitles=True, judder_val='24 fps'))
+        self.assertTrue(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', dur_status='OK', judder_val='24 fps'))
+        self.assertFalse(cdh.is_entry_error('SRT', 'DIRECT', 'YES', dur_status='OK', judder_val='24 fps'))
+
+    def test_get_entry_colors_judder(self):
+        # Entry with judder should be orange
+        r_c, _, _, _, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', judder_val='24 fps')
+        self.assertEqual(r_c, '\033[38;5;208m')
+
+        # Entry with NO judder should be green
+        r_c, _, _, _, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', judder_val='NO')
+        self.assertEqual(r_c, '\033[92m')
+
+    def test_detect_stutter_framerate(self):
+        # Container fps < 48 should bypass immediately and return None
+        self.assertIsNone(cdh.detect_stutter_framerate('/dummy/path.mp4', fps_str='23.98'))
+        self.assertIsNone(cdh.detect_stutter_framerate('/dummy/path.mp4', fps_str='29.97'))
+
+        # Non-existent file should return None
+        self.assertIsNone(cdh.detect_stutter_framerate('/nonexistent/file.mp4', fps_str='60'))
 
     def test_main_non_green_cli_flag(self):
         import io
@@ -1236,7 +1268,136 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
                             cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "always")
             out = buf.getvalue()
             self.assertIn("Entries with Red Lettering: 0 items", out)
+            self.assertIn("Entries with Orange Lettering: 0 items", out)
 
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_tail_end_orange_entries_collection(self):
+        """Test that entries with orange lettering (improperly sized or stutter) are printed before red lettering."""
+        import io
+        import shutil
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        tmpdir = tempfile.mkdtemp()
+        movies_dir = os.path.join(tmpdir, "Movies")
+        os.makedirs(movies_dir, exist_ok=True)
+        try:
+            orange_file = os.path.join(movies_dir, "Orange Movie (2022).mp4")
+            red_file = os.path.join(movies_dir, "Red Movie (2020).mp4")
+            open(orange_file, 'a').close()
+            open(red_file, 'a').close()
+
+            dummy_movies = [
+                {
+                    'imdb_id': 'tt3333333', 'title': 'Orange Movie', 'year': 2022, 'dvd': 3, 'my_rating': 8.0,
+                    'norm_title': 'orange movie', 'display_title': 'Orange Movie', 'display_title_year': 'Orange Movie (2022)',
+                    'compact_title': 'orangemovie', 'no_art_title': 'orange movie', 'time': '01:30', 'db_time': '01:30',
+                    'dur_status': 'OK', 'watched': 'NO', 'certification': 'PG-13', 'rating': 8.0
+                },
+                {
+                    'imdb_id': 'tt4444444', 'title': 'Red Movie', 'year': 2020, 'dvd': 4, 'my_rating': 7.5,
+                    'norm_title': 'red movie', 'display_title': 'Red Movie', 'display_title_year': 'Red Movie (2020)',
+                    'compact_title': 'redmovie', 'no_art_title': 'red movie', 'time': '01:30', 'db_time': '01:30',
+                    'dur_status': 'OK', 'watched': 'NO', 'certification': 'R', 'rating': 7.5
+                }
+            ]
+
+            # 1st entry: 1080p, 60fps with judder='24 fps' -> orange
+            # 2nd entry: Opus audio -> red
+            mock_probe_results = [
+                ('H264', '1080p', '60.0', '01:30', 'SRT', 'DIRECT', 'AAC', '24 fps'),
+                ('H264', '1080p', '23.98', '01:30', 'SRT', 'DIRECT', 'Opus', 'NO')
+            ]
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=mock_probe_results):
+                            cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "always")
+            out = buf.getvalue()
+
+            orange_idx = out.find("Entries with Orange Lettering (Improperly Sized or Stutter):")
+            red_idx = out.find("Entries with Red Lettering (Health Check Failures):")
+            self.assertNotEqual(orange_idx, -1)
+            self.assertNotEqual(red_idx, -1)
+            # Orange section must be before Red section
+            self.assertLess(orange_idx, red_idx)
+
+            # Orange movie should be in the orange section
+            orange_part = out[orange_idx:red_idx]
+            self.assertIn("Orange Movie (2022)", orange_part)
+            self.assertNotIn("Red Movie (2020)", orange_part)
+
+            # Red movie should be in the red section
+            red_part = out[red_idx:]
+            self.assertIn("Red Movie (2020)", red_part)
+            self.assertNotIn("Orange Movie (2022)", red_part)
+
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_get_content_fps(self):
+        # 60 fps container with 24 fps judder -> 23.98 motion fps
+        self.assertEqual(cdh.get_content_fps('60', '24 fps'), '23.98')
+        self.assertEqual(cdh.get_content_fps('60.0', '24 fps'), '23.98')
+        self.assertEqual(cdh.get_content_fps('59.94', '24 fps'), '23.98')
+
+        # 60 fps container with 30 fps judder -> 29.97 motion fps
+        self.assertEqual(cdh.get_content_fps('60', '30 fps'), '29.97')
+
+        # Standard clean rates without judder match fHz
+        self.assertEqual(cdh.get_content_fps('23.976', 'NO'), '23.98')
+        self.assertEqual(cdh.get_content_fps('24.0', 'NO'), '24')
+        self.assertEqual(cdh.get_content_fps('29.97', None), '29.97')
+        self.assertEqual(cdh.get_content_fps('60.0', 'NO'), '60')
+
+        # Missing / dash
+        self.assertEqual(cdh.get_content_fps('-', 'NO'), '-')
+        self.assertEqual(cdh.get_content_fps(None, None), '-')
+
+    def test_fhz_and_fps_table_headers(self):
+        import io
+        import shutil
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        dummy_movies = [
+            {
+                'imdb_id': 'tt5555555', 'title': 'Pulldown Movie', 'year': 2023, 'dvd': 5, 'my_rating': 8.0,
+                'norm_title': 'pulldown movie', 'display_title': 'Pulldown Movie', 'display_title_year': 'Pulldown Movie (2023)',
+                'compact_title': 'pulldownmovie', 'no_art_title': 'pulldown movie', 'time': '01:30', 'db_time': '01:30',
+                'dur_status': 'OK', 'watched': 'NO', 'certification': 'PG', 'rating': 8.0
+            }
+        ]
+        # 60 fps container with 24 fps judder -> fHz: 60.0, FPS: 23.98
+        mock_probe_results = [
+            ('H264', '1080p', '60.0', '01:30', 'SRT', 'DIRECT', 'AAC', '24 fps')
+        ]
+
+        tmpdir = tempfile.mkdtemp()
+        movies_dir = os.path.join(tmpdir, "Movies")
+        os.makedirs(movies_dir, exist_ok=True)
+        try:
+            dummy_file = os.path.join(movies_dir, "Pulldown Movie (2023).mp4")
+            open(dummy_file, 'a').close()
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=mock_probe_results):
+                            cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "never")
+            out = buf.getvalue()
+
+            # Headers must contain 'fHz' and 'FPS'
+            self.assertIn("fHz", out)
+            self.assertIn("FPS", out)
+            # Row must contain fHz value (60) and motion FPS value (23.98)
+            self.assertIn("60", out)
+            self.assertIn("23.98", out)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

@@ -87,6 +87,24 @@ import threading
 import time
 
 DEFAULT_MOVIES_DIR = "/media/daveg/Lib/Movies"
+
+
+def resolve_library_path(raw_path):
+    """
+    Resolve library folder path. Supports absolute paths or simple root folder names
+    (e.g. 'Movies' -> '/media/daveg/Lib/Movies', 'TV Shows' -> '/media/daveg/Lib/TV Shows').
+    """
+    if not raw_path or not str(raw_path).strip():
+        return DEFAULT_MOVIES_DIR
+    raw_path = str(raw_path).strip()
+    if os.path.isabs(raw_path):
+        return os.path.normpath(raw_path)
+    base_dir = os.path.dirname(DEFAULT_MOVIES_DIR)  # /media/daveg/Lib
+    candidate = os.path.join(base_dir, raw_path)
+    if os.path.isdir(candidate):
+        return os.path.normpath(candidate)
+    return os.path.normpath(os.path.abspath(raw_path))
+
 DEFAULT_DB_PATH = "/home/daveg/Documents/GitHub/myComputer/IMDB_Films.db"
 DEFAULT_VIDEO_EXTS = {
     ".m4v", ".mp4", ".mkv", ".avi", ".mov", ".wmv",
@@ -868,6 +886,63 @@ def format_time(seconds):
     return f"{m:02d}m {s:02d}s"
 
 
+def detect_stutter_framerate(file_path, fps_str=None, max_duration=6):
+    """
+    Analyze video with ffmpeg mpdecimate to determine unique motion fps.
+    Only checks files if container fps >= 48 (e.g. 50, 59.94, 60 fps).
+    Returns:
+        float (e.g. 23.976 or 29.97) if download judder/duplicate frames detected,
+        else None.
+    """
+    if not file_path or not os.path.isfile(file_path):
+        return None
+    try:
+        if fps_str and fps_str != '-':
+            try:
+                val = float(fps_str)
+                if val < 48.0:
+                    return None
+            except ValueError:
+                pass
+
+        dur_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                   '-of', 'default=noprint_wrappers=1:nokey=1', file_path]
+        dur_out = subprocess.check_output(dur_cmd, text=True, timeout=5, stderr=subprocess.DEVNULL).strip()
+        dur = float(dur_out) if dur_out else 0.0
+
+        sample_pts = []
+        if dur > 60.0:
+            sample_pts = [max(15.0, dur * 0.15)]
+        elif dur > 6.0:
+            sample_pts = [2.0]
+        else:
+            sample_pts = [0.0]
+
+        for ss in sample_pts:
+            cmd = [
+                'ffmpeg', '-ss', f'{ss:.1f}', '-t', f'{max_duration:.1f}',
+                '-i', file_path,
+                '-vf', 'mpdecimate',
+                '-loglevel', 'info',
+                '-f', 'null', '-'
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
+            matches = re.findall(r'frame=\s*(\d+).*?time=(\d+):(\d+):([\d\.]+)', res.stderr)
+            if matches:
+                frame_str, h, m, s = matches[-1]
+                frames = int(frame_str)
+                actual_dur = int(h) * 3600 + int(m) * 60 + float(s)
+                if actual_dur > 0.5:
+                    rate = frames / actual_dur
+                    if 20.0 <= rate <= 27.5:
+                        return 23.976
+                    elif 27.5 < rate <= 35.0:
+                        return 29.97
+    except Exception:
+        pass
+    return None
+
+
 def get_fps_args(file_path):
     """
     Detect frame rate anomalies (such as container timescale inflating r_frame_rate to 120 fps).
@@ -920,7 +995,7 @@ def get_fps_args(file_path):
         return ["-fps_mode", "passthrough"]
 
 
-def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fallback=False):
+def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fallback=False, decimate_stutter=False, target_fps=None):
     """Construct robust ffmpeg command line."""
     _, ext = os.path.splitext(input_path)
 
@@ -943,6 +1018,9 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fall
             "-map", "0:a:0?",
             "-c:a", "copy"
         ]
+        if decimate_stutter:
+            r_target = "24000/1001" if (target_fps in (24, 23.976, "24000/1001", "24 fps") or target_fps is None) else "30000/1001"
+            cmd.extend(["-vf", "mpdecimate", "-r", r_target])
         if sub_args:
             cmd.extend(sub_args)
         if ext.lower() in ('.mp4', '.m4v', '.mov'):
@@ -986,7 +1064,11 @@ def build_ffmpeg_cmd(input_path, output_path, crf=20, preset='medium', safe_fall
         "-crf", str(crf),
         "-pix_fmt", "yuv420p"
     ])
-    cmd.extend(fps_args)
+    if decimate_stutter:
+        r_target = "24000/1001" if (target_fps in (24, 23.976, "24000/1001", "24 fps") or target_fps is None) else "30000/1001"
+        cmd.extend(["-vf", "mpdecimate", "-r", r_target])
+    else:
+        cmd.extend(fps_args)
     cmd.extend(audio_args)
     if sub_args:
         cmd.extend(sub_args)
@@ -1103,7 +1185,11 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
     temp_path = os.path.join(src_dir, f".{src_base}.resampled_tmp{src_ext}")
     _active_temp_path = temp_path
 
-    cmd = build_ffmpeg_cmd(src_path, temp_path, crf=crf, preset=preset)
+    decimate_stutter = file_info.get('has_stutter', False)
+    judder_val = file_info.get('judder')
+    target_fps = 24 if judder_val == '24 fps' else (30 if judder_val == '30 fps' else None)
+
+    cmd = build_ffmpeg_cmd(src_path, temp_path, crf=crf, preset=preset, decimate_stutter=decimate_stutter, target_fps=target_fps)
 
     t_start = time.time()
     try:
@@ -1121,7 +1207,7 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
 
             # Fallback transcode: retry with safe primary stream settings
             print(f"    [!] Initial encode exited with code {ret}. Retrying with safe fallback...")
-            fallback_cmd = build_ffmpeg_cmd(src_path, temp_path, crf=crf, preset=preset, safe_fallback=True)
+            fallback_cmd = build_ffmpeg_cmd(src_path, temp_path, crf=crf, preset=preset, safe_fallback=True, decimate_stutter=decimate_stutter, target_fps=target_fps)
             ret_fallback, err_fallback = run_ffmpeg_with_progress(fallback_cmd, total_duration_sec=total_dur_sec)
             if ret_fallback != 0:
                 if os.path.exists(temp_path):
@@ -1162,7 +1248,7 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
                 return {'success': False, 'error': f"Failed to create backup file: {e}"}
 
             bak_bytes = os.path.getsize(backup_path)
-            if new_bytes > bak_bytes:
+            if new_bytes > bak_bytes and not decimate_stutter:
                 # Resampled file is larger than the original .bak file: restore original file
                 try:
                     os.replace(backup_path, src_path)
@@ -1198,7 +1284,7 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
             existing_bak = f"{src_path}.bak"
             if os.path.isfile(existing_bak):
                 bak_bytes = os.path.getsize(existing_bak)
-                if new_bytes > bak_bytes:
+                if new_bytes > bak_bytes and not decimate_stutter:
                     try:
                         os.replace(existing_bak, src_path)
                     except Exception as e:
@@ -1222,7 +1308,7 @@ def resample_single_file(file_info, crf=20, preset='medium', cache=None, backup=
                         'backup_path': None,
                         'error': f"Resampled file ({new_bytes / (1024**3):.2f} GB) is larger than original .bak ({bak_bytes / (1024**3):.2f} GB); original file restored"
                     }
-            elif new_bytes > old_bytes:
+            elif new_bytes > old_bytes and not decimate_stutter:
                 if os.path.exists(temp_path):
                     try:
                         os.remove(temp_path)
@@ -1354,6 +1440,23 @@ def restore_larger_backups(movies_dir, cache=None, dry_run=False, target_file=No
             bak_bytes = os.path.getsize(bak_path)
             orig_bytes = os.path.getsize(orig_path)
             if orig_bytes > bak_bytes:
+                # Do not restore if bak_path has stutter/judder that was intentionally eliminated in orig_path
+                _, _, bak_fps, _, _, _, _, _ = probe_file_meta(bak_path, cache)
+                _, _, orig_fps, _, _, _, _, _ = probe_file_meta(orig_path, cache)
+                try:
+                    b_f = float(bak_fps)
+                    o_f = float(orig_fps)
+                    if b_f >= 48.0 and o_f < 35.0:
+                        # orig_path was converted from 60fps to 24/30fps to fix judder; do not restore!
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
+                stutter_rate = detect_stutter_framerate(bak_path, bak_fps)
+                if stutter_rate is not None:
+                    # Backup has pulldown judder; do not restore over de-juddered file
+                    continue
+
                 item = {
                     'path': orig_path,
                     'bak_path': bak_path,
@@ -1449,7 +1552,7 @@ def prompt_caffeine_check(movie_count):
             return False
 
 
-def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size_gb=0.0, max_gb_per_hour=None):
+def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size_gb=0.0, max_gb_per_hour=None, stutter_only=False):
     """Scan directory and filter for candidate files."""
     candidates = []
     if not os.path.isdir(movies_dir):
@@ -1469,7 +1572,7 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
 
     for path, filename, ext, sz_bytes in raw_files:
         sz_gb = round(sz_bytes / (1024 ** 3), 2)
-        if sz_gb < min_size_gb:
+        if not stutter_only and sz_gb < min_size_gb:
             continue
 
         fmt, res, fps, time_str, sub_str, jf_str, bmp_str, srt_str = probe_file_meta(path, cache)
@@ -1482,7 +1585,25 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
 
         oversized = is_oversized(res, sz_gb, time_str, max_gb_per_hour=max_gb_per_hour)
 
-        if oversized_only and not oversized:
+        # Check for stutter / download judder (60 fps with 24/30 fps content)
+        st = os.stat(path)
+        cache_key = f"{path}|{st.st_mtime}|{st.st_size}"
+        cached = cache.get(cache_key, {}) if cache else {}
+        judder = cached.get('judder')
+        if judder is None:
+            stutter_rate = detect_stutter_framerate(path, fps)
+            judder = f"{int(round(stutter_rate))} fps" if stutter_rate else 'NO'
+            if cache is not None:
+                cached['judder'] = judder
+                cache[cache_key] = cached
+                save_cache(cache)
+
+        has_stutter = bool(judder and judder not in ('NO', '-', 'None'))
+
+        if stutter_only:
+            if not has_stutter:
+                continue
+        elif oversized_only and not oversized and not has_stutter:
             continue
 
         candidates.append({
@@ -1502,7 +1623,9 @@ def scan_candidates(movies_dir, extensions, cache, oversized_only=True, min_size
             'jellyfin': jf_str,
             'bmp': bmp_str,
             'srt': srt_str,
-            'oversized': oversized
+            'oversized': oversized,
+            'has_stutter': has_stutter,
+            'judder': judder
         })
 
     return candidates
@@ -1653,6 +1776,19 @@ def main(*raw_args):
         help="Skip the caffeine reminder prompt."
     )
     parser.add_argument(
+        "--stutter-only", "--judder-only",
+        dest="stutter_only",
+        action="store_true",
+        default=False,
+        help="Process only video files with download judder / duplicate-frame stutter (60 fps pulldown)."
+    )
+    parser.add_argument(
+        "--library", "--library-dir",
+        dest="library_dir",
+        default=None,
+        help=f"Directory or root folder name to scan (e.g. '/media/daveg/Lib/Movies' or 'TV Shows'; default: {DEFAULT_MOVIES_DIR})"
+    )
+    parser.add_argument(
         "--db",
         default=DEFAULT_DB_PATH,
         help=f"Path to IMDB_Films.db database for subtitle lookup (default: {DEFAULT_DB_PATH})"
@@ -1664,6 +1800,10 @@ def main(*raw_args):
     )
 
     args = parser.parse_args(argv)
+
+    if getattr(args, 'library_dir', None):
+        args.movies_dir = args.library_dir
+    args.movies_dir = resolve_library_path(args.movies_dir)
 
     cache = load_cache()
 
@@ -1700,6 +1840,21 @@ def main(*raw_args):
             actual_rate = None
         oversized = is_oversized(res, sz_gb, time_str, max_gb_per_hour=args.max_gb_per_hour)
 
+        # Check for stutter / download judder (60 fps with 24/30 fps content)
+        st = os.stat(args.file)
+        cache_key = f"{args.file}|{st.st_mtime}|{st.st_size}"
+        cached = cache.get(cache_key, {}) if cache else {}
+        judder = cached.get('judder')
+        if judder is None:
+            stutter_rate = detect_stutter_framerate(args.file, fps)
+            judder = f"{int(round(stutter_rate))} fps" if stutter_rate else 'NO'
+            if cache is not None:
+                cached['judder'] = judder
+                cache[cache_key] = cached
+                save_cache(cache)
+
+        has_stutter = bool(judder and judder not in ('NO', '-', 'None'))
+
         file_info = {
             'path': args.file,
             'filename': os.path.basename(args.file),
@@ -1717,14 +1872,16 @@ def main(*raw_args):
             'jellyfin': jf_str,
             'bmp': bmp_str,
             'srt': srt_str,
-            'oversized': oversized
+            'oversized': oversized,
+            'has_stutter': has_stutter,
+            'judder': judder
         }
 
         rate_val = file_info.get('rate_gb_hr')
         thresh_val = file_info.get('target_rate')
         rate_note = f", Rate: {rate_val:.2f} GB/hr vs Target: {thresh_val:.2f} GB/hr" if rate_val is not None else ""
-        if not args.all and not oversized:
-            print(f"File '{os.path.basename(args.file)}' is already within optimal bounds ({sz_gb:.2f} GB, {res}{rate_note}, Sized: YES).")
+        if not args.all and not oversized and not has_stutter:
+            print(f"File '{os.path.basename(args.file)}' is already within optimal bounds ({sz_gb:.2f} GB, {res}{rate_note}, Sized: YES, Judder: {judder}).")
             print("Skipping re-encoding. (Pass --all to re-encode anyway, or --ratio <FLOAT> to set a custom ratio threshold.)")
             # If subtitle download is enabled, check and download subtitles even if re-encoding was skipped
             if args.download_srt and ((bmp_str == 'YES' or sub_str in ('NO', 'None', 'Bitmap') or jf_str == 'TRANSCODE') and srt_str != 'YES'):
@@ -1755,6 +1912,11 @@ def main(*raw_args):
 
             sys.exit(0)
 
+        if args.stutter_only and not has_stutter:
+            print(f"File '{os.path.basename(args.file)}' does not have download judder / duplicate-frame stutter (Judder: {judder}).")
+            print("Skipping re-encoding.")
+            sys.exit(0)
+
         candidates = [file_info]
     else:
         if not os.path.isdir(args.movies_dir):
@@ -1778,7 +1940,8 @@ def main(*raw_args):
             cache,
             oversized_only=(not args.all),
             min_size_gb=args.min_size_gb,
-            max_gb_per_hour=args.max_gb_per_hour
+            max_gb_per_hour=args.max_gb_per_hour,
+            stutter_only=args.stutter_only
         )
         save_cache(cache)
 
@@ -1861,6 +2024,8 @@ def main(*raw_args):
         print(f"                            {m_4k} > 1080p (4K):      7.50 GB/hr (equiv. 15.00 GB / 2 hr movie){t_4k}")
         print(f"                            {m_unk} Unknown / other:   2.00 GB/hr (equiv. 4.00 GB / 2 hr movie){t_unk}")
         print(f"                            (Hint: Pass --ratio <FLOAT> or --max-gb-per-hour <FLOAT> to specify a custom ratio)")
+    if args.stutter_only:
+        print(f"  Target Filter:            Stutter / Judder Only (60 fps pulldown duplicate frames)")
     bak_str = f"Enabled (.bak, max {args.max_backups})" if (args.backup and args.max_backups > 0) else ("Enabled (.bak, unlimited)" if args.backup else "Disabled (--no-backup)")
     print(f"  Backup Original:          {bak_str}")
     print(f"  Restore Larger Backups:   {'Enabled (default)' if args.restore_larger_backups else 'Disabled'}")
@@ -1872,12 +2037,14 @@ def main(*raw_args):
     # Dry-run output
     if args.dry_run:
         print("\n[DRY RUN] The following files would be resampled (no files modified right now):\n")
-        print(f"  {'Size(GB)':>8} {'Res':<6} {'Time':<7} {'Rate(GB/h)':>10} {'Thresh':>8} {'Format':<6} {'Sub':<8} {'Jellyfin':<10} {'Filename'}")
-        print(f"  {'-'*8:>8} {'-'*6:<6} {'-'*7:<7} {'-'*10:>10} {'-'*8:>8} {'-'*6:<6} {'-'*8:<8} {'-'*10:<10} {'-'*40}")
+        print(f"  {'Size(GB)':>8} {'Res':<6} {'fHz':<6} {'Judder':<8} {'Time':<7} {'Rate(GB/h)':>10} {'Thresh':>8} {'Format':<6} {'Sub':<8} {'Jellyfin':<10} {'Filename'}")
+        print(f"  {'-'*8:>8} {'-'*6:<6} {'-'*6:<6} {'-'*8:<8} {'-'*7:<7} {'-'*10:>10} {'-'*8:>8} {'-'*6:<6} {'-'*8:<8} {'-'*10:<10} {'-'*35}")
         for c in candidates[:50]:
             rate_str = f"{c['rate_gb_hr']:.2f}" if c.get('rate_gb_hr') is not None else "-"
             thresh_str = f"{c['target_rate']:.2f}" if c.get('target_rate') is not None else "-"
-            print(f"  {c['size_gb']:>8.2f} {c['resolution']:<6} {c.get('time', '-'):<7} {rate_str:>10} {thresh_str:>8} {c['format']:<6} {c.get('sub', '-'):<8} {c.get('jellyfin', '-'):<10} {c['filename']}")
+            judder_str = c.get('judder') or '-'
+            fps_str = str(c.get('fps', '-'))
+            print(f"  {c['size_gb']:>8.2f} {c['resolution']:<6} {fps_str:<6} {judder_str:<8} {c.get('time', '-'):<7} {rate_str:>10} {thresh_str:>8} {c['format']:<6} {c.get('sub', '-'):<8} {c.get('jellyfin', '-'):<10} {c['filename']}")
         if len(candidates) > 50:
             print(f"  ... and {len(candidates) - 50} more files.")
         print()
@@ -1924,7 +2091,11 @@ def main(*raw_args):
                 print("    No subtitle track found for candidate.")
 
         print(f"\nExample FFmpeg command for first file:")
-        ex_cmd = build_ffmpeg_cmd(candidates[0]['path'], "/path/to/temp_output.mp4", args.crf, args.preset)
+        c0 = candidates[0]
+        c0_stutter = c0.get('has_stutter', False)
+        c0_judder = c0.get('judder')
+        c0_target = 24 if c0_judder == '24 fps' else (30 if c0_judder == '30 fps' else None)
+        ex_cmd = build_ffmpeg_cmd(c0['path'], "/path/to/temp_output.mp4", args.crf, args.preset, decimate_stutter=c0_stutter, target_fps=c0_target)
         print(f"  {' '.join(ex_cmd)}\n")
         sys.exit(0)
 
@@ -2164,8 +2335,14 @@ if __name__ == "__main__":
         # Uses default Equivalent Ratio Criteria (e.g. 1.25 GB/hr for <=540p, 3.00 GB/hr for 1080p).
         # To specify an actual ratio across all files, pass e.g.: "--ratio 1.0 "
         main(
-             "--max-files 5 --sort-by size_desc "  # largest files
-             # "--movies-dir '/media/daveg/Lib/TV Shows' "
+             # "--max-files 5 --sort-by size_desc "  # largest files
+
+             # "--stutter-only --dry-run --max-files 1 "   # Judder only dry
+             # "--stutter-only --dry-run --max-files 10 "   # Judder only dry
+             # "--stutter-only --dry-run "   # Judder only dry
+             "--stutter-only --crf 23 --max-files 50 "  # Judder only
+
+            # "--movies-dir '/media/daveg/Lib/TV Shows' "
              # "--movies-dir '/media/daveg/Lib/Videos' "
              # "--no-download-srt "  # There are no subtitles for TV shows
              )

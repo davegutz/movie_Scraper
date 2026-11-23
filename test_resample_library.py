@@ -387,6 +387,141 @@ class TestEquivalentRatioCriteria(unittest.TestCase):
             self.assertEqual(cache[cache_key]['jellyfin'], '-')
             self.assertEqual(cache[cache_key]['srt'], 'NO')
 
+    def test_detect_stutter_framerate(self):
+        # Container fps < 48 should bypass immediately
+        self.assertIsNone(rl.detect_stutter_framerate('/dummy/path.mp4', fps_str='23.98'))
+        self.assertIsNone(rl.detect_stutter_framerate('/dummy/path.mp4', fps_str='29.97'))
+
+        # Non-existent file
+        self.assertIsNone(rl.detect_stutter_framerate('/nonexistent/video.mp4', fps_str='60'))
+
+        # Mock ffmpeg mpdecimate detecting 24 fps content in 60 fps container
+        with tempfile.NamedTemporaryFile(suffix='.mp4') as tmp:
+            with patch('subprocess.check_output', return_value="120.0"):
+                mock_res_24 = unittest.mock.MagicMock()
+                mock_res_24.stderr = "frame=  144 fps= 24 q=-0.0 Lsize=N/A time=00:00:06.00 bitrate=N/A"
+                with patch('subprocess.run', return_value=mock_res_24):
+                    self.assertEqual(rl.detect_stutter_framerate(tmp.name, fps_str='60'), 23.976)
+
+                mock_res_30 = unittest.mock.MagicMock()
+                mock_res_30.stderr = "frame=  180 fps= 30 q=-0.0 Lsize=N/A time=00:00:06.00 bitrate=N/A"
+                with patch('subprocess.run', return_value=mock_res_30):
+                    self.assertEqual(rl.detect_stutter_framerate(tmp.name, fps_str='60'), 29.97)
+
+                mock_res_60 = unittest.mock.MagicMock()
+                mock_res_60.stderr = "frame=  360 fps= 60 q=-0.0 Lsize=N/A time=00:00:06.00 bitrate=N/A"
+                with patch('subprocess.run', return_value=mock_res_60):
+                    self.assertIsNone(rl.detect_stutter_framerate(tmp.name, fps_str='60'))
+
+    def test_build_ffmpeg_cmd_decimate_stutter(self):
+        # 24 fps decimation
+        cmd_24 = rl.build_ffmpeg_cmd('/in.mp4', '/out.mp4', '2.5M', '1080p', decimate_stutter=True, target_fps=24)
+        self.assertIn('-vf', cmd_24)
+        self.assertIn('mpdecimate', cmd_24)
+        self.assertIn('-r', cmd_24)
+        r_idx = cmd_24.index('-r')
+        self.assertEqual(cmd_24[r_idx + 1], '24000/1001')
+
+        # 30 fps decimation
+        cmd_30 = rl.build_ffmpeg_cmd('/in.mp4', '/out.mp4', '2.5M', '1080p', decimate_stutter=True, target_fps=30)
+        self.assertIn('-r', cmd_30)
+        r_idx = cmd_30.index('-r')
+        self.assertEqual(cmd_30[r_idx + 1], '30000/1001')
+
+        # Normal re-encoding without decimation
+        cmd_norm = rl.build_ffmpeg_cmd('/in.mp4', '/out.mp4', '2.5M', '1080p', decimate_stutter=False)
+        self.assertNotIn('mpdecimate', cmd_norm)
+        self.assertNotIn('-r', cmd_norm)
+
+    def test_scan_candidates_includes_stutter_when_sized_yes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = os.path.join(tmpdir, "StutterMovie (2024).mp4")
+            with open(video_path, "wb") as f:
+                f.write(b"x" * 1024 * 1024)
+
+            # Metadata says 1080p, 60fps, 100min duration, size 1GB (Rate = 0.6 GB/hr << 3.0 GB/hr)
+            # Sized: YES (oversized=False), but judder is detected as 24 fps
+            mock_meta = ('H264', '1080p', '60.0', '01:40', 'SRT', 'DIRECT', 'NO', 'YES')
+            with patch('resample_library.probe_file_meta', return_value=mock_meta):
+                with patch('resample_library.detect_stutter_framerate', return_value=23.976):
+                    candidates = rl.scan_candidates(tmpdir, extensions={'.mp4'}, cache={}, max_gb_per_hour=3.0)
+
+            self.assertEqual(len(candidates), 1)
+            c = candidates[0]
+            self.assertFalse(c['oversized'])
+            self.assertTrue(c['has_stutter'])
+            self.assertEqual(c['judder'], '24 fps')
+
+    def test_scan_candidates_stutter_only_filters_out_oversized(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            f1 = os.path.join(tmpdir, "OversizedNoStutter.mp4")
+            f2 = os.path.join(tmpdir, "CleanWithStutter.mp4")
+            with open(f1, "wb") as f:
+                f.write(b"x" * 1024 * 1024)
+            with open(f2, "wb") as f:
+                f.write(b"y" * 1024 * 1024)
+
+            def mock_probe(path, cache):
+                if "Oversized" in path:
+                    return ('H264', '1080p', '23.98', '01:00', 'SRT', 'DIRECT', 'NO', 'YES')
+                else:
+                    return ('H264', '1080p', '60.0', '02:00', 'SRT', 'DIRECT', 'NO', 'YES')
+
+            def mock_detect(path, fps):
+                if "CleanWithStutter" in path:
+                    return 23.976
+                return None
+
+            with patch('resample_library.probe_file_meta', side_effect=mock_probe):
+                with patch('resample_library.detect_stutter_framerate', side_effect=mock_detect):
+                    with patch('resample_library.is_oversized', side_effect=lambda res, sz, t, **kw: True if '23.98' in str(res) or '01:00' in str(t) else False):
+                        # With stutter_only=True: ONLY the stutter file is returned, oversized without stutter is excluded!
+                        candidates = rl.scan_candidates(tmpdir, extensions={'.mp4'}, cache={}, stutter_only=True)
+                        self.assertEqual(len(candidates), 1)
+                        self.assertEqual(candidates[0]['filename'], "CleanWithStutter.mp4")
+                        self.assertTrue(candidates[0]['has_stutter'])
+
+    def test_resolve_library_path(self):
+        self.assertEqual(rl.resolve_library_path(None), rl.DEFAULT_MOVIES_DIR)
+        self.assertEqual(rl.resolve_library_path(""), rl.DEFAULT_MOVIES_DIR)
+        self.assertEqual(rl.resolve_library_path("/media/daveg/Lib/Movies"), "/media/daveg/Lib/Movies")
+        tv_path = rl.resolve_library_path("TV Shows")
+        self.assertTrue(os.path.isdir(tv_path))
+        self.assertTrue(tv_path.endswith("TV Shows"))
+
+    def test_restore_larger_backups_does_not_revert_dejuddered_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            active_file = os.path.join(tmpdir, "Avatar (2022).mkv")
+            bak_file = os.path.join(tmpdir, "Avatar (2022).mkv.bak")
+
+            # Active file is larger (e.g. 5MB) than original .bak (e.g. 4MB)
+            with open(active_file, "wb") as f:
+                f.write(b"A" * (5 * 1024 * 1024))
+            with open(bak_file, "wb") as f:
+                f.write(b"B" * (4 * 1024 * 1024))
+
+            # bak_file was 60fps (stutter), active_file is 23.98fps (de-juddered)
+            def mock_probe(path, cache):
+                if path.endswith(".bak"):
+                    return ('H264', '720p', '60.0', '03:20', 'SRT', 'DIRECT', 'NO', 'YES')
+                else:
+                    return ('H264', '720p', '23.98', '03:20', 'SRT', 'DIRECT', 'NO', 'YES')
+
+            def mock_detect(path, fps):
+                if path.endswith(".bak"):
+                    return 23.976
+                return None
+
+            with patch('resample_library.probe_file_meta', side_effect=mock_probe):
+                with patch('resample_library.detect_stutter_framerate', side_effect=mock_detect):
+                    restored = rl.restore_larger_backups(tmpdir, cache={})
+
+            # It should NOT restore the stuttery .bak file
+            self.assertEqual(len(restored), 0)
+            self.assertTrue(os.path.isfile(active_file))
+            self.assertEqual(os.path.getsize(active_file), 5 * 1024 * 1024)
+            self.assertTrue(os.path.isfile(bak_file))
+
 
 if __name__ == '__main__':
     unittest.main()
