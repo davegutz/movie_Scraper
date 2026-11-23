@@ -544,17 +544,18 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         self.assertEqual(r_c, '\033[92m')
 
     def test_is_corrupt_rate(self):
-        # Rates < 0.30 should be identified as corrupt
-        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=0.15))
-        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=0.29))
-        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr='0.25'))
+        # Default threshold (CORRUPT_RATE_THRESHOLD):
+        # Rates < CORRUPT_RATE_THRESHOLD should be identified as corrupt
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=cdh.CORRUPT_RATE_THRESHOLD - 0.15))
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=cdh.CORRUPT_RATE_THRESHOLD - 0.01))
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=str(cdh.CORRUPT_RATE_THRESHOLD - 0.05)))
         self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=0.0))
 
-        # Rates >= 0.30 should not be identified as corrupt
-        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=0.30))
-        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=0.31))
+        # Rates >= CORRUPT_RATE_THRESHOLD should not be identified as corrupt
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=cdh.CORRUPT_RATE_THRESHOLD))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=cdh.CORRUPT_RATE_THRESHOLD + 0.01))
         self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=1.50))
-        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr='0.30'))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=str(cdh.CORRUPT_RATE_THRESHOLD)))
         self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr='1.75'))
 
         # Invalid / missing rates should return False
@@ -562,32 +563,60 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr='-'))
         self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr='None'))
 
-        # Calculation via size_gb and duration
-        self.assertTrue(cdh.is_corrupt_rate(size_gb=0.20, duration='01:00:00'))  # 0.20 GB/hr < 0.30
-        self.assertFalse(cdh.is_corrupt_rate(size_gb=0.60, duration='01:00:00'))  # 0.60 GB/hr >= 0.30
+        # Calculation via size_gb and duration (< CORRUPT_RATE_THRESHOLD)
+        self.assertTrue(cdh.is_corrupt_rate(size_gb=cdh.CORRUPT_RATE_THRESHOLD * 0.67, duration='01:00:00'))  # < CORRUPT_RATE_THRESHOLD
+        self.assertFalse(cdh.is_corrupt_rate(size_gb=cdh.CORRUPT_RATE_THRESHOLD * 2.0, duration='01:00:00'))  # >= CORRUPT_RATE_THRESHOLD
+
+        # Custom threshold (e.g. thresh=0.22)
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=0.20, thresh=0.22))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=0.22, thresh=0.22))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=0.25, thresh=0.22))
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=0.20, thresh='0.22'))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=0.25, thresh='0.22'))
+        # Invalid thresh falls back to CORRUPT_RATE_THRESHOLD
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=cdh.CORRUPT_RATE_THRESHOLD - 0.05, thresh='invalid'))
 
     def test_corrupt_rate_orange_flagging(self):
         c_orange = '\033[38;5;208m'
         c_green = '\033[92m'
 
-        # Video with < 0.3 GiB/hr rate should be flagged orange
-        r_c, _, _, sz_c, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', rate_val=0.25)
+        # Default threshold: Video with < CORRUPT_RATE_THRESHOLD GiB/hr rate should be flagged orange
+        below_thresh = cdh.CORRUPT_RATE_THRESHOLD - 0.05
+        r_c, _, _, sz_c, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', rate_val=below_thresh)
         self.assertEqual(r_c, c_orange)
         self.assertEqual(sz_c, c_orange)
 
-        # Video with >= 0.3 GiB/hr rate should stay green if otherwise clean
-        r_c, _, _, sz_c, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', rate_val=0.35)
+        # Video with >= CORRUPT_RATE_THRESHOLD GiB/hr rate should stay green if otherwise clean
+        above_thresh = cdh.CORRUPT_RATE_THRESHOLD + 0.05
+        r_c, _, _, sz_c, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', rate_val=above_thresh)
         self.assertEqual(r_c, c_green)
         self.assertEqual(sz_c, c_green)
 
-        # Helper functions
-        self.assertTrue(cdh.is_entry_orange('SRT', 'DIRECT', 'YES', rate_val=0.25))
-        self.assertFalse(cdh.is_entry_orange('SRT', 'DIRECT', 'YES', rate_val=0.35))
-        self.assertTrue(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', rate_val=0.25))
-        self.assertFalse(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', rate_val=0.35))
-        self.assertTrue(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', rate_val=0.25))
-        self.assertFalse(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', rate_val=0.35))
-        self.assertFalse(cdh.is_entry_error('SRT', 'DIRECT', 'YES', rate_val=0.25))
+        # Helper functions with default threshold (CORRUPT_RATE_THRESHOLD)
+        self.assertTrue(cdh.is_entry_orange('SRT', 'DIRECT', 'YES', rate_val=below_thresh))
+        self.assertFalse(cdh.is_entry_orange('SRT', 'DIRECT', 'YES', rate_val=above_thresh))
+        self.assertTrue(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', rate_val=below_thresh))
+        self.assertFalse(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', rate_val=above_thresh))
+        self.assertTrue(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', rate_val=below_thresh))
+        self.assertFalse(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', rate_val=above_thresh))
+        self.assertFalse(cdh.is_entry_error('SRT', 'DIRECT', 'YES', rate_val=below_thresh))
+
+        # Custom corrupt_thresh=0.22:
+        # Rate 0.25 is >= 0.22, so it stays green
+        r_c, _, _, sz_c, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', rate_val=0.25, corrupt_thresh=0.22)
+        self.assertEqual(r_c, c_green)
+        self.assertEqual(sz_c, c_green)
+        self.assertFalse(cdh.is_entry_orange('SRT', 'DIRECT', 'YES', rate_val=0.25, corrupt_thresh=0.22))
+        self.assertFalse(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', rate_val=0.25, corrupt_thresh=0.22))
+        self.assertFalse(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', rate_val=0.25, corrupt_thresh=0.22))
+
+        # Rate 0.20 is < 0.22, so it is flagged orange
+        r_c, _, _, sz_c, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', rate_val=0.20, corrupt_thresh=0.22)
+        self.assertEqual(r_c, c_orange)
+        self.assertEqual(sz_c, c_orange)
+        self.assertTrue(cdh.is_entry_orange('SRT', 'DIRECT', 'YES', rate_val=0.20, corrupt_thresh=0.22))
+        self.assertTrue(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', rate_val=0.20, corrupt_thresh=0.22))
+        self.assertTrue(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', rate_val=0.20, corrupt_thresh=0.22))
 
     def test_detect_stutter_framerate(self):
         # Container fps < 48 should bypass immediately and return None
@@ -1365,7 +1394,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
                             cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "always")
             out = buf.getvalue()
 
-            orange_idx = out.find("Entries with Orange Lettering (Improperly Sized, Stutter, or small GB/hr Corrupt):")
+            orange_idx = out.find(f"Entries with Orange Lettering (Improperly Sized, Stutter, or < {cdh.CORRUPT_RATE_THRESHOLD:g} GB/hr Corrupt):")
             red_idx = out.find("Entries with Red Lettering (Health Check Failures):")
             self.assertNotEqual(orange_idx, -1)
             self.assertNotEqual(red_idx, -1)
@@ -1461,7 +1490,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
                 'dur_status': 'OK', 'watched': 'NO', 'certification': 'PG', 'rating': 7.0
             }
         ]
-        # 1080p, 23.98 fps, 02:00 runtime, 0.30 GB size -> 0.15 GB/hr (small GiB/hr)
+        # 1080p, 23.98 fps, 02:00 runtime, size configured so rate < CORRUPT_RATE_THRESHOLD
         mock_probe_results = [
             ('H264', '1080p', '23.98', '02:00', 'SRT', 'DIRECT', 'AAC', 'NO')
         ]
@@ -1471,8 +1500,9 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         os.makedirs(movies_dir, exist_ok=True)
         try:
             dummy_file = os.path.join(movies_dir, "Corrupted Movie (2024).mp4")
+            test_size_gb = cdh.CORRUPT_RATE_THRESHOLD
             with open(dummy_file, 'wb') as f:
-                f.seek(int(0.30 * 1024 ** 3))
+                f.seek(int(test_size_gb * 1024 ** 3))
                 f.write(b'\0')
 
             buf = io.StringIO()
@@ -1483,10 +1513,63 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
                             cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "always")
             out = buf.getvalue()
 
-            self.assertIn("Corrupted Rate (< 0.3 GB):1 files", out)
-            self.assertIn("Entries with Orange Lettering (Improperly Sized, Stutter, or < small GB/hr Corrupt):", out)
+            self.assertIn(f"Corrupted Rate (< {cdh.CORRUPT_RATE_THRESHOLD:g} GB):1 files", out)
+            self.assertIn(f"Entries with Orange Lettering (Improperly Sized, Stutter, or < {cdh.CORRUPT_RATE_THRESHOLD:g} GB/hr Corrupt):", out)
             self.assertIn("1 item(s)", out)
             self.assertIn("Corrupted Movie (2024)", out)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_corrupt_rate_custom_cli_integration(self):
+        import io
+        import shutil
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        dummy_movies = [
+            {
+                'imdb_id': 'tt7777777', 'title': 'Threshold Movie', 'year': 2024, 'dvd': 7, 'my_rating': 7.0,
+                'norm_title': 'threshold movie', 'display_title': 'Threshold Movie', 'display_title_year': 'Threshold Movie (2024)',
+                'compact_title': 'thresholdmovie', 'no_art_title': 'threshold movie', 'time': '02:00', 'db_time': '02:00',
+                'dur_status': 'OK', 'watched': 'NO', 'certification': 'PG', 'rating': 7.0
+            }
+        ]
+        # 1080p, 23.98 fps, 02:00 runtime, 0.44 GB size -> 0.22 GB/hr
+        mock_probe_results = [
+            ('H264', '1080p', '23.98', '02:00', 'SRT', 'DIRECT', 'AAC', 'NO')
+        ]
+
+        tmpdir = tempfile.mkdtemp()
+        movies_dir = os.path.join(tmpdir, "Movies")
+        os.makedirs(movies_dir, exist_ok=True)
+        try:
+            dummy_file = os.path.join(movies_dir, "Threshold Movie (2024).mp4")
+            with open(dummy_file, 'wb') as f:
+                f.seek(int(0.44 * 1024 ** 3))
+                f.write(b'\0')
+
+            # Test 1: With custom threshold of 0.20 GB/hr, 0.22 GB/hr is NOT corrupt
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=mock_probe_results):
+                            cdh.main("--library", movies_dir, "--show-only", "matched", "--corrupt-threshold", "0.20", "--color", "always")
+            out = buf.getvalue()
+            self.assertIn("Corrupted Rate (< 0.2 GB):0 files", out)
+            self.assertIn("Entries with Orange Lettering: 0 items", out)
+
+            # Test 2: With custom threshold of 0.25 GB/hr, 0.22 GB/hr IS corrupt
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=mock_probe_results):
+                            cdh.main("--library", movies_dir, "--show-only", "matched", "--corrupt-threshold", "0.25", "--color", "always")
+            out = buf.getvalue()
+            self.assertIn("Corrupted Rate (< 0.25 GB):1 files", out)
+            self.assertIn("Entries with Orange Lettering (Improperly Sized, Stutter, or < 0.25 GB/hr Corrupt):", out)
+            self.assertIn("Threshold Movie (2024)", out)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

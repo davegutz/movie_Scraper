@@ -98,6 +98,7 @@ DEFAULT_VIDEO_EXTS = {
     ".m4v", ".mp4", ".mkv", ".avi", ".mov", ".wmv",
     ".m4vv", ".flv", ".webm", ".vob", ".ts", ".mpg", ".mpeg", ".iso"
 }
+CORRUPT_RATE_THRESHOLD = 0.2  # GiB/hr threshold below which video is considered likely corrupted/truncated
 
 
 def resolve_library_path(lib_input=None):
@@ -473,12 +474,18 @@ def calculate_rate_gb_hr(size_gb, duration):
         return None
 
 
-def is_corrupt_rate(rate_gb_hr=None, size_gb=None, duration=None):
+def is_corrupt_rate(rate_gb_hr=None, size_gb=None, duration=None, thresh=None):
     """
-    Check if a video's bitrate is suspiciously low (< thresh GiB/hr / GB/hr), indicating possible corruption.
-    Verify by hand.
+    Check if a video's bitrate is suspiciously low (< thresh GiB/hr / GB/hr; defaults to CORRUPT_RATE_THRESHOLD),
+    indicating possible corruption. Verify by hand.
     """
-    thresh = 0.22
+    if thresh is None:
+        thresh = CORRUPT_RATE_THRESHOLD
+    else:
+        try:
+            thresh = float(thresh)
+        except (ValueError, TypeError):
+            thresh = CORRUPT_RATE_THRESHOLD
     if rate_gb_hr is not None:
         try:
             r = float(rate_gb_hr)
@@ -1034,12 +1041,12 @@ def get_video_metadata(file_path, cache=None):
         return ("-", "-", "-", "-", "-", "-", "-", "NO")
 
 
-def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=False, has_video=True, use_color=True, require_subtitles=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None):
+def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=False, has_video=True, use_color=True, require_subtitles=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None, corrupt_thresh=None):
     """
     Determine row color and column colors:
       - If desynced/overrun, duration mismatch, incomplete multi-part, or unsupported audio, code it red.
       - If (require_subtitles and no subtitles), code it blue.
-      - If improperly sized (Sized=NO), download judder/stutter detected, or < 0.3 GiB/hr (likely corrupt), code it orange.
+      - If improperly sized (Sized=NO), download judder/stutter detected, or < CORRUPT_RATE_THRESHOLD (or corrupt_thresh) GiB/hr (likely corrupt), code it orange.
       - If jellyfin is loaded heavily code it yellow.
       - If clean code green.
     Returns:
@@ -1058,8 +1065,8 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
     if not has_video:
         return (c_red, c_red, c_red, '', '', c_red, c_reset)
 
-    # Check for corrupt rate (< 0.3 GiB/hr)
-    has_corrupt_rate = is_corrupt_rate(rate_gb_hr=rate_val, size_gb=size_gb, duration=duration)
+    # Check for corrupt rate (< CORRUPT_RATE_THRESHOLD or corrupt_thresh GiB/hr)
+    has_corrupt_rate = is_corrupt_rate(rate_gb_hr=rate_val, size_gb=size_gb, duration=duration, thresh=corrupt_thresh)
 
     # Sub column
     if sub_val in ('OVERRUN', 'DESYNC'):
@@ -1111,7 +1118,7 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
     # Check for judder/stutter
     has_judder = bool(judder_val and judder_val not in ('NO', '-', 'None'))
 
-    # Overall row color (priority: Red (Fail: Overrun / Desync / Dur Mismatch / Unsupported Audio) > Blue (No subs when required) > Orange (Improperly sized / Stutter / Corrupt Rate < 0.3) > Yellow (Transcode) > Green (Clean))
+    # Overall row color (priority: Red (Fail: Overrun / Desync / Dur Mismatch / Unsupported Audio) > Blue (No subs when required) > Orange (Improperly sized / Stutter / Corrupt Rate < CORRUPT_RATE_THRESHOLD or corrupt_thresh) > Yellow (Transcode) > Green (Clean))
     is_red_fail = (
         (sub_val in ('OVERRUN', 'DESYNC') or jf_val == 'DESYNC') or
         (dur_status == 'MISMATCH' or (dur_status != 'OK' and is_multipart)) or
@@ -1132,12 +1139,12 @@ def get_entry_colors(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=F
     return (row_c, sub_c, jf_c, sized_c, time_c, sound_c, c_reset)
 
 
-def is_entry_non_green(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=False, has_video=True, require_subtitles=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None):
+def is_entry_non_green(sub_val, jf_val, sized_val, dur_status='OK', is_multipart=False, has_video=True, require_subtitles=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None, corrupt_thresh=None):
     """
     Determine if an entry has a non-green (non-clean) status:
       - Red: Overrun/desync subtitles, duration mismatch, incomplete multi-part, unsupported audio, or missing video (has_video=False).
       - Blue: Missing subtitles (when require_subtitles is True).
-      - Orange: Improperly sized (sized_val == 'NO'), stutter / download judder, or < 0.3 GiB/hr (likely corrupt).
+      - Orange: Improperly sized (sized_val == 'NO'), stutter / download judder, or < CORRUPT_RATE_THRESHOLD (or corrupt_thresh) GiB/hr (likely corrupt).
       - Yellow: Heavy Jellyfin load / transcoding required (jf_val == 'TRANSCODE').
       - Green: Clean (none of the above).
     Returns True if non-green (needs attention); False if clean (green).
@@ -1153,12 +1160,13 @@ def is_entry_non_green(sub_val, jf_val, sized_val, dur_status='OK', is_multipart
         judder_val=judder_val,
         rate_val=rate_val,
         size_gb=size_gb,
-        duration=duration
+        duration=duration,
+        corrupt_thresh=corrupt_thresh
     )
     return row_c != '\033[92m'
 
 
-def is_entry_error(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multipart=False, has_video=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None):
+def is_entry_error(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multipart=False, has_video=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None, corrupt_thresh=None):
     """
     Determine if an entry has a red-flagged error/failure status:
       - Missing video in DB (has_video=False).
@@ -1178,16 +1186,17 @@ def is_entry_error(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multipa
         judder_val=judder_val,
         rate_val=rate_val,
         size_gb=size_gb,
-        duration=duration
+        duration=duration,
+        corrupt_thresh=corrupt_thresh
     )
     return row_c == '\033[91m'
 
 
-def is_entry_warning(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multipart=False, has_video=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None):
+def is_entry_warning(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multipart=False, has_video=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None, corrupt_thresh=None):
     """
     Determine if an entry has a warning or error status (Orange, Yellow, or Red):
       - Red: Overrun/desync subtitles, duration mismatch, incomplete multi-part, unsupported audio, or missing video (has_video=False).
-      - Orange: Improperly sized (sized_val == 'NO'), stutter / download judder, or < 0.3 GiB/hr (likely corrupt).
+      - Orange: Improperly sized (sized_val == 'NO'), stutter / download judder, or < CORRUPT_RATE_THRESHOLD (or corrupt_thresh) GiB/hr (likely corrupt).
       - Yellow: Heavy Jellyfin load / transcoding required (jf_val == 'TRANSCODE').
     Excludes clean entries (Green) and movies merely missing subtitles (Blue).
     Returns True if orange, yellow, or red; False otherwise.
@@ -1203,15 +1212,16 @@ def is_entry_warning(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multi
         judder_val=judder_val,
         rate_val=rate_val,
         size_gb=size_gb,
-        duration=duration
+        duration=duration,
+        corrupt_thresh=corrupt_thresh
     )
     return row_c in ('\033[91m', '\033[38;5;208m', '\033[93m')
 
 
-def is_entry_orange(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multipart=False, has_video=True, require_subtitles=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None):
+def is_entry_orange(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multipart=False, has_video=True, require_subtitles=True, sound_val='-', judder_val='NO', rate_val=None, size_gb=None, duration=None, corrupt_thresh=None):
     """
     Determine if an entry has an orange status:
-      - Improperly sized (sized_val == 'NO'), stutter / download judder detected, or < 0.3 GiB/hr (likely corrupt).
+      - Improperly sized (sized_val == 'NO'), stutter / download judder detected, or < CORRUPT_RATE_THRESHOLD (or corrupt_thresh) GiB/hr (likely corrupt).
       - Not overridden by a red failure (duration mismatch, overrun subs, bad audio, etc.)
         or blue (missing subs when require_subtitles=True).
     Returns True if orange; False otherwise.
@@ -1227,7 +1237,8 @@ def is_entry_orange(sub_val, jf_val, sized_val='YES', dur_status='OK', is_multip
         judder_val=judder_val,
         rate_val=rate_val,
         size_gb=size_gb,
-        duration=duration
+        duration=duration,
+        corrupt_thresh=corrupt_thresh
     )
     return row_c == '\033[38;5;208m'
 
@@ -2030,6 +2041,13 @@ def main(*raw_args):
         help="Specify an explicit size/length ratio threshold in GB per hour (e.g. --ratio 1.0 or --max-gb-per-hour 0.85). If omitted, the default Equivalent Ratio Criteria is used based on ..p resolution tier (<=540p: 1.25, <=720p: 1.75, <=1080p: 3.00, >1080p: 7.50 GB/hr)."
     )
     parser.add_argument(
+        "--corrupt-threshold", "--min-gb-per-hour",
+        dest="corrupt_rate_threshold",
+        type=float,
+        default=CORRUPT_RATE_THRESHOLD,
+        help=f"Specify the bitrate threshold in GB per hour below which videos are flagged orange as corrupted (default: {CORRUPT_RATE_THRESHOLD:g} GB/hr)."
+    )
+    parser.add_argument(
         "--mismatched-only", "--dur-mismatch-only",
         dest="mismatched_only",
         action="store_true",
@@ -2124,6 +2142,11 @@ def main(*raw_args):
     c_yellow = '\033[93m' if use_color else ''
     c_green = '\033[92m' if use_color else ''
     c_reset = '\033[0m' if use_color else ''
+
+    corrupt_thresh = getattr(args, 'corrupt_rate_threshold', None)
+    if corrupt_thresh is None:
+        corrupt_thresh = CORRUPT_RATE_THRESHOLD
+    corrupt_desc = f"{corrupt_thresh:g}"
 
     if is_movies:
         if not args.quiet:
@@ -2501,7 +2524,7 @@ def main(*raw_args):
         matched_dur_mismatch_count = sum(1 for m in matched if m[0].get('dur_status') == 'MISMATCH')
         matched_desync_count = sum(1 for m in matched if m[1].get('sub') == 'OVERRUN' or m[1].get('jellyfin') == 'DESYNC')
         matched_stutter_count = sum(1 for _, match_item in matched if match_item.get('judder') and match_item.get('judder') not in ('NO', '-', 'None', None))
-        matched_corrupt_count = sum(1 for _, match_item in matched if is_corrupt_rate(rate_gb_hr=match_item.get('rate_gb_hr')))
+        matched_corrupt_count = sum(1 for _, match_item in matched if is_corrupt_rate(rate_gb_hr=match_item.get('rate_gb_hr'), thresh=corrupt_thresh))
     else:
         matched_not_sized_count = 0
         matched_not_sized_bytes = 0
@@ -2509,13 +2532,13 @@ def main(*raw_args):
         matched_dur_mismatch_count = sum(1 for v in unmatched_videos if v.get('dur_status') == 'MISMATCH')
         matched_desync_count = sum(1 for v in unmatched_videos if v.get('sub') == 'OVERRUN' or v.get('jellyfin') == 'DESYNC')
         matched_stutter_count = sum(1 for v in unmatched_videos if v.get('judder') and v.get('judder') not in ('NO', '-', 'None', None))
-        matched_corrupt_count = sum(1 for v in unmatched_videos if is_corrupt_rate(rate_gb_hr=v.get('rate_gb_hr')))
+        matched_corrupt_count = sum(1 for v in unmatched_videos if is_corrupt_rate(rate_gb_hr=v.get('rate_gb_hr'), thresh=corrupt_thresh))
 
     unmatched_not_sized_count = sum(1 for v in unmatched_videos if v.get('sized') == 'NO')
     unmatched_not_sized_bytes = sum(v.get('size_bytes', 0) for v in unmatched_videos if v.get('sized') == 'NO')
     unmatched_not_sized_gb = unmatched_not_sized_bytes / (1024 ** 3)
     unmatched_stutter_count = sum(1 for v in unmatched_videos if v.get('judder') and v.get('judder') not in ('NO', '-', 'None', None)) if is_movies else 0
-    unmatched_corrupt_count = sum(1 for v in unmatched_videos if is_corrupt_rate(rate_gb_hr=v.get('rate_gb_hr'))) if is_movies else 0
+    unmatched_corrupt_count = sum(1 for v in unmatched_videos if is_corrupt_rate(rate_gb_hr=v.get('rate_gb_hr'), thresh=corrupt_thresh)) if is_movies else 0
 
     total_not_sized_count = matched_not_sized_count + unmatched_not_sized_count
     total_not_sized_gb = (matched_not_sized_bytes + unmatched_not_sized_bytes) / (1024 ** 3)
@@ -2593,7 +2616,8 @@ def main(*raw_args):
                     has_video=True,
                     sound_val=mat.get('sound', '-'),
                     judder_val=mat.get('judder', 'NO'),
-                    rate_val=mat.get('rate_gb_hr') or calculate_rate_gb_hr(mat.get('size_gb'), mov.get('file_time', mov.get('db_time')))
+                    rate_val=mat.get('rate_gb_hr') or calculate_rate_gb_hr(mat.get('size_gb'), mov.get('file_time', mov.get('db_time'))),
+                    corrupt_thresh=corrupt_thresh
                 )
             ]
             matched_bytes = sum(mat.get('size_bytes') or int((mat.get('size_gb') or 0) * (1024 ** 3)) for _, mat in matched)
@@ -2611,7 +2635,8 @@ def main(*raw_args):
                 has_video=True,
                 sound_val=v.get('sound', '-'),
                 judder_val=v.get('judder', 'NO'),
-                rate_val=v.get('rate_gb_hr') or calculate_rate_gb_hr(v.get('size_gb'), v.get('time'))
+                rate_val=v.get('rate_gb_hr') or calculate_rate_gb_hr(v.get('size_gb'), v.get('time')),
+                corrupt_thresh=corrupt_thresh
             )
         ]
         unmatched_bytes = sum(v.get('size_bytes') or int((v.get('size_gb') or 0) * (1024 ** 3)) for v in unmatched_videos)
@@ -2633,7 +2658,8 @@ def main(*raw_args):
                     require_subtitles=True,
                     sound_val=mat.get('sound', '-'),
                     judder_val=mat.get('judder', 'NO'),
-                    rate_val=mat.get('rate_gb_hr') or calculate_rate_gb_hr(mat.get('size_gb'), mov.get('file_time', mov.get('db_time')))
+                    rate_val=mat.get('rate_gb_hr') or calculate_rate_gb_hr(mat.get('size_gb'), mov.get('file_time', mov.get('db_time'))),
+                    corrupt_thresh=corrupt_thresh
                 )
             ]
             matched_bytes = sum(mat.get('size_bytes') or int((mat.get('size_gb') or 0) * (1024 ** 3)) for _, mat in matched)
@@ -2651,7 +2677,8 @@ def main(*raw_args):
                 require_subtitles=is_movies,
                 sound_val=v.get('sound', '-'),
                 judder_val=v.get('judder', 'NO'),
-                rate_val=v.get('rate_gb_hr') or calculate_rate_gb_hr(v.get('size_gb'), v.get('time'))
+                rate_val=v.get('rate_gb_hr') or calculate_rate_gb_hr(v.get('size_gb'), v.get('time')),
+                corrupt_thresh=corrupt_thresh
             )
         ]
         unmatched_bytes = sum(v.get('size_bytes') or int((v.get('size_gb') or 0) * (1024 ** 3)) for v in unmatched_videos)
@@ -2823,7 +2850,7 @@ def main(*raw_args):
             print(f"  Duration Mismatches:      {matched_dur_mismatch_count:,} files  (split rips / runtime mismatches)")
             print(f"  Subtitle Desync/Overrun:  {matched_desync_count:,} files  (subtitles extend past video end)")
             print(f"  Download Judder (Stutter):{total_stutter_count:,} files  (60 fps duplicate-frame pulldown; fix: run resample_library)")
-            print(f"  Corrupted Rate (< 0.3 GB):{total_corrupt_count:,} files  (< 0.3 GiB/hr; likely corrupted/truncated; fix: re-rip or re-download)")
+            print(f"  Corrupted Rate (< {corrupt_desc} GB):{total_corrupt_count:,} files  (< {corrupt_desc} GiB/hr; likely corrupted/truncated; fix: re-rip or re-download)")
             if is_movies:
                 print(f"  DB Titles Total:          {len(db_movies):,}")
             print(f"  Video Files Total:        {len(video_entries):,}  ({total_library_gb:,.2f} GB)")
@@ -2849,7 +2876,7 @@ def main(*raw_args):
                 print("       - FPS:       Actual video content motion frame rate in frames per second (differs from fHz if 3:2 pulldown judder).")
                 print("       - Size:      Video file size on disk in decimal gigabytes (GB).")
                 print("       - Time:      Runtime in HH:MM (red with '*' indicates duration mismatch vs DB or split multi-disc rip).")
-                print("       - GB/hr:     Rate in decimal gigabytes per hour (Size / Duration; '-' if missing duration; < 0.3 GB/hr flagged orange as corrupt).")
+                print(f"       - GB/hr:     Rate in decimal gigabytes per hour (Size / Duration; '-' if missing duration; < {corrupt_desc} GB/hr flagged orange as corrupt).")
                 print("       - Sub:       Subtitle stream type (Text = embedded text subtitle track, SRT = external .srt file,")
                 print("                    Bitmap = DVD VobSub/PGS image subs, None = no subtitles, OVERRUN = desynced timestamps).")
                 print("       - Jellyfin:  Streaming playback mode & CPU workload:")
@@ -2880,27 +2907,7 @@ def main(*raw_args):
                 print("       - FPS:       Actual video content motion frame rate in frames per second (differs from fHz if 3:2 pulldown judder).")
                 print("       - Size:      Video file size on disk in decimal gigabytes (GB).")
                 print("       - Time:      Runtime in HH:MM (red with '*' indicates duration mismatch or split multi-disc rip).")
-                print("       - GB/hr:     Rate in decimal gigabytes per hour (Size / Duration; '-' if missing duration; < 0.3 GB/hr flagged orange as corrupt).")
-                print("       - Sub:       Subtitle stream type (Text = embedded text subtitle track, SRT = external .srt file,")
-                print("                    Bitmap = DVD VobSub/PGS image subs, None = no subtitles, OVERRUN = desynced timestamps).")
-                print("       - Jellyfin:  Streaming playback mode & CPU workload:")
-                print("                    * DIRECT:    Direct play with 0% server CPU video transcode. Uses external sidecar .srt files")
-                print("                                 or embedded text tracks; rendered client-side on TV/device. External .srt files")
-                print("                                 are universally supported and eliminate transcoding when bitmap subs exist.")
-                print("                    * TRANSCODE: Server CPU video transcoding required to burn/stamp DVD/PGS bitmap subtitles")
-                print("                                 into video frames in real time. Fix by adding an .srt file (via fetch_subtitles")
-                print("                                 or OCR in resample_library) to switch playback mode to DIRECT.")
-                print("                    * DESYNC:    External subtitles desynced/overrun video duration; replace with synced .srt.")
-                print("       - Sized:     File size efficiency (YES = properly sized; NO = oversized rip, run resample_library to save space).")
-                print("                    Evaluated using Equivalent Ratio Criteria (<=540p: 1.25, <=720p: 1.75, <=1080p: 3.00, >1080p: 7.50 GB/hr).")
-                print("       - Modified:  File last modified date/time (YYYY-MM-DD HH:MM; displayed with --sort-by mtime or --recent).")
-                print("       - Filename:  Library video filename.")
-                print("    2. Resample:  Running resample_library is time-consuming.")
-                print("    3. Subtitles: Running fetch_subtitles is not time-consuming; adding .srt files switches TRANSCODE -> DIRECT (0% CPU).")
-                print("    4. Backups:   Keep <= 50 .bak files; resample_library or check_database_health --prune-backups deletes older ones.")
-                print("       - Size:      Video file size on disk in decimal gigabytes (GB).")
-                print("       - Time:      Runtime in HH:MM (red with '*' indicates duration mismatch or split multi-disc rip).")
-                print("       - GB/hr:     Rate in decimal gigabytes per hour (Size / Duration; '-' if missing duration; < 0.3 GB/hr flagged orange as corrupt).")
+                print(f"       - GB/hr:     Rate in decimal gigabytes per hour (Size / Duration; '-' if missing duration; < {corrupt_desc} GB/hr flagged orange as corrupt).")
                 print("       - Sub:       Subtitle stream type (Text = embedded text subtitle track, SRT = external .srt file,")
                 print("                    Bitmap = DVD VobSub/PGS image subs, None = no subtitles, OVERRUN = desynced timestamps).")
                 print("       - Jellyfin:  Streaming playback mode & CPU workload:")
@@ -2923,13 +2930,13 @@ def main(*raw_args):
             if is_movies:
                 print(f"    {c_green}● Green:{c_reset}   Clean (Sized=YES, matched duration & Jellyfin DIRECT text subtitles)")
                 print(f"    {c_yellow}● Yellow:{c_reset}  Heavy Jellyfin load (TRANSCODE for bitmap subs; fix: run resample_library or fetch_subtitles)")
-                print(f"    {c_orange}● Orange:{c_reset}  Improperly Sized, Stutter, or < 0.3 GB/hr Corrupt (Sized=NO, 60 fps pulldown, or < 0.3 GB/hr; fix: resample or re-rip)")
+                print(f"    {c_orange}● Orange:{c_reset}  Improperly Sized, Stutter, or < {corrupt_desc} GB/hr Corrupt (Sized=NO, 60 fps pulldown, or < {corrupt_desc} GB/hr; fix: resample or re-rip)")
                 print(f"    {c_blue}● Blue:{c_reset}    No subtitles (fix: run fetch_subtitles)")
                 print(f"    {c_red}● Red:{c_reset}     Fails health check (unsupported audio, desynced/overrun subs, or duration mismatch/split rip)")
             else:
                 print(f"    {c_green}● Green:{c_reset}   Clean (Sized=YES, matched duration)")
                 print(f"    {c_yellow}● Yellow:{c_reset}  Heavy Jellyfin load (TRANSCODE for bitmap subs; fix: run resample_library or fetch_subtitles)")
-                print(f"    {c_orange}● Orange:{c_reset}  Improperly Sized, Stutter, or < 0.3 GB/hr Corrupt (Sized=NO, 60 fps pulldown, or < 0.3 GB/hr; fix: resample or re-rip)")
+                print(f"    {c_orange}● Orange:{c_reset}  Improperly Sized, Stutter, or < {corrupt_desc} GB/hr Corrupt (Sized=NO, 60 fps pulldown, or < {corrupt_desc} GB/hr; fix: resample or re-rip)")
                 print(f"    {c_red}● Red:{c_reset}     Fails health check (unsupported audio, desynced/overrun timestamps, or duration mismatch/split rip)")
                 print("    * Note: TV shows may not have subtitles; missing subtitles are not flagged as health check failures.")
             print("=" * banner_len)
@@ -2977,7 +2984,8 @@ def main(*raw_args):
                         is_multipart=is_mp_unmatched, has_video=True, use_color=use_color,
                         require_subtitles=False, sound_val=sound_display,
                         judder_val=v.get('judder', 'NO'),
-                        rate_val=rate_val_calc
+                        rate_val=rate_val_calc,
+                        corrupt_thresh=corrupt_thresh
                     )
                     time_p = f"{t_c}{time_display:<6}{r_c}" if use_color else f"{time_display:<6}"
                     sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
@@ -2994,7 +3002,8 @@ def main(*raw_args):
                         sub_display, jf_display, sized_display,
                         is_multipart=is_mp_unmatched, has_video=True, sound_val=sound_display,
                         judder_val=v.get('judder', 'NO'),
-                        rate_val=rate_val_calc
+                        rate_val=rate_val_calc,
+                        corrupt_thresh=corrupt_thresh
                     )
                     if is_red:
                         red_tv_lines.append(row_line)
@@ -3002,7 +3011,8 @@ def main(*raw_args):
                         sub_display, jf_display, sized_display,
                         is_multipart=is_mp_unmatched, has_video=True, require_subtitles=False, sound_val=sound_display,
                         judder_val=v.get('judder', 'NO'),
-                        rate_val=rate_val_calc
+                        rate_val=rate_val_calc,
+                        corrupt_thresh=corrupt_thresh
                     )
                     if is_orange:
                         orange_tv_lines.append(row_line)
@@ -3058,7 +3068,8 @@ def main(*raw_args):
                             dur_status=dur_stat, is_multipart=is_mp,
                             has_video=True, use_color=use_color, sound_val=sound_display,
                             judder_val=match_item.get('judder', 'NO'),
-                            rate_val=rate_val_calc
+                            rate_val=rate_val_calc,
+                            corrupt_thresh=corrupt_thresh
                         )
                         time_p = f"{t_c}{time_display:<6}{r_c}" if use_color else f"{time_display:<6}"
                         sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
@@ -3076,7 +3087,8 @@ def main(*raw_args):
                             sub_display, jf_display, sized_display,
                             dur_status=dur_stat, is_multipart=is_mp, has_video=True, sound_val=sound_display,
                             judder_val=match_item.get('judder', 'NO'),
-                            rate_val=rate_val_calc
+                            rate_val=rate_val_calc,
+                            corrupt_thresh=corrupt_thresh
                         )
                         if is_red:
                             red_matched_lines.append(row_line)
@@ -3084,7 +3096,8 @@ def main(*raw_args):
                             sub_display, jf_display, sized_display,
                             dur_status=dur_stat, is_multipart=is_mp, has_video=True, require_subtitles=True, sound_val=sound_display,
                             judder_val=match_item.get('judder', 'NO'),
-                            rate_val=rate_val_calc
+                            rate_val=rate_val_calc,
+                            corrupt_thresh=corrupt_thresh
                         )
                         if is_orange:
                             orange_matched_lines.append(row_line)
@@ -3159,7 +3172,8 @@ def main(*raw_args):
                             sub_display, jf_display, sized_display,
                             is_multipart=is_mp_unmatched, has_video=True, use_color=use_color, sound_val=sound_display,
                             judder_val=v.get('judder', 'NO'),
-                            rate_val=rate_val_calc
+                            rate_val=rate_val_calc,
+                            corrupt_thresh=corrupt_thresh
                         )
                         time_p = f"{t_c}{time_display:<6}{r_c}" if use_color else f"{time_display:<6}"
                         sub_p = f"{s_c}{sub_display:<8}{r_c}" if use_color else f"{sub_display:<8}"
@@ -3177,7 +3191,8 @@ def main(*raw_args):
                             sub_display, jf_display, sized_display,
                             is_multipart=is_mp_unmatched, has_video=True, sound_val=sound_display,
                             judder_val=v.get('judder', 'NO'),
-                            rate_val=rate_val_calc
+                            rate_val=rate_val_calc,
+                            corrupt_thresh=corrupt_thresh
                         )
                         if is_red:
                             red_unmatched_lines.append(row_line)
@@ -3185,7 +3200,8 @@ def main(*raw_args):
                             sub_display, jf_display, sized_display,
                             is_multipart=is_mp_unmatched, has_video=True, require_subtitles=False, sound_val=sound_display,
                             judder_val=v.get('judder', 'NO'),
-                            rate_val=rate_val_calc
+                            rate_val=rate_val_calc,
+                            corrupt_thresh=corrupt_thresh
                         )
                         if is_orange:
                             orange_unmatched_lines.append(row_line)
@@ -3203,11 +3219,11 @@ def main(*raw_args):
                 if args.output_unmatched:
                     print(f"[+] Unmatched list saved to: {os.path.abspath(args.output_unmatched)}")
 
-            # Tail end: Print all entries with orange lettering (improperly sized, stutter, or < 0.3 GB/hr corrupt)
+            # Tail end: Print all entries with orange lettering (improperly sized, stutter, or < CORRUPT_RATE_THRESHOLD / corrupt_thresh GB/hr corrupt)
             if not is_movies:
                 print(f"\n{'=' * banner_len}")
                 if orange_tv_lines:
-                    print(f"  {c_orange}Entries with Orange Lettering (Improperly Sized, Stutter, or < 0.3 GB/hr Corrupt):{c_reset} {len(orange_tv_lines):,} item(s)")
+                    print(f"  {c_orange}Entries with Orange Lettering (Improperly Sized, Stutter, or < {corrupt_desc} GB/hr Corrupt):{c_reset} {len(orange_tv_lines):,} item(s)")
                     print(f"{'=' * banner_len}")
                     if sort_by_mtime:
                         print(f"  {'Subfolder':<24} {'Ext':<6} {'Fmt':<6} {'Sound':<6} {'Res':<7} {'fHz':<6} {'FPS':<6} {'Size':>6}   {'Time':<6} {'GB/hr':>6} {'Sub':<8} {'Jellyfin':<11} {'Sized':<7} {'Modified':<17} {'Filename'}")
@@ -3224,7 +3240,7 @@ def main(*raw_args):
                 total_orange = len(orange_matched_lines) + len(orange_unmatched_lines)
                 print(f"\n{'=' * banner_len}")
                 if total_orange > 0:
-                    print(f"  {c_orange}Entries with Orange Lettering (Improperly Sized, Stutter, or < 0.3 GB/hr Corrupt):{c_reset} {total_orange:,} item(s)")
+                    print(f"  {c_orange}Entries with Orange Lettering (Improperly Sized, Stutter, or < {corrupt_desc} GB/hr Corrupt):{c_reset} {total_orange:,} item(s)")
                     print(f"{'=' * banner_len}")
                     if orange_matched_lines:
                         if orange_unmatched_lines:

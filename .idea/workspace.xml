@@ -131,7 +131,7 @@
       <recent name="$PROJECT_DIR$" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.resample_library">
+  <component name="RunManager" selected="Python.install">
     <configuration name="GUI_sqlite_scrape" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="movie_Scraper" />
       <option name="ENV_FILES" value="" />
@@ -240,8 +240,8 @@
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.GUI_sqlite_scrape" />
         <item itemvalue="Python.install" />
+        <item itemvalue="Python.GUI_sqlite_scrape" />
         <item itemvalue="Python.find_missing_videos" />
         <item itemvalue="Python.checks_subtitles_vision" />
       </list>
