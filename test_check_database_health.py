@@ -543,6 +543,52 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
         r_c, _, _, _, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', judder_val='NO')
         self.assertEqual(r_c, '\033[92m')
 
+    def test_is_corrupt_rate(self):
+        # Rates < 0.30 should be identified as corrupt
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=0.15))
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=0.29))
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr='0.25'))
+        self.assertTrue(cdh.is_corrupt_rate(rate_gb_hr=0.0))
+
+        # Rates >= 0.30 should not be identified as corrupt
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=0.30))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=0.31))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=1.50))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr='0.30'))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr='1.75'))
+
+        # Invalid / missing rates should return False
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr=None))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr='-'))
+        self.assertFalse(cdh.is_corrupt_rate(rate_gb_hr='None'))
+
+        # Calculation via size_gb and duration
+        self.assertTrue(cdh.is_corrupt_rate(size_gb=0.20, duration='01:00:00'))  # 0.20 GB/hr < 0.30
+        self.assertFalse(cdh.is_corrupt_rate(size_gb=0.60, duration='01:00:00'))  # 0.60 GB/hr >= 0.30
+
+    def test_corrupt_rate_orange_flagging(self):
+        c_orange = '\033[38;5;208m'
+        c_green = '\033[92m'
+
+        # Video with < 0.3 GiB/hr rate should be flagged orange
+        r_c, _, _, sz_c, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', rate_val=0.25)
+        self.assertEqual(r_c, c_orange)
+        self.assertEqual(sz_c, c_orange)
+
+        # Video with >= 0.3 GiB/hr rate should stay green if otherwise clean
+        r_c, _, _, sz_c, _, _, _ = cdh.get_entry_colors('SRT', 'DIRECT', 'YES', rate_val=0.35)
+        self.assertEqual(r_c, c_green)
+        self.assertEqual(sz_c, c_green)
+
+        # Helper functions
+        self.assertTrue(cdh.is_entry_orange('SRT', 'DIRECT', 'YES', rate_val=0.25))
+        self.assertFalse(cdh.is_entry_orange('SRT', 'DIRECT', 'YES', rate_val=0.35))
+        self.assertTrue(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', rate_val=0.25))
+        self.assertFalse(cdh.is_entry_warning('SRT', 'DIRECT', 'YES', rate_val=0.35))
+        self.assertTrue(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', rate_val=0.25))
+        self.assertFalse(cdh.is_entry_non_green('SRT', 'DIRECT', 'YES', rate_val=0.35))
+        self.assertFalse(cdh.is_entry_error('SRT', 'DIRECT', 'YES', rate_val=0.25))
+
     def test_detect_stutter_framerate(self):
         # Container fps < 48 should bypass immediately and return None
         self.assertIsNone(cdh.detect_stutter_framerate('/dummy/path.mp4', fps_str='23.98'))
@@ -1319,7 +1365,7 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
                             cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "always")
             out = buf.getvalue()
 
-            orange_idx = out.find("Entries with Orange Lettering (Improperly Sized or Stutter):")
+            orange_idx = out.find("Entries with Orange Lettering (Improperly Sized, Stutter, or small GB/hr Corrupt):")
             red_idx = out.find("Entries with Red Lettering (Health Check Failures):")
             self.assertNotEqual(orange_idx, -1)
             self.assertNotEqual(red_idx, -1)
@@ -1398,6 +1444,49 @@ class TestCheckDatabaseHealthLibrary(unittest.TestCase):
             # Row must contain fHz value (60) and motion FPS value (23.98)
             self.assertIn("60", out)
             self.assertIn("23.98", out)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_corrupt_rate_main_integration(self):
+        import io
+        import shutil
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        dummy_movies = [
+            {
+                'imdb_id': 'tt6666666', 'title': 'Corrupted Movie', 'year': 2024, 'dvd': 6, 'my_rating': 7.0,
+                'norm_title': 'corrupted movie', 'display_title': 'Corrupted Movie', 'display_title_year': 'Corrupted Movie (2024)',
+                'compact_title': 'corruptedmovie', 'no_art_title': 'corrupted movie', 'time': '02:00', 'db_time': '02:00',
+                'dur_status': 'OK', 'watched': 'NO', 'certification': 'PG', 'rating': 7.0
+            }
+        ]
+        # 1080p, 23.98 fps, 02:00 runtime, 0.30 GB size -> 0.15 GB/hr (small GiB/hr)
+        mock_probe_results = [
+            ('H264', '1080p', '23.98', '02:00', 'SRT', 'DIRECT', 'AAC', 'NO')
+        ]
+
+        tmpdir = tempfile.mkdtemp()
+        movies_dir = os.path.join(tmpdir, "Movies")
+        os.makedirs(movies_dir, exist_ok=True)
+        try:
+            dummy_file = os.path.join(movies_dir, "Corrupted Movie (2024).mp4")
+            with open(dummy_file, 'wb') as f:
+                f.seek(int(0.30 * 1024 ** 3))
+                f.write(b'\0')
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                with patch('check_database_health.os.path.isfile', return_value=True):
+                    with patch('check_database_health.load_db_movies', return_value=dummy_movies):
+                        with patch('check_database_health.batch_probe_metadata', return_value=mock_probe_results):
+                            cdh.main("--library", movies_dir, "--show-only", "matched", "--color", "always")
+            out = buf.getvalue()
+
+            self.assertIn("Corrupted Rate (< 0.3 GB):1 files", out)
+            self.assertIn("Entries with Orange Lettering (Improperly Sized, Stutter, or < small GB/hr Corrupt):", out)
+            self.assertIn("1 item(s)", out)
+            self.assertIn("Corrupted Movie (2024)", out)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
